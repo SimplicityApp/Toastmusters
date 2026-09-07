@@ -1,3 +1,20 @@
+import { notifyLocalWrite } from './storageEvents.js';
+
+/**
+ * Write a key and announce it. Every setter below goes through this so the sync
+ * layer learns about a change without being wired into each one.
+ */
+function persist(key, serialized) {
+  localStorage.setItem(key, serialized);
+  notifyLocalWrite(key);
+}
+
+/** Remove a key and announce it, for the same reason. */
+function forget(key) {
+  localStorage.removeItem(key);
+  notifyLocalWrite(key);
+}
+
 const STORAGE_KEYS = {
   AGENDA: 'toastmaster_agenda',
   REPORTS: 'toastmaster_reports',
@@ -17,7 +34,7 @@ const STORAGE_KEYS = {
  */
 export function saveAgenda(agenda) {
   try {
-    localStorage.setItem(STORAGE_KEYS.AGENDA, JSON.stringify(agenda));
+    persist(STORAGE_KEYS.AGENDA, JSON.stringify(agenda));
   } catch (error) {
     console.error('Failed to save agenda:', error);
   }
@@ -42,7 +59,7 @@ export function loadAgenda() {
  */
 export function clearAgenda() {
   try {
-    localStorage.removeItem(STORAGE_KEYS.AGENDA);
+    forget(STORAGE_KEYS.AGENDA);
   } catch (error) {
     console.error('Failed to clear agenda:', error);
   }
@@ -54,7 +71,7 @@ export function clearAgenda() {
  */
 export function saveReports(reports) {
   try {
-    localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+    persist(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
   } catch (error) {
     console.error('Failed to save reports:', error);
   }
@@ -79,7 +96,7 @@ export function loadReports() {
  */
 export function clearReports() {
   try {
-    localStorage.removeItem(STORAGE_KEYS.REPORTS);
+    forget(STORAGE_KEYS.REPORTS);
   } catch (error) {
     console.error('Failed to clear reports:', error);
   }
@@ -91,7 +108,7 @@ export function clearReports() {
  */
 export function saveRoleRules(roleRules) {
   try {
-    localStorage.setItem(STORAGE_KEYS.ROLE_RULES, JSON.stringify(roleRules));
+    persist(STORAGE_KEYS.ROLE_RULES, JSON.stringify(roleRules));
   } catch (error) {
     console.error('Failed to save role rules:', error);
   }
@@ -131,7 +148,7 @@ export function loadRoleOrder() {
  */
 export function saveRoleOrder(order) {
   try {
-    localStorage.setItem(STORAGE_KEYS.ROLE_ORDER, JSON.stringify(order));
+    persist(STORAGE_KEYS.ROLE_ORDER, JSON.stringify(order));
   } catch (error) {
     console.error('Failed to save role order:', error);
   }
@@ -157,7 +174,7 @@ export function loadHiddenBuiltinRoles() {
  */
 export function saveHiddenBuiltinRoles(hidden) {
   try {
-    localStorage.setItem(STORAGE_KEYS.HIDDEN_BUILTIN_ROLES, JSON.stringify(hidden));
+    persist(STORAGE_KEYS.HIDDEN_BUILTIN_ROLES, JSON.stringify(hidden));
   } catch (error) {
     console.error('Failed to save hidden built-in roles:', error);
   }
@@ -169,7 +186,7 @@ export function saveHiddenBuiltinRoles(hidden) {
  */
 export function saveOverlayMode(mode) {
   try {
-    localStorage.setItem(STORAGE_KEYS.OVERLAY_MODE, mode);
+    persist(STORAGE_KEYS.OVERLAY_MODE, mode);
   } catch (error) {
     console.error('Failed to save overlay mode:', error);
   }
@@ -195,7 +212,7 @@ export function loadOverlayMode() {
  */
 export function saveOverlayTimeReadout(readout) {
   try {
-    localStorage.setItem(STORAGE_KEYS.OVERLAY_TIME_READOUT, JSON.stringify(readout));
+    persist(STORAGE_KEYS.OVERLAY_TIME_READOUT, JSON.stringify(readout));
   } catch (error) {
     console.error('Failed to save overlay time readout:', error);
   }
@@ -236,7 +253,7 @@ export function loadOverlayTimeReadout() {
  */
 export function saveRevealFaceWhenIdle(reveal) {
   try {
-    localStorage.setItem(STORAGE_KEYS.REVEAL_FACE_WHEN_IDLE, String(reveal));
+    persist(STORAGE_KEYS.REVEAL_FACE_WHEN_IDLE, String(reveal));
   } catch (error) {
     console.error('Failed to save reveal-face-when-idle:', error);
   }
@@ -268,7 +285,7 @@ export function loadRevealFaceWhenIdle() {
  */
 export function saveStageClockHidden(hidden) {
   try {
-    localStorage.setItem(STORAGE_KEYS.STAGE_CLOCK_HIDDEN, String(hidden));
+    persist(STORAGE_KEYS.STAGE_CLOCK_HIDDEN, String(hidden));
   } catch (error) {
     console.error('Failed to save stage clock visibility:', error);
   }
@@ -293,7 +310,7 @@ export function loadStageClockHidden() {
  */
 export function saveTimeInputMode(mode) {
   try {
-    localStorage.setItem(STORAGE_KEYS.TIME_INPUT_MODE, mode);
+    persist(STORAGE_KEYS.TIME_INPUT_MODE, mode);
   } catch (error) {
     console.error('Failed to save time input mode:', error);
   }
@@ -318,7 +335,7 @@ export function loadTimeInputMode() {
 export function clearAllStorage() {
   try {
     Object.values(STORAGE_KEYS).forEach(key => {
-      localStorage.removeItem(key);
+      forget(key);
     });
   } catch (error) {
     console.error('Failed to clear storage:', error);

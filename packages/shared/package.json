@@ -13,6 +13,10 @@
     "./cardImages": "./cardImages.js",
     "./promptScheduler": "./promptScheduler.js",
     "./surveyIds": "./surveyIds.js",
-    "./appLinks": "./appLinks.js"
+    "./appLinks": "./appLinks.js",
+    "./storageEvents": "./storageEvents.js",
+    "./profileMerge": "./profileMerge.js",
+    "./profileSync": "./profileSync.js",
+    "./cardAssetSync": "./cardAssetSync.js"
   }
 }

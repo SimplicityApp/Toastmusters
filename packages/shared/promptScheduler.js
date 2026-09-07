@@ -1,3 +1,4 @@
+import { notifyLocalWrite } from './storageEvents.js';
 /**
  * Decides when to interrupt a user with an occasional in-app prompt (the club
  * question, the Zoom review ask) and remembers what they already answered.
@@ -148,6 +149,7 @@ export function loadPromptState() {
 export function savePromptState(state) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    notifyLocalWrite(STORAGE_KEY);
   } catch (error) {
     console.error('Failed to save prompt state:', error);
   }
@@ -159,6 +161,7 @@ export function savePromptState(state) {
 export function resetPromptState() {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    notifyLocalWrite(STORAGE_KEY);
   } catch (error) {
     console.error('Failed to clear prompt state:', error);
   }

@@ -74,7 +74,7 @@
 <body>
     <div class="container">
         <h1>Privacy Policy</h1>
-        <p class="last-updated">Last Updated: January 21, 2025</p>
+        <p class="last-updated">Last Updated: September 1, 2026</p>
 
         <h2>1. Introduction</h2>
         <p>
@@ -85,9 +85,10 @@
         <h2>2. Information We Collect</h2>
         <p>Toastmaster Timer is designed with privacy in mind. We collect minimal information:</p>
         <ul>
-            <li><strong>Local Storage Data:</strong> The app stores timing rules, agenda items, and reports locally in your browser's localStorage. This data never leaves your device.</li>
-            <li><strong>Zoom Participant Information:</strong> When you use the app in a Zoom meeting, we may access participant names to help you select speakers. This information is only used within the app and is not transmitted to external servers.</li>
-            <li><strong>Usage Data:</strong> We do not collect analytics, tracking, or usage statistics.</li>
+            <li><strong>Local Storage Data:</strong> The app stores timing rules, agenda items, reports and any card artwork you upload in your browser's local storage. Meeting reports stay on your device only.</li>
+            <li><strong>Zoom Participant Information:</strong> When you use the app in a Zoom meeting, we may access participant names to help you select speakers. Participant names are used only within the app and are not sent to our servers.</li>
+            <li><strong>Zoom User Identifier:</strong> When you open the app, Zoom provides a signed context containing your Zoom user ID. We use it to recognise you as a returning user so your settings can follow you between devices, and to count returning users in our product analytics. It is an opaque identifier: it is not your name, and it is not your email address. If you use the app as an unauthenticated guest, Zoom does not provide it and we do not identify you at all.</li>
+            <li><strong>Usage Data:</strong> We collect anonymous product analytics — which features are used, how many speeches are timed, and approximate country — to understand how the app is used and what to improve. We do not sell this data or use it for advertising.</li>
         </ul>
 
         <h2>3. How We Use Your Information</h2>
@@ -101,9 +102,17 @@
 
         <h2>4. Data Storage</h2>
         <p>
-            All data is stored locally on your device using browser localStorage. We do not maintain 
-            any servers or databases that store your information. Your data remains on your device 
-            and is not transmitted to us or any third parties.
+            Your settings are stored on your device first, and the app works fully without a network
+            connection. If Zoom identifies you, we additionally store a copy of your preferences —
+            timing rules, roles, agenda, display options and any card artwork you upload — against
+            your Zoom user ID, so the same setup is there when you run a meeting from another
+            computer. This copy is held on Cloudflare infrastructure and is readable only by a
+            request carrying your own signed session.
+        </p>
+        <p>
+            Meeting reports are not synced and never leave your device. You can remove everything
+            stored on your device by clearing your browser's local storage, and you can have the
+            synced copy deleted by contacting us.
         </p>
 
         <h2>5. Virtual Backgrounds</h2>
@@ -116,16 +125,27 @@
 
         <h2>6. Third-Party Services</h2>
         <p>
-            Toastmaster Timer integrates with Zoom's platform. Your use of Zoom is subject to 
-            <a href="https://zoom.us/privacy" target="_blank">Zoom's Privacy Policy</a>. 
-            We do not share your information with any other third-party services.
+            Toastmaster Timer integrates with Zoom's platform. Your use of Zoom is subject to
+            <a href="https://zoom.us/privacy" target="_blank">Zoom's Privacy Policy</a>.
+        </p>
+        <p>
+            We use two service providers and no others: <a href="https://posthog.com/privacy" target="_blank">PostHog</a>
+            for the product analytics described above, and
+            <a href="https://www.cloudflare.com/privacypolicy/" target="_blank">Cloudflare</a> to host
+            the app and store synced settings. We do not sell your information or share it with
+            advertisers.
         </p>
 
         <h2>7. Data Security</h2>
         <p>
-            Since all data is stored locally on your device, you are responsible for maintaining 
-            the security of your device. We recommend using standard device security practices 
-            such as screen locks and keeping your Zoom client updated.
+            The app never asks you for a password and never receives one. Zoom's app context is
+            encrypted and can only be read by our server; synced settings are reachable only with a
+            short-lived signed session issued from that context, and one user's settings cannot be
+            read by another.
+        </p>
+        <p>
+            Data stored on your device is protected by your device, so we recommend standard
+            practices such as screen locks and keeping your Zoom client updated.
         </p>
 
         <h2>8. Children's Privacy</h2>
@@ -138,7 +158,9 @@
         <p>You have the right to:</p>
         <ul>
             <li>Access your locally stored data at any time through the app</li>
-            <li>Delete your data by clearing your browser's localStorage</li>
+            <li>Delete your data by clearing your browser's local storage</li>
+            <li>Ask us to delete the synced copy of your settings, by contacting us at the address below</li>
+            <li>Use the app as a Zoom guest, in which case we do not identify you at all</li>
             <li>Uninstall the app at any time, which will remove all associated permissions</li>
         </ul>
 

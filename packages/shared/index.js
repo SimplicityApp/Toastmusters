@@ -6,3 +6,7 @@ export * from './cardImages.js';
 export * from './promptScheduler.js';
 export * from './surveyIds.js';
 export * from './appLinks.js';
+export * from './storageEvents.js';
+export * from './profileMerge.js';
+export * from './profileSync.js';
+export * from './cardAssetSync.js';

@@ -19,6 +19,14 @@ Master data: [clubs-outreach.csv](clubs-outreach.csv) (~118 clubs).
 | 4. EU (budget, unexplored) | 42 | Online/hybrid clubs first; D59/D95/D107/D109/D231. |
 | 5. John's list | pending | To be provided. |
 
+## Guest-visit plan (pivot 2026-09-07)
+
+Email reply rate was low, so the plan is to show up as a guest instead.
+[guest-visits-week-2026-09-07.csv](guest-visits-week-2026-09-07.csv) has, for each of the 26 focus
+clubs, the schedule verified on the club's own site / toastmasters.org, the Montreal-time slot,
+the next meeting date, and the Zoom link if published (else how to request it). Sorted: joinable
+this week with a public link, then this week but link-on-request, then in-person-only, then off-week.
+
 ## Key facts learned
 
 - **Directory format labels are unreliable — don't filter on them.** 3 of our 4

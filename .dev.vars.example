@@ -9,3 +9,7 @@ POSTHOG_API_KEY=
 # Create at https://us.posthog.com/settings/user-api-keys — the project key
 # above cannot run queries.
 POSTHOG_QUERY_API_KEY=
+# HMAC key for /api/profile and /api/assets session tokens. Generate with
+# `openssl rand -base64 32`. Not ZOOM_CLIENT_SECRET on purpose: that one is a
+# Zoom credential and the two should rotate independently.
+SESSION_SIGNING_KEY=

@@ -41,6 +41,9 @@
     "getUserContext": {
       "enabled": true
     },
+    "getAppContext": {
+      "enabled": true
+    },
     "shareApp": {
       "enabled": true
     },

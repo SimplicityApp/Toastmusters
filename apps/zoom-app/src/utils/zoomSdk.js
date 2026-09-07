@@ -91,6 +91,7 @@ export const USED_SDK_APIS = [
   { name: 'setVideoState', capability: 'setVideoState', required: false, purpose: 'Turn my video on' },
   { name: 'getMeetingParticipants', capability: 'getMeetingParticipants', required: false, purpose: 'Speaker suggestions' },
   { name: 'getUserContext', capability: 'getUserContext', required: false, purpose: 'Putting yourself in the speaker list' },
+  { name: 'getAppContext', capability: 'getAppContext', required: false, purpose: 'Recognising a returning user across meetings and devices' },
   { name: 'shareApp', capability: 'shareApp', required: false, purpose: 'Sharing the stage to the meeting' },
   { name: 'onShareApp', capability: 'onShareApp', required: false, purpose: 'Following Zoom\'s own sharing toolbar' },
   { name: 'onShareScreen', capability: 'onShareScreen', required: false, purpose: 'Noticing Zoom\'s own Stop Share' },
@@ -1683,6 +1684,67 @@ export async function openExternalUrl(url) {
   } catch (error) {
     log(`Failed to open ${url}: ${error.message || error.name}`, 'error');
     return false;
+  }
+}
+
+/**
+ * Read Zoom's signed app context — the encrypted blob that says who opened us.
+ *
+ * Opaque here on purpose: it can only be decrypted with the client secret, which
+ * lives in the Worker and must never reach the browser. All this does is fetch
+ * it and hand it over.
+ *
+ * Wanted because it is the only durable identity Zoom offers without asking the
+ * user for anything. getUserContext's participantUUID is meeting-scoped (see
+ * readSelfParticipantUUID) and cannot recognise the same person next week, which
+ * is exactly the question the app needs answered.
+ *
+ * Optional in every direction: an older client, a refused capability, or a guest
+ * all end here with null, and the app runs anonymously.
+ *
+ * @returns {Promise<string|null>} base64 context string, or null
+ */
+export async function readAppContext() {
+  await initializeZoomSdk();
+  if (!sdkAvailable) return null;
+  if (!isApiAvailable('getAppContext')) {
+    log('getAppContext not granted by this client; staying anonymous', 'info');
+    return null;
+  }
+
+  try {
+    const result = await zoomSdk.getAppContext();
+    const context = result?.context;
+    if (typeof context === 'string' && context) return context;
+    log('getAppContext returned no context string; staying anonymous', 'warn');
+    return null;
+  } catch (error) {
+    log(`Could not read the app context: ${error.message || error.name}`, 'warn');
+    return null;
+  }
+}
+
+/**
+ * How signed-in this user is, as Zoom sees them: 'unauthenticated' (not signed
+ * into Zoom), 'authenticated' (signed in, has not added the app), or
+ * 'authorized' (added the app).
+ *
+ * Recorded because only 'authorized' users carry a durable uid, so this is what
+ * says whether an unidentifiable session is a guest or a failure on our side —
+ * a distinction the retention numbers currently cannot make.
+ *
+ * @returns {Promise<string|null>}
+ */
+export async function readZoomUserStatus() {
+  await initializeZoomSdk();
+  if (!sdkAvailable || !isApiAvailable('getUserContext')) return null;
+
+  try {
+    const context = await zoomSdk.getUserContext();
+    return typeof context?.status === 'string' ? context.status : null;
+  } catch (error) {
+    log(`Could not read your Zoom sign-in status: ${error.message || error.name}`, 'warn');
+    return null;
   }
 }
 

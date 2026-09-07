@@ -22,6 +22,7 @@
 // migrates that data into IndexedDB and keeps serving the data URLs for the
 // rest of the session, so migration is invisible.
 
+import { notifyLocalWrite } from './storageEvents.js';
 const SETTINGS_KEY = 'toastmaster_custom_card_images';
 const SETTINGS_VERSION = 3;
 
@@ -211,8 +212,10 @@ function writeSettings(meta) {
   try {
     if (normalized.selectedSetId === DEFAULT_SET_ID && normalized.customSets.length === 0) {
       localStorage.removeItem(SETTINGS_KEY);
+      notifyLocalWrite(SETTINGS_KEY);
     } else {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION, ...normalized }));
+      notifyLocalWrite(SETTINGS_KEY);
     }
     settingsCache = normalized;
     return true;
@@ -677,4 +680,76 @@ export async function clearOwnBackground() {
   } catch (error) {
     console.error('Failed to delete the own background:', error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Blob access for cross-device sync
+// ---------------------------------------------------------------------------
+//
+// Uploaded artwork is the one thing a user cannot get back if this device loses
+// it, so it follows them to their other machines. The sync layer needs to read
+// the Blobs to upload them and write Blobs it downloaded; everything else about
+// how they are stored stays private to this module.
+
+/**
+ * The IndexedDB key for one card of one set. Exported so the sync layer can
+ * name the same Blob this module does without duplicating the format.
+ *
+ * @param {string} setId
+ * @param {string} color
+ * @returns {string}
+ */
+export function cardImageKey(setId, color) {
+  return imageKey(setId, color);
+}
+
+/**
+ * Every stored card Blob, keyed as above.
+ *
+ * @returns {Promise<Map<string, Blob>>} empty when IndexedDB is unavailable
+ */
+export async function readStoredCardBlobs() {
+  const db = await openImageDb();
+  if (!db) return new Map();
+
+  try {
+    const entries = await idbGetAllEntries(db);
+    const blobs = new Map();
+    for (const [key, value] of entries) {
+      if (isBlobLike(value)) blobs.set(key, value);
+    }
+    return blobs;
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * Store Blobs fetched from another device and publish them to the UI.
+ *
+ * The object-URL cache is refreshed here rather than left to the next init, so
+ * artwork that arrives after startup appears without a reload.
+ *
+ * @param {Array<[string, Blob]>} entries - [imageKey, Blob]
+ * @returns {Promise<string[]>} keys actually stored
+ */
+export async function storeCardBlobs(entries) {
+  const usable = entries.filter(([key, blob]) => key && isBlobLike(blob));
+  if (usable.length === 0) return [];
+
+  const db = await openImageDb();
+  if (!db) return [];
+
+  try {
+    await idbPutMany(db, usable);
+  } catch (error) {
+    console.error('Failed to store synced card images:', error);
+    return [];
+  }
+
+  for (const [key, blob] of usable) {
+    revokeCached(key);
+    cacheBlobUrl(key, blob);
+  }
+  return usable.map(([key]) => key);
 }

@@ -257,3 +257,64 @@ describe('indexing headers', () => {
     expect(res.headers.get('x-robots-tag')).toBeNull();
   });
 });
+
+describe('the Zoom identity endpoint is reachable from every host', () => {
+  const CLIENT_SECRET = 'routing-test-client-secret';
+
+  function post(url, { host, body = {} } = {}) {
+    const parsed = new URL(url);
+    return new Request(url, {
+      method: 'POST',
+      headers: { host: host ?? parsed.host, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  const env = (assets = []) => ({ ...makeEnv(assets), ZOOM_CLIENT_SECRET: CLIENT_SECRET });
+
+  // The Zoom app is served from zoom.<domain>, where every unmatched path is
+  // rewritten to the SPA shell. The endpoint has to be matched before that or
+  // the app would get HTML back when it asks who the user is.
+  it('answers on the zoom subdomain instead of falling through to the SPA', async () => {
+    const res = await worker.fetch(
+      post('https://zoom.timer.simple-tech.app/api/zoom/session'),
+      env(['/zoom/index.html']),
+      ctx
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(await res.json()).toEqual({ identified: false, isGuest: false });
+  });
+
+  // A 301 drops the POST body, taking the app context with it.
+  it('is not redirected away from the bare apex host', async () => {
+    const res = await worker.fetch(
+      post('https://timer.simple-tech.app/api/zoom/session'),
+      env(),
+      ctx
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('answers on the www host too', async () => {
+    const res = await worker.fetch(
+      post('https://www.timer.simple-tech.app/api/zoom/session'),
+      env(),
+      ctx
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('never lets a per-user answer reach a cache', async () => {
+    const res = await worker.fetch(
+      post('https://zoom.timer.simple-tech.app/api/zoom/session'),
+      env(),
+      ctx
+    );
+
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+});

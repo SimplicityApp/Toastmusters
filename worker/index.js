@@ -1,5 +1,8 @@
 import { handleZoomWebhook } from './zoom-webhook.js';
 import { handleStats } from './stats.js';
+import { handleZoomSession } from './session.js';
+import { handleProfile } from './profile.js';
+import { handleAsset } from './assets.js';
 
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
 // "/(.*)" rule from the old vercel.json.
@@ -55,6 +58,25 @@ export default {
     // Usage stats for the landing page (edge-cached PostHog query).
     if (pathname === '/api/stats') {
       return handleStats(request, env, ctx);
+    }
+
+    // Zoom identity. Runs before the www redirect for the same reason the
+    // webhook does: a 301 would drop the POST body carrying the app context.
+    // It also has to stay ahead of host routing so the zoom.<domain> host can
+    // reach it without being rewritten into /zoom/*.
+    if (pathname === '/api/zoom/session') {
+      return handleZoomSession(request, env);
+    }
+
+    // Cross-device settings. Ahead of the redirect for the same body-dropping
+    // reason as above, and ahead of host routing so the Zoom app can reach it.
+    if (pathname === '/api/profile') {
+      return handleProfile(request, env);
+    }
+
+    // Custom card artwork. Same placement rationale as the two above.
+    if (pathname.startsWith('/api/assets/')) {
+      return handleAsset(request, url, env);
     }
 
     // 2. Canonical host: apex -> www (301). The zoom.<domain> host is a

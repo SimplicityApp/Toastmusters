@@ -27,6 +27,32 @@
    `https://www.timer-dev.simple-tech.app/oauth/redirect`
 5. Verify the redirect page loads with a success message ("You're all set!")
 
+> **Re-run this step whenever the app's scopes or capabilities change in the
+> Marketplace.** Zoom drops the old grant: the app still opens from your Apps
+> list, but `getUserContext()` reports `authenticated` instead of `authorized`,
+> the app context carries no `uid`, and identity/sync silently stay off. In
+> Marketplace this is the **Local Test → Add app → Authorization URL** link.
+> "Preview app" does not authorize.
+
+---
+
+## Step 1b: Verify Identity and Settings Sync
+
+Requires Step 1 to be done with the current scopes.
+
+1. Open the app in a meeting.
+2. In PostHog, find the person `zoom:<uid>`. Its properties must show
+   `zoom_identified: true`, `is_zoom_guest: false`, `zoom_auth_status: authorized`.
+   If you see `is_zoom_guest: true` with `zoom_auth_status: authenticated`, redo Step 1.
+3. Run `npx wrangler tail --env dev` and change a timing rule. Within ~2 s a
+   `PUT /api/profile` must return `200` (the `Authorization` value shows as
+   `REDACTED` in the tail; that is expected).
+4. Open the app on a second machine: the rule must be there.
+5. Upload a card image on one machine; on the other, `GET /api/assets/<hash>`
+   returns `200` and the artwork appears.
+6. Join as an unauthenticated guest: the app must work normally and make no
+   `/api/profile` calls.
+
 ---
 
 ## Step 2: Verify the App Appears in Zoom

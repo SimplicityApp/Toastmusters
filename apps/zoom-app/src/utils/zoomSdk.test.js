@@ -3627,3 +3627,68 @@ describe('switching video modes never drops the teardown', () => {
     expect(sdkMock.deleteVideoFilter).toHaveBeenCalled();
   });
 });
+
+describe('reading who Zoom says this is', () => {
+  beforeEach(() => {
+    sdkMock.config.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    delete sdkMock.getAppContext;
+    delete sdkMock.getUserContext;
+  });
+
+  it('hands back the signed app context', async () => {
+    sdkMock.getAppContext = vi.fn().mockResolvedValue({ context: 'encrypted-blob' });
+    const { readAppContext } = await loadModule();
+
+    expect(await readAppContext()).toBe('encrypted-blob');
+  });
+
+  // config() resolves whether or not a capability was granted, listing refusals
+  // in unsupportedApis. Identity is optional, so a refusal is anonymity, not an
+  // error — and the call must not be attempted anyway.
+  it('stays anonymous when the client refuses getAppContext', async () => {
+    sdkMock.config.mockResolvedValue({ unsupportedApis: ['getAppContext'] });
+    sdkMock.getAppContext = vi.fn().mockResolvedValue({ context: 'never-read' });
+    const { readAppContext } = await loadModule();
+
+    expect(await readAppContext()).toBeNull();
+    expect(sdkMock.getAppContext).not.toHaveBeenCalled();
+  });
+
+  it('stays anonymous when the SDK is not there at all', async () => {
+    sdkMock.config.mockRejectedValue(new Error('not in Zoom'));
+    const { readAppContext, readZoomUserStatus } = await loadModule();
+
+    expect(await readAppContext()).toBeNull();
+    expect(await readZoomUserStatus()).toBeNull();
+  });
+
+  it('stays anonymous when getAppContext throws or returns nothing usable', async () => {
+    sdkMock.getAppContext = vi.fn().mockRejectedValue(new Error('10118'));
+    const { readAppContext } = await loadModule();
+    expect(await readAppContext()).toBeNull();
+
+    sdkMock.getAppContext = vi.fn().mockResolvedValue({});
+    const again = await loadModule();
+    expect(await again.readAppContext()).toBeNull();
+  });
+
+  it('reports the Zoom sign-in status, which is what tells a guest apart', async () => {
+    sdkMock.getUserContext = vi.fn().mockResolvedValue({
+      screenName: 'Someone',
+      status: 'authorized',
+    });
+    const { readZoomUserStatus } = await loadModule();
+
+    expect(await readZoomUserStatus()).toBe('authorized');
+  });
+
+  it('reports no status rather than guessing when getUserContext fails', async () => {
+    sdkMock.getUserContext = vi.fn().mockRejectedValue(new Error('refused'));
+    const { readZoomUserStatus } = await loadModule();
+
+    expect(await readZoomUserStatus()).toBeNull();
+  });
+});
