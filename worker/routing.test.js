@@ -318,3 +318,128 @@ describe('the Zoom identity endpoint is reachable from every host', () => {
     expect(res.headers.get('cache-control')).toBe('private, no-store');
   });
 });
+
+describe('zoom launch marker', () => {
+  // The real shell, near enough: the marker is injected right after <head>.
+  // `/zoom/` answers as well as `/zoom/index.html` because that is what the
+  // asset store's html_handling does — and answering it there is what used to
+  // let the shell out unmarked.
+  function htmlEnv() {
+    return {
+      ASSETS: {
+        fetch: vi.fn((request) => {
+          const { pathname } = new URL(request.url);
+          if (pathname === '/zoom/support.html') {
+            return Promise.resolve(
+              new Response('<html><head></head><body>support</body></html>', {
+                status: 200,
+                headers: { 'content-type': 'text/html', 'x-asset-path': pathname },
+              })
+            );
+          }
+          if (pathname !== '/zoom/index.html' && pathname !== '/zoom/') {
+            return Promise.resolve(new Response('not found', { status: 404 }));
+          }
+          return Promise.resolve(
+            new Response('<!doctype html>\n<html>\n  <head>\n    <title>t</title>\n  </head>\n  <body></body>\n</html>', {
+              status: 200,
+              headers: {
+                'content-type': 'text/html',
+                'x-asset-path': pathname,
+                'content-length': '84',
+                etag: '"stored-shell"',
+              },
+            })
+          );
+        }),
+      },
+    };
+  }
+
+  function zoomRequest(headers = {}) {
+    return new Request('https://zoom.timer.simple-tech.app/', {
+      headers: { host: 'zoom.timer.simple-tech.app', ...headers },
+    });
+  }
+
+  it('marks the shell as a Zoom client launch when the app context header is present', async () => {
+    const res = await worker.fetch(zoomRequest({ 'x-zoom-app-context': 'opaque-blob' }), htmlEnv(), ctx);
+
+    expect(await res.text()).toContain('<meta name="zoom-launch" content="client">');
+  });
+
+  it('marks the shell as a browser launch when the header is absent', async () => {
+    const res = await worker.fetch(zoomRequest(), htmlEnv(), ctx);
+
+    expect(await res.text()).toContain('<meta name="zoom-launch" content="browser">');
+  });
+
+  it('marks the /zoom path shell too, not just the subdomain', async () => {
+    const res = await worker.fetch(
+      new Request('https://www.timer.simple-tech.app/zoom/anything', {
+        headers: { host: 'www.timer.simple-tech.app', 'x-zoom-app-context': 'opaque-blob' },
+      }),
+      htmlEnv(),
+      ctx
+    );
+
+    expect(await res.text()).toContain('<meta name="zoom-launch" content="client">');
+  });
+
+  // Regression: the asset store answers "/zoom/" itself, so the marker has to
+  // be applied before that lookup, not only in the SPA fallback behind it.
+  it('marks the shell even when the asset store can serve the path directly', async () => {
+    const res = await worker.fetch(
+      new Request('https://www.timer.simple-tech.app/zoom/', {
+        headers: { host: 'www.timer.simple-tech.app', 'x-zoom-app-context': 'opaque-blob' },
+      }),
+      htmlEnv(),
+      ctx
+    );
+
+    expect(await res.text()).toContain('<meta name="zoom-launch" content="client">');
+  });
+
+  // Only the app shell is per-request. The static Zoom pages stay cacheable.
+  it('leaves the other Zoom pages unmarked and cacheable', async () => {
+    const res = await worker.fetch(
+      new Request('https://www.timer.simple-tech.app/zoom/support.html', {
+        headers: { host: 'www.timer.simple-tech.app', 'x-zoom-app-context': 'opaque-blob' },
+      }),
+      htmlEnv(),
+      ctx
+    );
+
+    expect(await res.text()).not.toContain('zoom-launch');
+    expect(res.headers.get('cache-control')).not.toBe('no-store');
+  });
+
+  it('leaves the rest of the document alone', async () => {
+    const res = await worker.fetch(zoomRequest(), htmlEnv(), ctx);
+    const html = await res.text();
+
+    expect(html).toContain('<title>t</title>');
+    expect(html.startsWith('<!doctype html>')).toBe(true);
+  });
+
+  it('refuses to cache the shell, since the marker differs per request', async () => {
+    const res = await worker.fetch(zoomRequest(), htmlEnv(), ctx);
+
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  // Both headers describe the stored asset, and injecting the marker makes them
+  // wrong — a stale content-length is enough to truncate the shell.
+  it('drops the stored asset’s length and etag', async () => {
+    const res = await worker.fetch(zoomRequest(), htmlEnv(), ctx);
+
+    expect(res.headers.get('content-length')).toBeNull();
+    expect(res.headers.get('etag')).toBeNull();
+  });
+
+  it('still applies the Zoom CSP to the marked shell', async () => {
+    const res = await worker.fetch(zoomRequest(), htmlEnv(), ctx);
+
+    expect(res.headers.get('content-security-policy')).toContain('appssdk.zoom.us');
+  });
+});
