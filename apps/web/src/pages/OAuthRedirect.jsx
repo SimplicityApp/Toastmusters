@@ -11,8 +11,13 @@ export default function OAuthRedirect() {
     if (hasFired.current) return
     hasFired.current = true
 
-    const queryParams = Object.fromEntries(searchParams.entries())
-    trackEvent('zoom_app_installed', { source: 'oauth_redirect', ...queryParams })
+    // Only the shape of the callback, never its values: `code` is a live OAuth
+    // credential and must not land in analytics.
+    trackEvent('zoom_app_installed', {
+      source: 'oauth_redirect',
+      has_code: searchParams.has('code'),
+      has_state: searchParams.has('state'),
+    })
   }, [searchParams])
 
   return (

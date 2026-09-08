@@ -3687,8 +3687,24 @@ describe('reading who Zoom says this is', () => {
 
   it('reports no status rather than guessing when getUserContext fails', async () => {
     sdkMock.getUserContext = vi.fn().mockRejectedValue(new Error('refused'));
-    const { readZoomUserStatus } = await loadModule();
+    const { readZoomUserStatus, readZoomUserSummary } = await loadModule();
 
     expect(await readZoomUserStatus()).toBeNull();
+    expect(await readZoomUserSummary()).toEqual({ status: null, role: null });
+  });
+
+  // Role and status come from the same getUserContext answer.
+  it('reports the meeting role next to the status, and null when it is missing', async () => {
+    sdkMock.getUserContext = vi.fn().mockResolvedValue({
+      screenName: 'Someone',
+      status: 'authorized',
+      role: 'host',
+    });
+    const { readZoomUserSummary } = await loadModule();
+    expect(await readZoomUserSummary()).toEqual({ status: 'authorized', role: 'host' });
+
+    sdkMock.getUserContext = vi.fn().mockResolvedValue({ status: 'authenticated' });
+    const again = await loadModule();
+    expect(await again.readZoomUserSummary()).toEqual({ status: 'authenticated', role: null });
   });
 });

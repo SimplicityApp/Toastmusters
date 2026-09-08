@@ -1736,15 +1736,33 @@ export async function readAppContext() {
  * @returns {Promise<string|null>}
  */
 export async function readZoomUserStatus() {
+  return (await readZoomUserSummary()).status;
+}
+
+/**
+ * Sign-in status and meeting role together, from one getUserContext call.
+ *
+ * The role ('host', 'coHost', 'attendee', ...) is what tells the organizer who
+ * runs the timer apart from a participant who merely opened it, which is the
+ * split the retention and subscription numbers need. Both fields are null when
+ * the client cannot say.
+ *
+ * @returns {Promise<{status: string|null, role: string|null}>}
+ */
+export async function readZoomUserSummary() {
+  const empty = { status: null, role: null };
   await initializeZoomSdk();
-  if (!sdkAvailable || !isApiAvailable('getUserContext')) return null;
+  if (!sdkAvailable || !isApiAvailable('getUserContext')) return empty;
 
   try {
     const context = await zoomSdk.getUserContext();
-    return typeof context?.status === 'string' ? context.status : null;
+    return {
+      status: typeof context?.status === 'string' ? context.status : null,
+      role: typeof context?.role === 'string' ? context.role : null,
+    };
   } catch (error) {
     log(`Could not read your Zoom sign-in status: ${error.message || error.name}`, 'warn');
-    return null;
+    return empty;
   }
 }
 

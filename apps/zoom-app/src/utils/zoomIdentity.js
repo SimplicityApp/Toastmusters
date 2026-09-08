@@ -1,4 +1,4 @@
-import { readAppContext, readZoomUserStatus } from './zoomSdk';
+import { readAppContext, readZoomUserSummary } from './zoomSdk';
 
 /**
  * Recognising a returning user, without ever asking them to sign in.
@@ -30,6 +30,9 @@ const ANONYMOUS = Object.freeze({
   uid: null,
   token: null,
   authStatus: null,
+  role: null,
+  contextType: null,
+  meetingId: null,
 });
 
 /**
@@ -83,10 +86,12 @@ async function resolveOnce() {
   // Status is read alongside the context, not after it: it is the thing that
   // tells a guest apart from a client that failed us, and it is worth having
   // even when there is no identity to be had.
-  const [context, authStatus] = await Promise.all([
+  const [context, summary] = await Promise.all([
     readAppContext().catch(() => null),
-    readZoomUserStatus().catch(() => null),
+    readZoomUserSummary().catch(() => ({ status: null, role: null })),
   ]);
+  const authStatus = summary?.status ?? null;
+  const role = summary?.role ?? null;
 
   try {
     const session = await requestSession(context);
@@ -98,11 +103,16 @@ async function resolveOnce() {
       uid: session.uid ?? null,
       token: session.token ?? null,
       authStatus,
+      role,
+      // Where the app was opened ('meeting', 'panel', 'webinar') and in which
+      // meeting. Decrypted server-side with the uid, so they are trustworthy.
+      contextType: session.contextType ?? null,
+      meetingId: session.meetingId ?? null,
     };
   } catch {
     // Offline, the Worker is down, or local development with no endpoint. The
     // app is fully usable without an identity, so this is not worth surfacing.
-    return { ...ANONYMOUS, authStatus };
+    return { ...ANONYMOUS, authStatus, role };
   }
 }
 
@@ -114,7 +124,8 @@ async function resolveOnce() {
  * answer rather than starting another round trip.
  *
  * @returns {Promise<{identified: boolean, isGuest: boolean, uid: string|null,
- *   token: string|null, authStatus: string|null}>} never rejects
+ *   token: string|null, authStatus: string|null, role: string|null,
+ *   contextType: string|null, meetingId: string|null}>} never rejects
  */
 export function resolveZoomIdentity() {
   if (!identityPromise) {
