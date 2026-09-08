@@ -32,7 +32,7 @@ let env;
 
 beforeEach(() => {
   bucket = makeBucket();
-  env = { CARD_ASSETS: bucket, SESSION_SIGNING_KEY: SIGNING_KEY };
+  env = { CARD_ASSETS: bucket, SESSION_SIGNING_KEY: SIGNING_KEY, ENTITLEMENT_ENFORCE: '0' };
 });
 
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -173,7 +173,7 @@ describe('asset endpoint edges', () => {
 
   it('reports 503 when the bucket binding is missing', async () => {
     const url = new URL('https://x/api/assets/' + sha256(bodyOf('x')));
-    const res = await handleAsset(new Request(url), url, { SESSION_SIGNING_KEY: SIGNING_KEY });
+    const res = await handleAsset(new Request(url), url, { SESSION_SIGNING_KEY: SIGNING_KEY, ENTITLEMENT_ENFORCE: '0' });
 
     expect(res.status).toBe(503);
   });

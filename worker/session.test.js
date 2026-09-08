@@ -35,6 +35,20 @@ describe('handleZoomSession', () => {
     expect(body.uid).toBe('uid-1');
     expect(body.meetingId).toBe('m-1');
     expect(verifySessionToken(body.token, SIGNING_KEY)).toMatchObject({ uid: 'uid-1' });
+    // No storage bound and enforcement on: free, so the app can offer the upgrade.
+    expect(body.entitlement).toEqual({
+      plan: 'free', status: null, entitled: false, currentPeriodEnd: null, cancelAtPeriodEnd: false, source: 'none',
+    });
+  });
+
+  it('reports a pro entitlement when a grant exists for the user', async () => {
+    const store = new Map([['grant:zoom:uid-1', JSON.stringify({ reason: 'owner' })]]);
+    const kvEnv = { ...env, PROFILES: { get: async (k, t) => (store.has(k) ? (t === 'json' ? JSON.parse(store.get(k)) : store.get(k)) : null) } };
+    const res = await handleZoomSession(
+      request({ body: { context: context({ uid: 'uid-1', exp: futureExp() }) } }),
+      kvEnv
+    );
+    expect((await res.json()).entitlement).toMatchObject({ plan: 'pro', entitled: true, source: 'grant' });
   });
 
   // The path that needs no SDK capability and no Marketplace change.

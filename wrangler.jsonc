@@ -13,6 +13,20 @@
 
   "observability": { "enabled": true },
 
+  // Non-secret configuration. `vars` are NOT inherited by environments, so the
+  // dev block below repeats them with its own values.
+  //  - WEB_ORIGIN: where Stripe sends people back to (Checkout success/cancel,
+  //    Billing Portal return). Never derived from the request Host.
+  //  - ENTITLEMENT_ENFORCE: "0" lets everyone use the paid features (dev, until
+  //    launch); anything else enforces. The UI still offers the upgrade to
+  //    free-plan users either way, so Checkout can be tested on dev.
+  //  - STRIPE_AUTOMATIC_TAX: "1" once Stripe Tax is enabled in the dashboard.
+  "vars": {
+    "WEB_ORIGIN": "https://www.timer.simple-tech.app",
+    "ENTITLEMENT_ENFORCE": "1",
+    "STRIPE_AUTOMATIC_TAX": "0"
+  },
+
   // Cross-device user settings, keyed profile:zoom:<uid>. Values are a few KB
   // of preferences, so KV's eventual consistency is fine: the merge is
   // per-field last-write-wins and idempotent, and a stale read costs at most
@@ -101,7 +115,12 @@
       ],
       "r2_buckets": [
         { "binding": "CARD_ASSETS", "bucket_name": "toastmaster-timer-card-assets-dev" }
-      ]
+      ],
+      "vars": {
+        "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
+        "ENTITLEMENT_ENFORCE": "0",
+        "STRIPE_AUTOMATIC_TAX": "0"
+      }
     }
   }
 
@@ -111,6 +130,10 @@
   //   SESSION_SIGNING_KEY (HMAC key for /api/profile session tokens; generate with
   //     `openssl rand -base64 32`. Deliberately NOT ZOOM_CLIENT_SECRET — that one is
   //     a Zoom credential and the two should rotate independently.)
+  //   STRIPE_SECRET_KEY (sk_test_… on dev, sk_live_… on prod)
+  //   STRIPE_WEBHOOK_SECRET (whsec_… of the endpoint pointing at <WEB_ORIGIN>/api/stripe/webhook)
+  // Entitlement records live in the PROFILES namespace under entitlement:/grant:/stripe:
+  // prefixes. Bind a namespace as ENTITLEMENTS to move them without a code change.
   //   prod: `wrangler secret put NAME`     dev: `wrangler secret put NAME --env dev`
   // For local dev, put them in .dev.vars (see .dev.vars.example).
 }

@@ -1,4 +1,5 @@
-import { verifySessionToken, readBearerToken } from './session-token.js';
+import { readSession } from './auth.js';
+import { resolveEntitlement } from './entitlements.js';
 import { mergeProfiles, normalizeProfile } from '../packages/shared/profileMerge.js';
 
 /**
@@ -30,13 +31,6 @@ function json(body, status = 200) {
   });
 }
 
-/**
- * @returns {{uid: string}|null} the caller's verified identity, or null
- */
-function authenticate(request, env) {
-  return verifySessionToken(readBearerToken(request), env.SESSION_SIGNING_KEY);
-}
-
 async function readProfile(env, uid) {
   const stored = await env.PROFILES.get(`${KEY_PREFIX}${uid}`, 'json');
   return normalizeProfile(stored);
@@ -54,15 +48,23 @@ export async function handleProfile(request, env) {
     return json({ error: 'Profile storage is not configured' }, 503);
   }
 
-  const session = authenticate(request, env);
+  const session = readSession(request, env);
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
+  // Reading stays open to everyone we can identify: a lapsed subscriber must
+  // still be able to pull their own settings down. Only the paid part —
+  // pushing changes up so they reach other devices — is gated.
   if (request.method === 'GET') {
     return json({ profile: await readProfile(env, session.uid) });
   }
 
   if (request.method !== 'PUT') {
     return json({ error: 'Method not allowed' }, 405);
+  }
+
+  const entitlement = await resolveEntitlement(env, session.uid);
+  if (!entitlement.entitled) {
+    return json({ error: 'upgrade_required', entitlement }, 402);
   }
 
   // Checked before reading: an oversized body should cost us nothing to refuse.

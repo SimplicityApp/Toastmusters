@@ -1,5 +1,6 @@
 import { decryptAppContext } from './zoom-context.js';
 import { mintSessionToken } from './session-token.js';
+import { resolveEntitlement } from './entitlements.js';
 
 /**
  * POST /api/zoom/session — turn Zoom's app context into an identity.
@@ -87,5 +88,8 @@ export async function handleZoomSession(request, env) {
     meetingId: payload.mid,
     contextType: payload.typ,
     token,
+    // What this user may use, resolved here so the app knows on its first
+    // paint whether to offer sync or the upgrade path. Never throws.
+    entitlement: await resolveEntitlement(env, payload.uid),
   });
 }
