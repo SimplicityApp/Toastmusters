@@ -79,6 +79,20 @@ Requires Step 1 to be done with the current scopes.
 9. After the meeting, check **Settings → Background & effects** in the Zoom client
    - Verify the timer added at most the four fixed color backgrounds — **no** per-second backgrounds with timestamps baked in (earlier builds saved one image per second of speech)
 
+### Step 3b: Timer survives the app being closed
+
+Zoom keeps the app running when you go back to **My Apps** (the back arrow), so the timer and the card keep going there. Closing the app (the **X** / "Close app") kills the webview; the timer state is saved so a reopen picks the clock back up.
+
+1. Start a speech as in Step 3 and let it run for ~10 seconds
+2. Close the app entirely (not the back arrow), wait ~5 seconds, then reopen it from the sidebar
+   - Verify a toast says the timer resumed, the elapsed time includes the seconds the app was closed, and the count-up on the card continues from there
+   - Verify the card color matches the current elapsed time (e.g. if the yellow threshold passed while closed, the card is yellow on reopen)
+3. Repeat with the timer **paused**: pause, close, reopen
+   - Verify it comes back paused at the same elapsed time, and **Continue** carries on from there
+4. Click **Reset**, close, and reopen
+   - Verify the app boots at 00:00 with no toast: nothing is restored after a reset or a finish
+5. A saved session older than an hour is ignored, so yesterday's forgotten timer never puts a red card on your face at the start of the next meeting
+
 ---
 
 ## Step 4: Test Webhook Events — Meeting Start/End

@@ -15,6 +15,9 @@ import {
   loadOverlayMode,
   saveTimeInputMode,
   loadTimeInputMode,
+  saveTimerSession,
+  loadTimerSession,
+  clearTimerSession,
   clearAllStorage,
 } from '../storage.js';
 
@@ -207,5 +210,68 @@ describe('Invalid JSON resilience', () => {
   it('loadHiddenBuiltinRoles returns [] when stored value is invalid JSON', () => {
     localStorage.setItem('toastmaster_hidden_builtin_roles', '!!');
     expect(loadHiddenBuiltinRoles()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timer session
+// ---------------------------------------------------------------------------
+describe('Timer session storage', () => {
+  const session = {
+    speaker: { name: 'Alice', role: 'Standard Speech', rules: { green: 300, yellow: 360, red: 420 } },
+    activeSpeakerId: 'a1',
+    running: true,
+    baseElapsed: 12.5,
+    startedAt: 1_700_000_000_000,
+    savedAt: 1_700_000_000_500,
+  };
+
+  it('round-trips a running session', () => {
+    saveTimerSession(session);
+    expect(loadTimerSession()).toEqual(session);
+  });
+
+  it('round-trips a paused session with no start timestamp', () => {
+    saveTimerSession({ ...session, running: false, startedAt: null });
+    expect(loadTimerSession()).toEqual({ ...session, running: false, startedAt: null });
+  });
+
+  it('returns null when nothing is saved', () => {
+    expect(loadTimerSession()).toBeNull();
+  });
+
+  it('clears the session', () => {
+    saveTimerSession(session);
+    clearTimerSession();
+    expect(loadTimerSession()).toBeNull();
+  });
+
+  it('is cleared by clearAllStorage', () => {
+    saveTimerSession(session);
+    clearAllStorage();
+    expect(loadTimerSession()).toBeNull();
+  });
+
+  it('rejects records that cannot boot a sane timer', () => {
+    const bad = [
+      'not json',
+      '[]',
+      JSON.stringify({ ...session, speaker: null }),
+      JSON.stringify({ ...session, speaker: { name: 'x' } }),
+      JSON.stringify({ ...session, running: 'yes' }),
+      JSON.stringify({ ...session, baseElapsed: -1 }),
+      JSON.stringify({ ...session, baseElapsed: 'soon' }),
+      JSON.stringify({ ...session, savedAt: undefined }),
+      JSON.stringify({ ...session, running: true, startedAt: null }),
+    ];
+    for (const raw of bad) {
+      localStorage.setItem('toastmaster_timer_session', raw);
+      expect(loadTimerSession(), raw).toBeNull();
+    }
+  });
+
+  it('normalizes a non-string agenda link to null', () => {
+    saveTimerSession({ ...session, activeSpeakerId: 42 });
+    expect(loadTimerSession().activeSpeakerId).toBeNull();
   });
 });
