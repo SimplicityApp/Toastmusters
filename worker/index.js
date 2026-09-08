@@ -37,6 +37,24 @@ const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|
 // for unknown URLs creates soft 404s that waste crawl budget.
 const SPA_ROUTES = new Set(['/', '/app', '/oauth/redirect']);
 
+/**
+ * Zoom sends `x-zoom-app-context` on the document request when it opens an app
+ * inside the client; an ordinary browser never does. That header is the only
+ * thing separating "the Zoom client opened us" from "someone has this URL in a
+ * tab", and the app needs the distinction: a config() failure means *lost
+ * authorization* in the first case and *not in Zoom at all* in the second.
+ * Exported for testing.
+ */
+export function zoomLaunchContext(request) {
+  return request.headers.get('x-zoom-app-context') ? 'client' : 'browser';
+}
+
+// Paths that resolve to the Zoom SPA shell by name rather than by falling
+// through. They need naming because the asset store answers them directly —
+// html_handling turns "/zoom/" into "/zoom/index.html" before the SPA fallback
+// below is ever reached, which would serve the shell without a launch marker.
+const ZOOM_SHELL_PATHS = new Set(['/zoom', '/zoom/index.html']);
+
 // robots.txt for the zoom.<domain> host. The Zoom app is noindex, so the whole
 // subdomain is disallowed rather than falling through to the SPA shell (which
 // would return HTML for /robots.txt).
@@ -131,13 +149,18 @@ async function routeAssets(request, env, url) {
       return fetchAsset(env, url, '/zoom' + pathname);
     }
     // Root and any other path -> the Zoom app SPA shell.
-    return fetchAsset(env, url, '/zoom/index.html');
+    return fetchZoomShell(env, url, request);
   }
 
   // --- Root clean URLs that map to /zoom/*.html (mirrors vercel.json) ---
   const rewrite = ROOT_TO_ZOOM_REWRITES[pathname.replace(/\/$/, '')];
   if (rewrite) {
     return fetchAsset(env, url, rewrite);
+  }
+
+  // --- The Zoom shell reached by path, before the asset store answers it ---
+  if (ZOOM_SHELL_PATHS.has(pathname.replace(/\/$/, '') || '/')) {
+    return fetchZoomShell(env, url, request);
   }
 
   // --- Direct asset (also resolves clean URLs like /privacy -> /privacy.html) ---
@@ -150,7 +173,7 @@ async function routeAssets(request, env, url) {
   // The Zoom app is noindex and Zoom deep-links into it, so its fallback stays
   // permissive.
   if (pathname.startsWith('/zoom')) {
-    return fetchAsset(env, url, '/zoom/index.html');
+    return fetchZoomShell(env, url, request);
   }
 
   // The root SPA only owns the routes declared in App.jsx. Serve the shell for
@@ -171,6 +194,37 @@ async function routeAssets(request, env, url) {
 /** Fetch a specific asset path from the ASSETS binding. */
 function fetchAsset(env, url, assetPath) {
   return env.ASSETS.fetch(new Request(new URL(assetPath, url.origin), { method: 'GET' }));
+}
+
+/**
+ * Serve the Zoom SPA shell with the launch context stamped into its <head>, so
+ * the app knows on first paint whether it is running inside the Zoom client.
+ *
+ * The marker is per-request, so the shell must not be cached: a stored
+ * `content="client"` served to a browser would hide the reconnect notice, and a
+ * stored `content="browser"` served in-client would show it to a working user.
+ * The shell is ~1KB and only references hashed assets, so no-store costs
+ * nothing worth keeping.
+ */
+async function fetchZoomShell(env, url, request) {
+  const response = await fetchAsset(env, url, '/zoom/index.html');
+  if (!response.ok) return response;
+
+  const html = await response.text();
+  const marker = `<meta name="zoom-launch" content="${zoomLaunchContext(request)}">`;
+  const headers = new Headers(response.headers);
+  headers.set('Cache-Control', 'no-store');
+  // Both describe the asset as stored, and the injected marker has just made
+  // them wrong: a stale content-length can truncate the body, and a stale etag
+  // could hand a revalidating client a 304 for a shell it never received.
+  headers.delete('content-length');
+  headers.delete('etag');
+
+  return new Response(html.replace('<head>', `<head>${marker}`), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 /**

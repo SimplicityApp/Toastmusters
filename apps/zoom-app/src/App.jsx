@@ -4,6 +4,7 @@ import { ToastProvider } from './context/ToastContext';
 import NavTabs from './components/NavTabs';
 import Footer from './components/Footer';
 import PeriodicPrompts from './components/PeriodicPrompts';
+import ZoomConnectionNotice from './components/ZoomConnectionNotice';
 import './App.css';
 
 const LiveTab = lazy(() => import('./components/LiveTab'));
@@ -17,6 +18,7 @@ function App() {
     <ToastProvider>
       <TimerProvider>
         <div className="app-container w-full h-screen flex flex-col bg-white">
+          <ZoomConnectionNotice />
           <NavTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
           <Suspense fallback={
