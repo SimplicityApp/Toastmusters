@@ -18,10 +18,14 @@ describe('OAuthRedirect', () => {
     expect(trackEvent).toHaveBeenCalledTimes(1);
     expect(trackEvent).toHaveBeenCalledWith('zoom_app_installed', {
       source: 'oauth_redirect',
+      has_code: false,
+      has_state: false,
     });
   });
 
-  it('includes URL query params in the event properties', () => {
+  // The code is a live OAuth credential. Analytics may learn that one arrived,
+  // never what it was.
+  it('reports that a code arrived without recording its value', () => {
     render(
       <MemoryRouter initialEntries={['/oauth/redirect?code=abc123&state=xyz']}>
         <OAuthRedirect />
@@ -31,9 +35,11 @@ describe('OAuthRedirect', () => {
     expect(trackEvent).toHaveBeenCalledTimes(1);
     expect(trackEvent).toHaveBeenCalledWith('zoom_app_installed', {
       source: 'oauth_redirect',
-      code: 'abc123',
-      state: 'xyz',
+      has_code: true,
+      has_state: true,
     });
+    const [, properties] = trackEvent.mock.calls[0];
+    expect(JSON.stringify(properties)).not.toContain('abc123');
   });
 
   it('renders the success page content', () => {

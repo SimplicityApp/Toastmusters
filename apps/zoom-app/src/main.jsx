@@ -4,7 +4,7 @@ import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
 import { initCardImages, initProfileSync, syncCardAssets } from '@toastmaster-timer/shared'
-import { initPostHog, identifyUser, setUserProperties } from './utils/posthog'
+import { initPostHog, identifyUser, setUserProperties, registerSessionProperties } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
 import { PostHogProvider } from '@posthog/react'
@@ -38,7 +38,7 @@ try {
 // person to us next week instead of a brand-new anonymous ID. Deliberately not
 // awaited: rendering and the SDK handshake must not wait on analytics.
 resolveZoomIdentity()
-  .then(({ identified, isGuest, uid, authStatus }) => {
+  .then(({ identified, isGuest, uid, authStatus, role, contextType, meetingId }) => {
     // The zoom: prefix keeps the ID out of PostHog's anonymous namespace —
     // identifying with a value that was once an anonymous distinct_id is the
     // one thing it asks you not to do.
@@ -48,6 +48,18 @@ resolveZoomIdentity()
       zoom_identified: identified,
       is_zoom_guest: isGuest,
       ...(authStatus ? { zoom_auth_status: authStatus } : {}),
+      // Last-seen role and surface: tells an organizer (host) apart from a
+      // participant who opened the app, and in-meeting use from prep in the
+      // side panel. Both are inputs to what the paid tier should gate.
+      ...(role ? { zoom_role: role } : {}),
+      ...(contextType ? { zoom_context_type: contextType } : {}),
+    });
+    // Per-session facts ride on every event instead: meetings per user is a
+    // count over events, not a property of the person.
+    registerSessionProperties({
+      ...(meetingId ? { zoom_meeting_id: meetingId } : {}),
+      ...(contextType ? { zoom_context_type: contextType } : {}),
+      ...(role ? { zoom_role: role } : {}),
     });
 
     // Settings follow the user to whatever machine they run the meeting from.
