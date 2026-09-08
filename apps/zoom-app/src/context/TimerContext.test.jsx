@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { ToastProvider } from './ToastContext';
 import { TimerProvider, useTimer, useTimerTick } from './TimerContext';
-import { applyOverlay, removeOverlay, isOverlayActive } from '../utils/zoomSdk';
+import { applyOverlay, removeOverlay, isOverlayActive, setOverlayTimeLabel, getBackgroundUrl } from '../utils/zoomSdk';
 import { BREAK_ROLE, deriveBreakRules } from '@toastmaster-timer/shared';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
@@ -170,5 +170,207 @@ describe('Take a Break and the agenda', () => {
     act(() => { result.current.timer.finishCurrentSpeech(); });
     expect(result.current.timer.agenda.find((i) => i.id === aliceId).completed).toBe(true);
     expect(result.current.timer.agenda.find((i) => i.id === bobId).completed).toBe(false);
+  });
+});
+
+describe('surviving a webview teardown', () => {
+  // Zoom kills the webview when the app is closed; a remount is what the app
+  // sees when it is reopened. Fake timers make Date.now deterministic, which is
+  // what the saved start timestamp is measured against.
+  const FAKE = ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'];
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function mount() {
+    return renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+  }
+
+  it('boots idle and pushes nothing when no session was saved', () => {
+    // The baseline every other behavior here rests on: a normal start of the
+    // app is exactly as it was — no overlay, no readout, no toast.
+    const { result } = mount();
+
+    expect(result.current.tick.isRunning).toBe(false);
+    expect(result.current.tick.elapsedTime).toBe(0);
+    expect(result.current.timer.currentSpeaker).toBeNull();
+    expect(applyOverlay).not.toHaveBeenCalled();
+    expect(setOverlayTimeLabel).not.toHaveBeenCalled();
+    expect(localStorage.getItem('toastmaster_timer_session')).toBeNull();
+  });
+
+  it('a running speech picks up at the wall-clock elapsed after a remount', () => {
+    vi.useFakeTimers({ toFake: FAKE });
+    const first = mount();
+    let id;
+    act(() => {
+      id = first.result.current.timer.addToAgenda({ name: 'Alice', role: 'Standard Speech' }, { activate: true });
+    });
+    act(() => { first.result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(first.result.current.tick.elapsedTime).toBeCloseTo(3, 1);
+    first.unmount();
+    vi.clearAllMocks();
+
+    // Closed for five seconds — the clock kept going without us.
+    act(() => { vi.advanceTimersByTime(5000); });
+    const second = mount();
+
+    expect(second.result.current.tick.isRunning).toBe(true);
+    expect(second.result.current.tick.elapsedTime).toBeCloseTo(8, 1);
+    expect(second.result.current.timer.currentSpeaker).toMatchObject({ name: 'Alice', role: 'Standard Speech' });
+    expect(second.result.current.timer.activeSpeakerId).toBe(id);
+    // The tile is repainted: a fresh webview has pushed nothing yet.
+    expect(setOverlayTimeLabel).toHaveBeenCalledWith('00:08');
+    expect(applyOverlay).toHaveBeenCalledTimes(1);
+
+    // And it keeps ticking from there rather than from zero.
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(second.result.current.tick.elapsedTime).toBeCloseTo(10, 1);
+  });
+
+  it('restores the color a threshold crossed while the app was closed', () => {
+    vi.useFakeTimers({ toFake: FAKE });
+    const first = mount();
+    act(() => {
+      first.result.current.timer.setCurrentSpeaker({ name: 'Bo', role: 'Custom', rules: { green: 5, yellow: 10, red: 15 } });
+    });
+    act(() => { first.result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(first.result.current.tick.currentStatus).toBe('blue');
+    first.unmount();
+    vi.clearAllMocks();
+    getBackgroundUrl.mockImplementation((color) => `/backgrounds/${color}.png`);
+
+    act(() => { vi.advanceTimersByTime(11000); });
+    const second = mount();
+
+    expect(second.result.current.tick.currentStatus).toBe('yellow');
+    expect(applyOverlay).toHaveBeenCalledWith('/backgrounds/yellow.png');
+  });
+
+  it('a paused speech comes back paused at the same elapsed', () => {
+    vi.useFakeTimers({ toFake: FAKE });
+    const first = mount();
+    act(() => {
+      first.result.current.timer.setCurrentSpeaker({ name: 'Cy', role: 'Standard Speech' });
+    });
+    act(() => { first.result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(4000); });
+    act(() => { first.result.current.timer.stopTimer(); });
+    first.unmount();
+
+    // Time passing while paused is not speaking time.
+    act(() => { vi.advanceTimersByTime(60000); });
+    const second = mount();
+
+    expect(second.result.current.tick.isRunning).toBe(false);
+    expect(second.result.current.tick.elapsedTime).toBeCloseTo(4, 1);
+    // Continue carries on from four, not from zero.
+    act(() => { second.result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(second.result.current.tick.elapsedTime).toBeCloseTo(5, 1);
+  });
+
+  it('finishing, resetting, or changing speaker leaves nothing to restore', () => {
+    vi.useFakeTimers({ toFake: FAKE });
+    const key = 'toastmaster_timer_session';
+    const { result, unmount } = mount();
+    act(() => {
+      result.current.timer.setCurrentSpeaker({ name: 'Di', role: 'Standard Speech' });
+    });
+
+    act(() => { result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(localStorage.getItem(key)).not.toBeNull();
+    act(() => { result.current.timer.finishCurrentSpeech(); });
+    expect(localStorage.getItem(key)).toBeNull();
+
+    // A paused speech being reset is the case the persistence effect cannot
+    // see on its own: isRunning was already false.
+    act(() => { result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    act(() => { result.current.timer.stopTimer(); });
+    expect(localStorage.getItem(key)).not.toBeNull();
+    act(() => { result.current.timer.resetTimer({ skipVideo: true }); });
+    expect(localStorage.getItem(key)).toBeNull();
+
+    // Picking another speaker resets the timer, and the record with it.
+    act(() => { result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    act(() => {
+      result.current.timer.setCurrentSpeaker({ name: 'Ed', role: 'Standard Speech' });
+    });
+    expect(localStorage.getItem(key)).toBeNull();
+
+    unmount();
+    const fresh = mount();
+    expect(fresh.result.current.tick.elapsedTime).toBe(0);
+    expect(fresh.result.current.timer.currentSpeaker).toBeNull();
+  });
+
+  it('a name corrected mid-speech is the name that comes back', () => {
+    vi.useFakeTimers({ toFake: FAKE });
+    const first = mount();
+    act(() => {
+      first.result.current.timer.setCurrentSpeaker({ name: 'Jon', role: 'Standard Speech' });
+    });
+    act(() => { first.result.current.timer.startTimer(); });
+    act(() => { first.result.current.timer.updateSpeakerName('Jonathan'); });
+    first.unmount();
+
+    const second = mount();
+    expect(second.result.current.timer.currentSpeaker?.name).toBe('Jonathan');
+  });
+
+  it('ignores a session left over from an earlier meeting', () => {
+    // Without this, yesterday's forgotten timer would boot the app straight
+    // into a red card on the organizer's face.
+    vi.useFakeTimers({ toFake: FAKE });
+    const first = mount();
+    act(() => {
+      first.result.current.timer.setCurrentSpeaker({ name: 'Old', role: 'Standard Speech' });
+    });
+    act(() => { first.result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    first.unmount();
+    vi.clearAllMocks();
+
+    act(() => { vi.advanceTimersByTime(2 * 60 * 60 * 1000); });
+    const second = mount();
+
+    expect(second.result.current.tick.isRunning).toBe(false);
+    expect(second.result.current.tick.elapsedTime).toBe(0);
+    expect(second.result.current.timer.currentSpeaker).toBeNull();
+    expect(applyOverlay).not.toHaveBeenCalled();
+  });
+
+  it('drops the agenda link when that item is gone, but keeps the speech', () => {
+    vi.useFakeTimers({ toFake: FAKE });
+    const first = mount();
+    let id;
+    act(() => {
+      id = first.result.current.timer.addToAgenda({ name: 'Gone', role: 'Standard Speech' }, { activate: true });
+    });
+    act(() => { first.result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    first.unmount();
+    // The agenda changed underneath the saved link — another device, say.
+    localStorage.removeItem('toastmaster_agenda');
+
+    const second = mount();
+    expect(second.result.current.tick.isRunning).toBe(true);
+    expect(second.result.current.timer.currentSpeaker?.name).toBe('Gone');
+    expect(second.result.current.timer.activeSpeakerId).toBeNull();
+    expect(id).toBeDefined();
+  });
+
+  it('ignores a malformed record', () => {
+    localStorage.setItem('toastmaster_timer_session', '{"running":true,"speaker":{}}');
+    const { result } = mount();
+    expect(result.current.tick.isRunning).toBe(false);
+    expect(result.current.timer.currentSpeaker).toBeNull();
+    expect(applyOverlay).not.toHaveBeenCalled();
   });
 });

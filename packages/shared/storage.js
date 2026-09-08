@@ -26,6 +26,7 @@ const STORAGE_KEYS = {
   STAGE_CLOCK_HIDDEN: 'toastmaster_stage_clock_hidden',
   REVEAL_FACE_WHEN_IDLE: 'toastmaster_reveal_face_when_idle',
   OVERLAY_TIME_READOUT: 'toastmaster_overlay_time_readout',
+  TIMER_SESSION: 'toastmaster_timer_session',
 };
 
 /**
@@ -326,6 +327,74 @@ export function loadTimeInputMode() {
   } catch (error) {
     console.error('Failed to load time input mode:', error);
     return 'minsec';
+  }
+}
+
+/**
+ * Save the speech the timer is in the middle of, so a webview that is torn
+ * down mid-speech — Zoom kills it when the app is closed — can pick the clock
+ * back up where it was instead of at zero.
+ *
+ * Device-local on purpose, and absent from the synced profile: it describes
+ * what this machine's clock is doing right now, which no other device should
+ * inherit.
+ *
+ * @param {{speaker: Object, activeSpeakerId: (string|null), running: boolean,
+ *   baseElapsed: number, startedAt: (number|null), savedAt: number}} session
+ *   `baseElapsed` is the seconds accumulated before `startedAt`; while running,
+ *   elapsed now is baseElapsed plus the wall-clock time since startedAt.
+ */
+export function saveTimerSession(session) {
+  try {
+    persist(STORAGE_KEYS.TIMER_SESSION, JSON.stringify(session));
+  } catch (error) {
+    console.error('Failed to save timer session:', error);
+  }
+}
+
+/**
+ * Load the in-progress speech, if one was saved and its shape still makes
+ * sense. Anything malformed reads as no session: a bad record must never be
+ * able to boot the timer into a broken state.
+ *
+ * @returns {{speaker: Object, activeSpeakerId: (string|null), running: boolean,
+ *   baseElapsed: number, startedAt: (number|null), savedAt: number}|null}
+ */
+export function loadTimerSession() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.TIMER_SESSION);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const { speaker, running, baseElapsed, startedAt, savedAt } = parsed;
+    if (!speaker || typeof speaker !== 'object' || !speaker.rules || typeof speaker.rules !== 'object') return null;
+    if (typeof running !== 'boolean') return null;
+    if (!Number.isFinite(baseElapsed) || baseElapsed < 0) return null;
+    if (!Number.isFinite(savedAt)) return null;
+    if (running && !Number.isFinite(startedAt)) return null;
+    return {
+      speaker,
+      activeSpeakerId: typeof parsed.activeSpeakerId === 'string' ? parsed.activeSpeakerId : null,
+      running,
+      baseElapsed,
+      startedAt: running ? startedAt : null,
+      savedAt,
+    };
+  } catch (error) {
+    console.error('Failed to load timer session:', error);
+    return null;
+  }
+}
+
+/**
+ * Forget the in-progress speech: it finished, was reset, or gave way to
+ * another speaker.
+ */
+export function clearTimerSession() {
+  try {
+    forget(STORAGE_KEYS.TIMER_SESSION);
+  } catch (error) {
+    console.error('Failed to clear timer session:', error);
   }
 }
 

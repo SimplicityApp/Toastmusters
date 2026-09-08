@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { DEFAULT_ROLE_RULES, detectRoleFromText, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules } from '@toastmaster-timer/shared';
 import { calculateStatus, formatTime, getDisplaySeconds } from '@toastmaster-timer/shared';
-import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, loadRoleRules, saveRoleOrder, loadRoleOrder, loadHiddenBuiltinRoles, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle } from '@toastmaster-timer/shared';
+import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, loadRoleRules, saveRoleOrder, loadRoleOrder, loadHiddenBuiltinRoles, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
 import { parseEasySpeakText } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
@@ -34,26 +34,74 @@ export function useTimer() {
   return context;
 }
 
+/**
+ * A saved speech older than this is a leftover from an earlier meeting, not a
+ * speech in progress. Zoom kills the webview the moment the app is closed, so a
+ * genuine interruption is measured in seconds; an hour covers any meeting-length
+ * pause without letting yesterday's forgotten timer boot the app straight into
+ * a red card.
+ */
+export const TIMER_SESSION_MAX_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * Turn the saved session, if any, into the state the timer boots with.
+ *
+ * @param {Array} agenda - Already-loaded agenda, so a saved link to an item
+ *   that has since been removed does not come back as a dangling id.
+ * @param {number} now
+ * @returns {{speaker: Object, activeSpeakerId: (string|null), running: boolean,
+ *   elapsed: number, status: string}|null}
+ */
+export function restoreTimerSession(agenda, now = Date.now()) {
+  const saved = loadTimerSession();
+  if (!saved) return null;
+  if (now - saved.savedAt > TIMER_SESSION_MAX_AGE_MS || saved.savedAt > now) return null;
+  const raw = saved.running ? saved.baseElapsed + (now - saved.startedAt) / 1000 : saved.baseElapsed;
+  if (!Number.isFinite(raw) || raw < 0) return null;
+  // Same tenth-of-a-second grain as the tick, so the first frame after restore
+  // is a plain continuation rather than a jump.
+  const elapsed = Math.round(raw * 10) / 10;
+  // A paused speech that never accumulated time is indistinguishable from idle.
+  if (!saved.running && elapsed === 0) return null;
+  const activeSpeakerId =
+    saved.activeSpeakerId && agenda.some((item) => item.id === saved.activeSpeakerId) ? saved.activeSpeakerId : null;
+  return {
+    speaker: saved.speaker,
+    activeSpeakerId,
+    running: saved.running,
+    elapsed,
+    status: calculateStatus(elapsed, saved.speaker.rules),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // TimerProvider — wraps both contexts
 // ---------------------------------------------------------------------------
 export function TimerProvider({ children }) {
   const { showToast } = useToast();
 
-  // --- tick state (high-frequency) ---
-  const [isRunning, setIsRunning] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [currentStatus, setCurrentStatus] = useState('blue');
-
-  // --- stable state ---
-  const [currentSpeaker, setCurrentSpeaker] = useState(null);
-  const [activeSpeakerId, setActiveSpeakerId] = useState(null);
-
   // --- lazy localStorage initializers (1f) ---
   const [agenda, setAgenda] = useState(() => {
     const saved = loadAgenda();
     return saved && saved.length > 0 ? saved : [];
   });
+
+  // The speech this webview was torn down in the middle of, if any. Read once:
+  // Zoom kills the webview when the app is closed, and this is how the clock
+  // survives that. Held in state rather than a ref so StrictMode's second
+  // initializer pass sees the same answer as the first.
+  const [restoredSession] = useState(() => restoreTimerSession(agenda));
+
+  // --- tick state (high-frequency) ---
+  const [isRunning, setIsRunning] = useState(restoredSession?.running ?? false);
+  const [elapsedTime, setElapsedTime] = useState(restoredSession?.elapsed ?? 0);
+  const [currentStatus, setCurrentStatus] = useState(restoredSession?.status ?? 'blue');
+
+  // --- stable state ---
+  // Seeded directly rather than through setCurrentSpeaker, which resets the
+  // timer as a side effect — the one thing a restore must not do.
+  const [currentSpeaker, setCurrentSpeaker] = useState(restoredSession?.speaker ?? null);
+  const [activeSpeakerId, setActiveSpeakerId] = useState(restoredSession?.activeSpeakerId ?? null);
 
   const [reports, setReports] = useState(() => {
     const saved = loadReports();
@@ -87,10 +135,14 @@ export function TimerProvider({ children }) {
 
   // --- refs ---
   const rafRef = useRef(null);
-  const previousStatusRef = useRef('blue');
+  const previousStatusRef = useRef(restoredSession?.status ?? 'blue');
   const startTimestampRef = useRef(0);
-  const baseElapsedRef = useRef(0);
-  const liveElapsedRef = useRef(0);
+  const baseElapsedRef = useRef(restoredSession?.elapsed ?? 0);
+  const liveElapsedRef = useRef(restoredSession?.elapsed ?? 0);
+  // Whether a session is written down right now, so the idle path skips a
+  // removal that has nothing to remove — resetTimer runs on every speaker and
+  // role change, which is far too often to touch storage for no reason.
+  const sessionPersistedRef = useRef(Boolean(restoredSession));
   // Keep a ref to currentSpeaker so the rAF callback always sees the latest value
   const currentSpeakerRef = useRef(currentSpeaker);
   useEffect(() => { currentSpeakerRef.current = currentSpeaker; }, [currentSpeaker]);
@@ -161,6 +213,57 @@ export function TimerProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning]);
 
+  // --- persist the in-progress speech ---
+  // After the tick effect on purpose: effects run in declaration order, so on a
+  // start (or a restored boot) startTimestampRef already holds the wall-clock
+  // moment the running stretch began by the time this reads it. Keyed on the
+  // transitions rather than the tick: elapsed is derived from the timestamps,
+  // so nothing needs writing ten times a second. A plain RESET changes none of
+  // these — it is the one caller that clears storage itself.
+  useEffect(() => {
+    const active = isRunning || liveElapsedRef.current > 0;
+    if (!active || !currentSpeaker?.rules) {
+      if (sessionPersistedRef.current) {
+        clearTimerSession();
+        sessionPersistedRef.current = false;
+      }
+      return;
+    }
+    saveTimerSession({
+      speaker: currentSpeaker,
+      activeSpeakerId,
+      running: isRunning,
+      baseElapsed: isRunning ? baseElapsedRef.current : liveElapsedRef.current,
+      startedAt: isRunning ? startTimestampRef.current : null,
+      savedAt: Date.now(),
+    });
+    sessionPersistedRef.current = true;
+  }, [isRunning, currentSpeaker, activeSpeakerId]);
+
+  // --- pick the card back up after a restore ---
+  // A fresh webview has pushed nothing, whatever the tile is still showing from
+  // before it was torn down: the readout there is frozen at the moment of the
+  // close, and the color may be a threshold behind. Only ever runs with a
+  // restored session, so a normal boot pushes nothing here — exactly as before.
+  // applyOverlay waits for the SDK handshake itself, and skips the push in the
+  // stage modes, which render the color in-app.
+  // Announced once: StrictMode replays mount effects in development, and the
+  // ref survives that replay where the effect closure does not.
+  const restoreAnnouncedRef = useRef(false);
+  useEffect(() => {
+    if (!restoredSession || restoreAnnouncedRef.current) return;
+    restoreAnnouncedRef.current = true;
+    setOverlayTimeLabel(formatTime(getDisplaySeconds(restoredSession.elapsed, restoredSession.speaker.rules)));
+    applyOverlay(getBackgroundUrl(restoredSession.status));
+    showToast(restoredSession.running ? 'Timer resumed from where it was' : 'Paused timer restored', 'info');
+    trackEvent('timer_session_restored', {
+      running: restoredSession.running,
+      elapsed_time: restoredSession.elapsed,
+      role: restoredSession.speaker.role,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // --- actions ---
   const startTimer = useCallback(() => {
     if (!currentSpeakerRef.current || !currentSpeakerRef.current.rules) {
@@ -197,6 +300,12 @@ export function TimerProvider({ children }) {
     setElapsedTime(0);
     setCurrentStatus('blue');
     previousStatusRef.current = 'blue';
+    // Explicitly, because a paused speech being reset changes none of the state
+    // the persistence effect watches: isRunning was already false.
+    if (sessionPersistedRef.current) {
+      clearTimerSession();
+      sessionPersistedRef.current = false;
+    }
     // Before any overlay call below: the speech is over, so nothing pushed
     // from here on may carry its readout. Clearing never re-pushes on its own.
     setOverlayTimeLabel(null);
