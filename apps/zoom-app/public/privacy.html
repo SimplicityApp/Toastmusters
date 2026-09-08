@@ -74,7 +74,7 @@
 <body>
     <div class="container">
         <h1>Privacy Policy</h1>
-        <p class="last-updated">Last Updated: September 1, 2026</p>
+        <p class="last-updated">Last Updated: September 8, 2026</p>
 
         <h2>1. Introduction</h2>
         <p>
@@ -88,6 +88,8 @@
             <li><strong>Local Storage Data:</strong> The app stores timing rules, agenda items, reports and any card artwork you upload in your browser's local storage. Meeting reports stay on your device only.</li>
             <li><strong>Zoom Participant Information:</strong> When you use the app in a Zoom meeting, we may access participant names to help you select speakers. Participant names are used only within the app and are not sent to our servers.</li>
             <li><strong>Zoom User Identifier:</strong> When you open the app, Zoom provides a signed context containing your Zoom user ID. We use it to recognise you as a returning user so your settings can follow you between devices, and to count returning users in our product analytics. It is an opaque identifier: it is not your name, and it is not your email address. If you use the app as an unauthenticated guest, Zoom does not provide it and we do not identify you at all.</li>
+            <li><strong>Subscription Status:</strong> If you subscribe to the Pro plan, we store your plan, its status and renewal date, and the identifiers of your Stripe customer and subscription, against your Zoom user ID. We never see or store your card number: payment details are entered on Stripe's own pages and held by Stripe.</li>
+            <li><strong>Sign-in on the web (optional):</strong> On our website you can sign in with your Zoom account. Zoom then tells us your Zoom user ID, the same identifier described above, so your settings and plan are the same on the web and in Zoom. We do not receive your password, and we do not keep the access token Zoom issues.</li>
             <li><strong>Usage Data:</strong> We collect anonymous product analytics — which features are used, how many speeches are timed, and approximate country — to understand how the app is used and what to improve. We do not sell this data or use it for advertising.</li>
         </ul>
 
@@ -98,6 +100,8 @@
             <li>Manage your agenda and speaker lists</li>
             <li>Generate timing reports</li>
             <li>Control virtual backgrounds in Zoom meetings (when you grant permission)</li>
+            <li>Keep your settings and card artwork the same on every device you use (Pro plan)</li>
+            <li>Know whether you have an active Pro subscription, so the paid features work</li>
         </ul>
 
         <h2>4. Data Storage</h2>
@@ -129,11 +133,14 @@
             <a href="https://zoom.us/privacy" target="_blank">Zoom's Privacy Policy</a>.
         </p>
         <p>
-            We use two service providers and no others: <a href="https://posthog.com/privacy" target="_blank">PostHog</a>
-            for the product analytics described above, and
+            We use three service providers and no others: <a href="https://posthog.com/privacy" target="_blank">PostHog</a>
+            for the product analytics described above,
             <a href="https://www.cloudflare.com/privacypolicy/" target="_blank">Cloudflare</a> to host
-            the app and store synced settings. We do not sell your information or share it with
-            advertisers.
+            the app and store synced settings and subscription status, and
+            <a href="https://stripe.com/privacy" target="_blank">Stripe</a> to process payments for
+            the Pro plan. When you subscribe, Stripe collects your payment details and email address
+            for receipts under its own privacy policy; we receive only your plan status and opaque
+            Stripe identifiers. We do not sell your information or share it with advertisers.
         </p>
 
         <h2>7. Data Security</h2>
