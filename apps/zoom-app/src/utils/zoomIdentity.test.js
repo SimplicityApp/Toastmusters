@@ -39,6 +39,7 @@ describe('resolveZoomIdentity', () => {
         token: 'tok-1',
         contextType: 'meeting',
         meetingId: 'mid-1',
+        entitlement: { plan: 'pro', entitled: true },
       })
     );
 
@@ -51,6 +52,7 @@ describe('resolveZoomIdentity', () => {
       role: 'host',
       contextType: 'meeting',
       meetingId: 'mid-1',
+      entitlement: { plan: 'pro', entitled: true },
     });
     expect(getSessionToken()).toBe('tok-1');
   });
@@ -94,6 +96,7 @@ describe('resolveZoomIdentity', () => {
       role: 'attendee',
       contextType: null,
       meetingId: null,
+      entitlement: null,
     });
     expect(getSessionToken()).toBeNull();
   });

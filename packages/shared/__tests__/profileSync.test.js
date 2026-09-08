@@ -6,6 +6,7 @@ import {
   pushProfile,
   initProfileSync,
   stopProfileSync,
+  isPushBlocked,
 } from '../profileSync.js';
 import { saveOverlayMode, saveRoleRules } from '../storage.js';
 import { resetLocalWriteListeners } from '../storageEvents.js';
@@ -201,6 +202,33 @@ describe('reacting to local edits', () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  // 402 is the server saying "free plan". Pushing again would get the same
+  // answer, so pushes pause; the app is told so it can offer the upgrade.
+  it('pauses pushes and reports the entitlement when the server answers 402', async () => {
+    const entitlement = { plan: 'free', entitled: false, source: 'none' };
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 402, json: () => Promise.resolve({ error: 'upgrade_required', entitlement }) })
+    );
+    const onUpgradeRequired = vi.fn();
+    await initProfileSync({ getToken: () => 'tok', fetchImpl, onUpgradeRequired });
+    fetchImpl.mockClear();
+
+    saveOverlayMode('camera');
+    await vi.advanceTimersByTimeAsync(2100);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(onUpgradeRequired).toHaveBeenCalledWith(entitlement);
+    expect(isPushBlocked()).toBe(true);
+
+    saveOverlayMode('card');
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    // A fresh init (after an upgrade) lifts the block.
+    await initProfileSync({ getToken: () => 'tok', fetchImpl: respondWith({ rev: 0, fields: {} }) });
+    expect(isPushBlocked()).toBe(false);
   });
 
   it('stops pushing once sync is stopped', async () => {

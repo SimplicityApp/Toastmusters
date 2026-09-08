@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useEntitlement } from '../hooks/useEntitlement';
 import { X, Plus, Check, Trash2 } from 'lucide-react';
 import {
   CARD_COLORS,
@@ -14,6 +15,7 @@ import {
 import { getCardFileUrl, notifyCardImagesChanged, preloadBackgroundImages } from '../utils/zoomSdk';
 import OwnBackgroundPicker from './OwnBackgroundPicker';
 import { useToast } from '../context/ToastContext';
+const UpgradeModal = lazy(() => import('./UpgradeModal'));
 
 const COLOR_LABELS = {
   blue: 'Idle (blue)',
@@ -98,6 +100,8 @@ function CardSetRow({ label, selected, onSelect, thumbSrc, onDelete }) {
  */
 export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
   const { showToast } = useToast();
+  const { isPro, known } = useEntitlement();
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [settings, setSettings] = useState(() => getCardImageSettings());
   // The set being assembled in the uploader row, color -> {blob, url}. Kept
   // only in this modal until the organizer confirms it into a real set.
@@ -283,10 +287,32 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
         />
 
         <p className="text-xs text-gray-500 mt-4">
-          Custom images are stored only in this browser. Please upload only images you have the
-          right to use — for example your club&apos;s own materials. This app is independent and
-          cannot grant permission for third-party logos or artwork.
+          {isPro ? (
+            <>Custom images are backed up and follow you to your other devices. </>
+          ) : known ? (
+            <>
+              Custom images are stored only in this browser.{' '}
+              <button
+                type="button"
+                onClick={() => setShowUpgrade(true)}
+                className="text-blue-600 hover:text-blue-700 underline"
+              >
+                Upgrade to Pro
+              </button>{' '}
+              to back them up and use them on your other devices.{' '}
+            </>
+          ) : (
+            <>Custom images are stored only in this browser. </>
+          )}
+          Please upload only images you have the right to use — for example your club&apos;s own
+          materials. This app is independent and cannot grant permission for third-party logos or
+          artwork.
         </p>
+        {showUpgrade && (
+          <Suspense fallback={null}>
+            <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} source="card_images" />
+          </Suspense>
+        )}
       </div>
     </div>
   );

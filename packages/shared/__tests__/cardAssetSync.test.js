@@ -145,6 +145,21 @@ describe('pushCardAssets', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('stops uploading and reports the entitlement when the server answers 402', async () => {
+    const { store } = await withCustomSet(mod, { green: blobOf('g'), red: blobOf('r') });
+    const entitlement = { plan: 'free', entitled: false };
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 402, json: async () => ({ error: 'upgrade_required', entitlement }) }));
+    const onUpgradeRequired = vi.fn();
+
+    const uploaded = await mod.pushCardAssets({ ...withStore(fetchImpl, store), onUpgradeRequired });
+
+    // One refused upload is enough: the second colour is never attempted.
+    expect(uploaded).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(onUpgradeRequired).toHaveBeenCalledWith(entitlement);
+    expect(mod.readHashMap()).toEqual({});
+  });
+
   it('uploads nothing without a session token', async () => {
     const { store } = await withCustomSet(mod, { green: blobOf('green art') });
     const { fetchImpl } = makeServer();

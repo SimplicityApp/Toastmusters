@@ -5,6 +5,9 @@ import './App.css'
 const Landing = lazy(() => import('./pages/Landing'))
 const TimerApp = lazy(() => import('./pages/TimerApp'))
 const OAuthRedirect = lazy(() => import('./pages/OAuthRedirect'))
+const BillingSuccess = lazy(() => import('./pages/BillingSuccess'))
+const BillingCancel = lazy(() => import('./pages/BillingCancel'))
+const Account = lazy(() => import('./pages/Account'))
 
 const deferPreload = window.requestIdleCallback || ((cb) => setTimeout(cb, 2000));
 deferPreload(() => import('./pages/TimerApp'));
@@ -21,6 +24,9 @@ function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/app" element={<TimerApp />} />
         <Route path="/oauth/redirect" element={<OAuthRedirect />} />
+        <Route path="/billing/success" element={<BillingSuccess />} />
+        <Route path="/billing/cancel" element={<BillingCancel />} />
+        <Route path="/account" element={<Account />} />
       </Routes>
     </Suspense>
   )

@@ -3,6 +3,10 @@ import { handleStats } from './stats.js';
 import { handleZoomSession } from './session.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
+import { handleMe } from './me.js';
+import { handleAuthStart, handleOAuthCallback, handleLogout } from './auth.js';
+import { handleBilling } from './billing.js';
+import { handleStripeWebhook } from './stripe-webhook.js';
 
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
 // "/(.*)" rule from the old vercel.json.
@@ -35,7 +39,7 @@ const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|
 // Paths the root SPA (apps/web) owns via react-router. Anything else that
 // misses the asset lookup is a genuine 404 — serving index.html with HTTP 200
 // for unknown URLs creates soft 404s that waste crawl budget.
-const SPA_ROUTES = new Set(['/', '/app', '/oauth/redirect']);
+const SPA_ROUTES = new Set(['/', '/app', '/oauth/redirect', '/billing/success', '/billing/cancel', '/account']);
 
 /**
  * Zoom sends `x-zoom-app-context` on the document request when it opens an app
@@ -95,6 +99,35 @@ export default {
     // Custom card artwork. Same placement rationale as the two above.
     if (pathname.startsWith('/api/assets/')) {
       return handleAsset(request, url, env);
+    }
+
+    // Identity + entitlement re-check (polled after a purchase).
+    if (pathname === '/api/me') {
+      return handleMe(request, env);
+    }
+
+    // Stripe Checkout / Billing Portal. Ahead of the redirect like every POST.
+    if (pathname.startsWith('/api/billing/')) {
+      return handleBilling(request, url, env);
+    }
+
+    // Stripe webhook: a 301 would drop the signed body, exactly like Zoom's.
+    if (pathname === '/api/stripe/webhook') {
+      return handleStripeWebhook(request, env);
+    }
+
+    // Sign in with Zoom (web). The callback shares /oauth/redirect with the
+    // Marketplace install flow: only a request carrying a state we signed is a
+    // sign-in; everything else falls through to the SPA's install-success page.
+    if (pathname === '/api/auth/zoom/start') {
+      return handleAuthStart(request, url, env);
+    }
+    if (pathname === '/api/auth/logout') {
+      return handleLogout(request);
+    }
+    if (pathname === '/oauth/redirect' && url.searchParams.has('state')) {
+      const signedIn = await handleOAuthCallback(request, url, env);
+      if (signedIn) return signedIn;
     }
 
     // 2. Canonical host: apex -> www (301). The zoom.<domain> host is a

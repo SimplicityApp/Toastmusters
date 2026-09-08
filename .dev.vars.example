@@ -13,3 +13,8 @@ POSTHOG_QUERY_API_KEY=
 # `openssl rand -base64 32`. Not ZOOM_CLIENT_SECRET on purpose: that one is a
 # Zoom credential and the two should rotate independently.
 SESSION_SIGNING_KEY=
+# Stripe, test mode. Prices must exist with lookup keys pro_monthly / pro_yearly.
+STRIPE_SECRET_KEY=
+# Signing secret of the webhook endpoint (`stripe listen --forward-to localhost:8787/api/stripe/webhook`
+# prints one for local dev).
+STRIPE_WEBHOOK_SECRET=

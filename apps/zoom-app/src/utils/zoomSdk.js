@@ -101,7 +101,7 @@ export const USED_SDK_APIS = [
   { name: 'onAppPopout', capability: 'onAppPopout', required: false, purpose: 'Following Zoom\'s own popout menu' },
   { name: 'onAppVisibilityChange', capability: 'onAppVisibilityChange', required: false, purpose: 'Noticing background changes' },
   { name: 'onMyMediaChange', capability: 'onMyMediaChange', required: false, purpose: 'Overlay sizing' },
-  { name: 'openUrl', capability: 'openUrl', required: false, purpose: 'Marketplace review link' },
+  { name: 'openUrl', capability: 'openUrl', required: false, purpose: 'Marketplace review link, Stripe checkout and billing' },
 ];
 
 const capabilitiesWhere = (required) =>

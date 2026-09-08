@@ -12,6 +12,7 @@ import {
 import { trackEvent } from '../utils/posthog'
 import { TOOLS } from '@toastmaster-timer/shared'
 import YouTubePlayer from '../components/YouTubePlayer'
+import AccountMenu from '../components/AccountMenu'
 
 const ZOOM_APP_URL = 'https://marketplace.zoom.us/zoomapp/DsFHK5sNQs2_VFyeQky2sg/context/meeting/target/launch/deeplink'
 
@@ -532,6 +533,9 @@ export default function Landing() {
             <Link to="/app" className="hidden sm:inline-flex rounded-full px-4 py-2 text-sm font-semibold text-ink hover:bg-stone-900/5 transition-colors">
               Use in Browser
             </Link>
+            <span className="hidden sm:inline-flex">
+              <AccountMenu />
+            </span>
             <a
               href={ADD_TO_ZOOM_URL}
               target="_blank"

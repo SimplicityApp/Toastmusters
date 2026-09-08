@@ -319,6 +319,68 @@ describe('the Zoom identity endpoint is reachable from every host', () => {
   });
 });
 
+describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
+  const authEnv = () => ({
+    ...makeEnv(['/index.html']),
+    SESSION_SIGNING_KEY: 'k',
+    ZOOM_CLIENT_ID: 'cid',
+    ZOOM_CLIENT_SECRET: 'sec',
+    WEB_ORIGIN: 'https://www.timer.simple-tech.app',
+  });
+
+  // The Marketplace "Add" flow lands here with a code and no state. It must
+  // still get the SPA's install-success page, and never a session.
+  it('serves the SPA for an install callback without state', async () => {
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), authEnv(), ctx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+  });
+
+  it('serves the SPA for a state nobody signed', async () => {
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc&state=forged.sig'), authEnv(), ctx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+  });
+
+  it('starts sign-in from /api/auth/zoom/start and completes it on the callback', async () => {
+    const env = authEnv();
+    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), env, ctx);
+    expect(started.status).toBe(302);
+    const location = new URL(started.headers.get('location'));
+    expect(location.hostname).toBe('zoom.us');
+    const nonce = started.headers.get('set-cookie').match(/tt_oauth=([^;]+)/)[1];
+    const state = location.searchParams.get('state');
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url) =>
+      String(url).includes('/oauth/token')
+        ? new Response(JSON.stringify({ access_token: 'at' }), { status: 200 })
+        : new Response(JSON.stringify({ id: 'zoom-user' }), { status: 200 })
+    );
+    try {
+      const cb = new Request(`https://www.timer.simple-tech.app/oauth/redirect?code=c&state=${encodeURIComponent(state)}`, {
+        headers: { host: 'www.timer.simple-tech.app', cookie: `tt_oauth=${nonce}` },
+      });
+      const res = await worker.fetch(cb, env, ctx);
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/app');
+      expect(res.headers.get('set-cookie')).toMatch(/tt_session=/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('routes /account and /billing/* to the SPA shell', async () => {
+    for (const path of ['/account', '/billing/success', '/billing/cancel']) {
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`), makeEnv(['/index.html']), ctx);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    }
+  });
+});
+
 describe('zoom launch marker', () => {
   // The real shell, near enough: the marker is injected right after <head>.
   // `/zoom/` answers as well as `/zoom/index.html` because that is what the

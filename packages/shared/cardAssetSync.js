@@ -94,11 +94,12 @@ const blobStore = (config) => ({
 
 async function authorizedFetch(config, path, init = {}) {
   const token = config?.getToken?.();
-  if (!token) return null;
+  if (!token && !config?.cookieSession) return null;
 
   const response = await (config.fetchImpl ?? fetch)(`${ASSET_ENDPOINT}/${path}`, {
     ...init,
-    headers: { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
+    credentials: 'same-origin',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
   });
   return response;
 }
@@ -131,6 +132,18 @@ export async function pushCardAssets(config) {
         body: blob,
         headers: { 'Content-Type': blob.type || 'application/octet-stream' },
       });
+      if (response?.status === 402) {
+        // Not on the paid plan: every further upload would get the same
+        // answer. The artwork stays on this device and works as before.
+        let body = null;
+        try {
+          body = await response.json();
+        } catch {
+          body = null;
+        }
+        config?.onUpgradeRequired?.(body?.entitlement ?? null);
+        break;
+      }
       if (!response?.ok) continue;
 
       map[key] = hash;
@@ -192,11 +205,13 @@ export async function pullCardAssets(config) {
  * @param {Object} options
  * @param {() => string|null} options.getToken
  * @param {typeof fetch} [options.fetchImpl]
+ * @param {(entitlement: Object|null) => void} [options.onUpgradeRequired]
+ * @param {boolean} [options.cookieSession] - the session travels as a cookie (web app)
  * @returns {Promise<{uploaded: string[], downloaded: string[]}>}
  */
-export async function syncCardAssets({ getToken, fetchImpl, readBlobs, writeBlobs } = {}) {
-  const config = { getToken, fetchImpl, readBlobs, writeBlobs };
-  if (!getToken?.()) return { uploaded: [], downloaded: [] };
+export async function syncCardAssets({ getToken, fetchImpl, readBlobs, writeBlobs, onUpgradeRequired, cookieSession = false } = {}) {
+  const config = { getToken, fetchImpl, readBlobs, writeBlobs, onUpgradeRequired, cookieSession };
+  if (!getToken?.() && !cookieSession) return { uploaded: [], downloaded: [] };
 
   // Download first: a device that just adopted a profile should show the
   // artwork it names before offering anything of its own.

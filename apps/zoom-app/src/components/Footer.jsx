@@ -1,5 +1,6 @@
 import { useState, lazy, Suspense, memo } from 'react';
-import { MessageSquare, Star } from 'lucide-react';
+import { MessageSquare, Star, Sparkles } from 'lucide-react';
+import { useEntitlement } from '../hooks/useEntitlement';
 import {
   FEEDBACK_SURVEY_ID,
   REVIEW_PROMPT,
@@ -11,10 +12,13 @@ import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
 import { useToast } from '../context/ToastContext';
 const FeedbackModal = lazy(() => import('./FeedbackModal'));
+const UpgradeModal = lazy(() => import('./UpgradeModal'));
 
 export default memo(function Footer() {
   const { showToast } = useToast();
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const { isPro, known } = useEntitlement();
 
   const handleFeedbackClick = () => {
     (window.requestIdleCallback || setTimeout)(() => {
@@ -70,7 +74,26 @@ export default memo(function Footer() {
           <Star className="w-4 h-4 flex-shrink-0" />
           <span>Review</span>
         </button>
+        {/* Hidden until the server has said which plan this is, so a Pro user
+            never sees "Upgrade" flash before the answer lands. */}
+        {known && (
+          <button
+            onClick={() => setShowUpgradeModal(true)}
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors duration-150 ${
+              isPro ? 'text-amber-600 hover:bg-amber-50' : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium'
+            }`}
+            aria-label={isPro ? 'Manage your Pro plan' : 'Upgrade to Pro'}
+          >
+            <Sparkles className="w-4 h-4 flex-shrink-0" />
+            <span>{isPro ? 'Pro' : 'Upgrade'}</span>
+          </button>
+        )}
       </footer>
+      {showUpgradeModal && (
+        <Suspense fallback={null}>
+          <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} source="footer" />
+        </Suspense>
+      )}
       {showFeedbackModal && (
         <Suspense fallback={null}>
           <FeedbackModal
