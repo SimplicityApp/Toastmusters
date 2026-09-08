@@ -1,4 +1,5 @@
-import { readSession } from './auth.js';
+import { readSession, sessionCookie, REISSUE_AFTER_MS, WEB_SESSION_TTL_MS } from './auth.js';
+import { mintSessionToken } from './session-token.js';
 import { resolveEntitlement } from './entitlements.js';
 import { json, unauthorized, methodNotAllowed } from './http.js';
 
@@ -14,8 +15,20 @@ export async function handleMe(request, env) {
   const session = readSession(request, env);
   if (!session) return unauthorized();
 
-  return json({
-    uid: session.uid,
-    entitlement: await resolveEntitlement(env, session.uid),
-  });
+  // Sliding web session: a cookie older than a day is re-issued for another
+  // 30, so someone who uses the timer every week never has to sign in again.
+  const headers = {};
+  if (session.via === 'cookie' && typeof session.iat === 'number' && Date.now() - session.iat > REISSUE_AFTER_MS) {
+    const fresh = mintSessionToken(session.uid, env.SESSION_SIGNING_KEY, Date.now(), WEB_SESSION_TTL_MS);
+    if (fresh) headers['Set-Cookie'] = sessionCookie(fresh);
+  }
+
+  return json(
+    {
+      uid: session.uid,
+      entitlement: await resolveEntitlement(env, session.uid),
+    },
+    200,
+    headers
+  );
 }

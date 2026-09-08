@@ -1,4 +1,16 @@
 import { describe, it, expect } from 'vitest';
+
+describe('mintSessionToken ttl', () => {
+  it('honours a custom lifetime and reports iat', async () => {
+    const { mintSessionToken, verifySessionToken, TOKEN_TTL_MS } = await import('./session-token.js');
+    const now = 1_800_000_000_000;
+    const long = mintSessionToken('u1', 'k', now, 30 * 24 * 60 * 60 * 1000);
+    expect(verifySessionToken(long, 'k', now + TOKEN_TTL_MS + 1)).toMatchObject({ uid: 'u1', iat: now });
+    // A nonsense ttl falls back to the default rather than minting something eternal.
+    const odd = mintSessionToken('u1', 'k', now, -5);
+    expect(verifySessionToken(odd, 'k', now + TOKEN_TTL_MS + 1)).toBeNull();
+  });
+});
 import {
   mintSessionToken,
   verifySessionToken,
@@ -16,6 +28,7 @@ describe('session tokens', () => {
     expect(verifySessionToken(token, KEY, NOW)).toEqual({
       uid: 'zoom-uid-1',
       exp: NOW + TOKEN_TTL_MS,
+      iat: NOW,
     });
   });
 

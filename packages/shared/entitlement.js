@@ -78,14 +78,15 @@ export function subscribeEntitlement(listener) {
  * Ask the server again. Returns the fresh entitlement, or null when there is
  * no session or the request failed (the stored answer is left as it was).
  *
- * @param {{getToken: () => string|null, fetchImpl?: typeof fetch}} options
+ * @param {{getToken: () => string|null, fetchImpl?: typeof fetch, cookieSession?: boolean}} options
  */
-export async function refreshEntitlement({ getToken, fetchImpl } = {}) {
+export async function refreshEntitlement({ getToken, fetchImpl, cookieSession = false } = {}) {
   const token = getToken?.();
-  if (!token) return null;
+  if (!token && !cookieSession) return null;
   try {
     const response = await (fetchImpl ?? fetch)(ME_ENDPOINT, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'same-origin',
       cache: 'no-store',
     });
     if (!response.ok) return null;

@@ -124,14 +124,17 @@ function recordLocalWrite(key, now = Date.now()) {
 
 async function request(method, body) {
   const token = config?.getToken?.();
-  if (!token) return null;
+  // No bearer and no cookie session means nobody to sync for. With a cookie
+  // session (the web app) the browser attaches the credential itself.
+  if (!token && !config?.cookieSession) return null;
 
   const response = await (config.fetchImpl ?? fetch)(PROFILE_ENDPOINT, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    credentials: 'same-origin',
     cache: 'no-store',
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -220,10 +223,12 @@ function schedulePush() {
  * @param {typeof fetch} [options.fetchImpl] - injectable for tests
  * @param {(entitlement: Object|null) => void} [options.onUpgradeRequired] - called
  *   when the server answers 402; pushes pause until the next init
+ * @param {boolean} [options.cookieSession] - the session travels as a cookie
+ *   (web app); sync runs even though getToken returns null
  * @returns {Promise<string[]>} keys adopted by the initial pull
  */
-export async function initProfileSync({ getToken, fetchImpl, onUpgradeRequired } = {}) {
-  config = { getToken, fetchImpl, onUpgradeRequired };
+export async function initProfileSync({ getToken, fetchImpl, onUpgradeRequired, cookieSession = false } = {}) {
+  config = { getToken, fetchImpl, onUpgradeRequired, cookieSession };
   pushBlocked = false;
 
   stopProfileSync({ keepConfig: true });
