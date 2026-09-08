@@ -7,6 +7,11 @@ import { ZOOM_INSTALL_URL, TIMER_APP_URL } from '@toastmaster-timer/shared';
 import { initializeZoomSdk, openExternalUrl } from '../utils/zoomSdk';
 import { trackEvent } from '../utils/posthog';
 
+// The component prefers VITE_ZOOM_OAUTH_REDIRECT and falls back to the shared
+// constant; a developer's root .env sets the variable, CI does not. Mirror
+// that choice so the test passes in both places.
+const INSTALL_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_INSTALL_URL;
+
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom.
 vi.mock('../utils/zoomSdk', () => ({
@@ -92,7 +97,7 @@ describe('ZoomConnectionNotice', () => {
 
     await user.click(modal.getByRole('button', { name: /add to zoom/i }));
 
-    expect(openExternalUrl).toHaveBeenCalledWith(ZOOM_INSTALL_URL);
+    expect(openExternalUrl).toHaveBeenCalledWith(INSTALL_URL);
     expect(trackEvent).toHaveBeenCalledWith('zoom_reconnect_clicked', expect.any(Object));
   });
 
@@ -144,7 +149,7 @@ describe('ZoomConnectionNotice', () => {
 
     await user.click(banner.getByRole('button', { name: /add to zoom/i }));
 
-    expect(openExternalUrl).toHaveBeenCalledWith(ZOOM_INSTALL_URL);
+    expect(openExternalUrl).toHaveBeenCalledWith(INSTALL_URL);
   });
 
   it('reports the degraded state once, with what caused it', async () => {
