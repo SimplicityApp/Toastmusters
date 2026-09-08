@@ -21,6 +21,10 @@ const PUSH_DEBOUNCE_MS = 2000;
 
 let pushTimer = null;
 let unsubscribe = null;
+// Set by a 402: the server told us this user is not on the paid plan. Pushing
+// again would only get the same answer, so pushes pause until the next init
+// (after an upgrade, the app re-inits). Pulls keep working.
+let pushBlocked = false;
 // Set while remote values are being written locally, so adopting someone else's
 // change does not look like a local edit and bounce straight back to the server.
 let applyingRemote = false;
@@ -132,8 +136,27 @@ async function request(method, body) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
+  if (response.status === 402) {
+    // Only a refused push pauses pushing. A pull never earns a 402 from our
+    // Worker, but a proxy or a future server might, and that must not stop
+    // this device from sending its own changes later.
+    if (method === 'PUT') pushBlocked = true;
+    let body = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
+    config?.onUpgradeRequired?.(body?.entitlement ?? null);
+    return null;
+  }
   if (!response.ok) return null;
   return response.json();
+}
+
+/** Whether the server has refused pushes for this user (until the next init). */
+export function isPushBlocked() {
+  return pushBlocked;
 }
 
 /**
@@ -161,6 +184,7 @@ export async function pullProfile() {
  * @returns {Promise<string[]>} keys the merge sent back as newer elsewhere
  */
 export async function pushProfile() {
+  if (pushBlocked) return [];
   try {
     const local = readLocalProfile();
     if (!Object.keys(local.fields).length) return [];
@@ -194,10 +218,13 @@ function schedulePush() {
  * @param {Object} options
  * @param {() => string|null} options.getToken - current session token, or null
  * @param {typeof fetch} [options.fetchImpl] - injectable for tests
+ * @param {(entitlement: Object|null) => void} [options.onUpgradeRequired] - called
+ *   when the server answers 402; pushes pause until the next init
  * @returns {Promise<string[]>} keys adopted by the initial pull
  */
-export async function initProfileSync({ getToken, fetchImpl } = {}) {
-  config = { getToken, fetchImpl };
+export async function initProfileSync({ getToken, fetchImpl, onUpgradeRequired } = {}) {
+  config = { getToken, fetchImpl, onUpgradeRequired };
+  pushBlocked = false;
 
   stopProfileSync({ keepConfig: true });
 

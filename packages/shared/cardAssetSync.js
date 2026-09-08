@@ -131,6 +131,18 @@ export async function pushCardAssets(config) {
         body: blob,
         headers: { 'Content-Type': blob.type || 'application/octet-stream' },
       });
+      if (response?.status === 402) {
+        // Not on the paid plan: every further upload would get the same
+        // answer. The artwork stays on this device and works as before.
+        let body = null;
+        try {
+          body = await response.json();
+        } catch {
+          body = null;
+        }
+        config?.onUpgradeRequired?.(body?.entitlement ?? null);
+        break;
+      }
       if (!response?.ok) continue;
 
       map[key] = hash;
@@ -192,10 +204,11 @@ export async function pullCardAssets(config) {
  * @param {Object} options
  * @param {() => string|null} options.getToken
  * @param {typeof fetch} [options.fetchImpl]
+ * @param {(entitlement: Object|null) => void} [options.onUpgradeRequired]
  * @returns {Promise<{uploaded: string[], downloaded: string[]}>}
  */
-export async function syncCardAssets({ getToken, fetchImpl, readBlobs, writeBlobs } = {}) {
-  const config = { getToken, fetchImpl, readBlobs, writeBlobs };
+export async function syncCardAssets({ getToken, fetchImpl, readBlobs, writeBlobs, onUpgradeRequired } = {}) {
+  const config = { getToken, fetchImpl, readBlobs, writeBlobs, onUpgradeRequired };
   if (!getToken?.()) return { uploaded: [], downloaded: [] };
 
   // Download first: a device that just adopted a profile should show the

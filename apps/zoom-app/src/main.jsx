@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
-import { initCardImages, initProfileSync, syncCardAssets } from '@toastmaster-timer/shared'
+import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT } from '@toastmaster-timer/shared'
 import { initPostHog, identifyUser, setUserProperties, registerSessionProperties } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
@@ -38,7 +38,11 @@ try {
 // person to us next week instead of a brand-new anonymous ID. Deliberately not
 // awaited: rendering and the SDK handshake must not wait on analytics.
 resolveZoomIdentity()
-  .then(({ identified, isGuest, uid, authStatus, role, contextType, meetingId }) => {
+  .then(({ identified, isGuest, uid, authStatus, role, contextType, meetingId, entitlement }) => {
+    // The server's answer on what this user may use. Guests and anonymous
+    // loads are free; saying so now stops the UI from guessing.
+    setEntitlement(entitlement ?? FREE_ENTITLEMENT);
+
     // The zoom: prefix keeps the ID out of PostHog's anonymous namespace —
     // identifying with a value that was once an anonymous distinct_id is the
     // one thing it asks you not to do.
@@ -67,11 +71,26 @@ resolveZoomIdentity()
     // from this device's own storage.
     if (!identified) return null;
 
-    // Profile first: the hash map arrives with it, and that map is what says
-    // which artwork this device ought to be holding.
-    return initProfileSync({ getToken: getSessionToken }).then(() =>
-      syncCardAssets({ getToken: getSessionToken })
-    );
+    // A 402 from either endpoint is the server saying "free plan": record it so
+    // the upgrade path appears, and stop pushing until the plan changes.
+    const onUpgradeRequired = (fresh) => setEntitlement(fresh ?? FREE_ENTITLEMENT);
+    const startSync = () =>
+      // Profile first: the hash map arrives with it, and that map is what says
+      // which artwork this device ought to be holding.
+      initProfileSync({ getToken: getSessionToken, onUpgradeRequired }).then(() =>
+        syncCardAssets({ getToken: getSessionToken, onUpgradeRequired })
+      );
+
+    // After a purchase the plan flips to pro while the app is open; start the
+    // sync again so what this device holds reaches the server right away.
+    let wasPro = entitlement?.plan === 'pro';
+    subscribeEntitlement((next) => {
+      const nowPro = next.plan === 'pro';
+      if (nowPro && !wasPro) startSync().catch(() => {});
+      wasPro = nowPro;
+    });
+
+    return startSync();
   })
   .catch((error) => {
     console.warn('Failed to resolve Zoom identity:', error);

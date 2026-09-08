@@ -33,6 +33,7 @@ const ANONYMOUS = Object.freeze({
   role: null,
   contextType: null,
   meetingId: null,
+  entitlement: null,
 });
 
 /**
@@ -108,6 +109,8 @@ async function resolveOnce() {
       // meeting. Decrypted server-side with the uid, so they are trustworthy.
       contextType: session.contextType ?? null,
       meetingId: session.meetingId ?? null,
+      // What this user may use, as the server decided it. Null for guests.
+      entitlement: session.entitlement ?? null,
     };
   } catch {
     // Offline, the Worker is down, or local development with no endpoint. The
@@ -125,7 +128,7 @@ async function resolveOnce() {
  *
  * @returns {Promise<{identified: boolean, isGuest: boolean, uid: string|null,
  *   token: string|null, authStatus: string|null, role: string|null,
- *   contextType: string|null, meetingId: string|null}>} never rejects
+ *   contextType: string|null, meetingId: string|null, entitlement: Object|null}>} never rejects
  */
 export function resolveZoomIdentity() {
   if (!identityPromise) {
