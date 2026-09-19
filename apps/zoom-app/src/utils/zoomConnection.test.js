@@ -3,6 +3,8 @@ import {
   CONNECTION_DEV,
   CONNECTION_OUTSIDE_ZOOM,
   CONNECTION_REVOKED,
+  CONNECTION_UNAUTHORIZED,
+  STATUS_AUTHENTICATED,
   LAUNCH_BROWSER,
   LAUNCH_CLIENT,
   LAUNCH_UNKNOWN,
@@ -107,5 +109,47 @@ describe('isReturningUser', () => {
     const throwing = { getItem: () => { throw new Error('blocked'); } };
     expect(isReturningUser(throwing)).toBe(false);
     expect(isReturningUser(null)).toBe(false);
+  });
+});
+
+describe('guest mode: the handshake succeeded but Zoom holds no grant for this user', () => {
+  // The state this exists for. Zoom drops every user's grant when the app's
+  // scopes or capabilities change in the Marketplace; the app still opens and
+  // config() still resolves, but the client asks the user's permission on
+  // every setVirtualBackground call — a dialog on every color change.
+  it('calls a working SDK with an authenticated-not-authorized user unauthorized', () => {
+    expect(
+      resolveConnectionState({ sdkReady: true, launch: LAUNCH_CLIENT, authStatus: STATUS_AUTHENTICATED })
+    ).toBe(CONNECTION_UNAUTHORIZED);
+  });
+
+  it('is connected when the user is authorized, or when the client did not say', () => {
+    expect(resolveConnectionState({ sdkReady: true, launch: LAUNCH_CLIENT, authStatus: 'authorized' })).toBe(
+      CONNECTION_CONNECTED
+    );
+    // Null is "getUserContext refused or absent", which an older client does;
+    // treating it as a problem would nag organizers whose app works fine.
+    expect(resolveConnectionState({ sdkReady: true, launch: LAUNCH_CLIENT, authStatus: null })).toBe(
+      CONNECTION_CONNECTED
+    );
+  });
+
+  // Not signed into Zoom at all: a true guest who joined by invitation. They
+  // are not running the meeting, and promptAuthorize would only ask them to
+  // sign in, so they get no notice.
+  it('leaves an unauthenticated guest alone', () => {
+    expect(resolveConnectionState({ sdkReady: true, launch: LAUNCH_CLIENT, authStatus: 'unauthenticated' })).toBe(
+      CONNECTION_CONNECTED
+    );
+  });
+
+  it('ignores the status entirely when the handshake failed', () => {
+    expect(
+      resolveConnectionState({ sdkReady: false, launch: LAUNCH_CLIENT, authStatus: STATUS_AUTHENTICATED })
+    ).toBe(CONNECTION_REVOKED);
+  });
+
+  it('warrants a notice', () => {
+    expect(needsAttention(CONNECTION_UNAUTHORIZED)).toBe(true);
   });
 });

@@ -1397,6 +1397,121 @@ describe('the debug panel reports on every API the app uses', () => {
   });
 });
 
+describe('guest mode: re-approving the app from inside Zoom', () => {
+  // promptAuthorize and onMyUserContextChange are grantable in the Marketplace
+  // but reach the client through the SDK's proxy, so they are added to the mock
+  // per-test — the shared mock stays a picture of what the SDK itself defines.
+  afterEach(() => {
+    delete sdkMock.promptAuthorize;
+    delete sdkMock.onMyUserContextChange;
+    delete sdkMock.getUserContext;
+  });
+
+  it('asks Zoom to prompt the user, and says the request was taken', async () => {
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.promptAuthorize = vi.fn().mockResolvedValue({ message: 'Success' });
+    const { promptZoomAuthorize } = await loadModule();
+
+    await expect(promptZoomAuthorize()).resolves.toBe(true);
+    expect(sdkMock.promptAuthorize).toHaveBeenCalledTimes(1);
+  });
+
+  // Refused means the caller should fall back to the browser install flow; a
+  // rejection at the bridge means the same thing. Neither may throw into the UI.
+  it('reports false when the client refused promptAuthorize, without calling it', async () => {
+    sdkMock.config.mockResolvedValue({ unsupportedApis: ['promptAuthorize'] });
+    sdkMock.promptAuthorize = vi.fn();
+    const { promptZoomAuthorize } = await loadModule();
+
+    await expect(promptZoomAuthorize()).resolves.toBe(false);
+    expect(sdkMock.promptAuthorize).not.toHaveBeenCalled();
+  });
+
+  it('reports false when promptAuthorize rejects', async () => {
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.promptAuthorize = vi.fn().mockRejectedValue(new Error('not now'));
+    const { promptZoomAuthorize } = await loadModule();
+
+    await expect(promptZoomAuthorize()).resolves.toBe(false);
+  });
+
+  it('reports false outside Zoom', async () => {
+    sdkMock.config.mockRejectedValue(new Error('not in zoom'));
+    const { promptZoomAuthorize } = await loadModule();
+
+    await expect(promptZoomAuthorize()).resolves.toBe(false);
+  });
+
+  it('subscribes to user-context changes when the client offers the event', async () => {
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.onMyUserContextChange = vi.fn();
+    const { initializeZoomSdk } = await loadModule();
+
+    await initializeZoomSdk();
+
+    expect(sdkMock.onMyUserContextChange).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it('does not subscribe when the client refused the event', async () => {
+    sdkMock.config.mockResolvedValue({ unsupportedApis: ['onMyUserContextChange'] });
+    sdkMock.onMyUserContextChange = vi.fn();
+    const { initializeZoomSdk } = await loadModule();
+
+    await initializeZoomSdk();
+
+    expect(sdkMock.onMyUserContextChange).not.toHaveBeenCalled();
+  });
+
+  // The SDK's contract: a status change requires config() to run again, and a
+  // user who just added the app is granted what a guest was refused. Every
+  // isApiAvailable check reads off that second answer, so it has to happen
+  // before anyone is told the status changed.
+  it('re-runs config on a context change, then reports the new status', async () => {
+    sdkMock.config.mockResolvedValue({ unsupportedApis: ['setVirtualBackground'] });
+    sdkMock.getUserContext = vi.fn().mockResolvedValue({ status: 'authenticated' });
+    const { initializeZoomSdk, handleMyUserContextChange, setUserStatusChangeCallback, isApiAvailable } =
+      await loadModule();
+    await initializeZoomSdk();
+    expect(isApiAvailable('setVirtualBackground')).toBe(false);
+
+    // The user adds the app: the client now grants everything and calls them authorized.
+    sdkMock.config.mockResolvedValue({ unsupportedApis: [] });
+    sdkMock.getUserContext.mockResolvedValue({ status: 'authorized' });
+    const seen = [];
+    setUserStatusChangeCallback((status) => seen.push({ status, granted: isApiAvailable('setVirtualBackground') }));
+
+    await handleMyUserContextChange({ role: 'host', screenName: 'Priya', timestamp: 1 });
+
+    expect(sdkMock.config).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual([{ status: 'authorized', granted: true }]);
+  });
+
+  it('still reports the status when the re-configuration fails', async () => {
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.getUserContext = vi.fn().mockResolvedValue({ status: 'authorized' });
+    const { initializeZoomSdk, handleMyUserContextChange, setUserStatusChangeCallback } = await loadModule();
+    await initializeZoomSdk();
+    sdkMock.config.mockRejectedValue(new Error('client busy'));
+    const seen = [];
+    setUserStatusChangeCallback((status) => seen.push(status));
+
+    await expect(handleMyUserContextChange({})).resolves.toBeUndefined();
+
+    expect(seen).toEqual(['authorized']);
+  });
+
+  it('is a no-op before the SDK is up', async () => {
+    const { handleMyUserContextChange, setUserStatusChangeCallback } = await loadModule();
+    const callback = vi.fn();
+    setUserStatusChangeCallback(callback);
+
+    await handleMyUserContextChange({});
+
+    expect(sdkMock.config).not.toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+  });
+});
+
 describe('the client owns the background, so our record of it goes stale', () => {
   beforeEach(() => {
     stubCanvas();

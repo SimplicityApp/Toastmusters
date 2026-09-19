@@ -22,6 +22,13 @@ export const LAUNCH_UNKNOWN = 'unknown';
 export const CONNECTION_CONNECTED = 'connected';
 /** In the Zoom client, but the SDK refused us — authorization is gone. */
 export const CONNECTION_REVOKED = 'revoked';
+/**
+ * In the Zoom client, the SDK answered, but the user has not added the app —
+ * or Zoom dropped their grant. Zoom treats them as a guest: the app still
+ * opens from their Apps list, but the client asks their permission on every
+ * setVirtualBackground call, which is a dialog on every color change.
+ */
+export const CONNECTION_UNAUTHORIZED = 'unauthorized';
 /** An ordinary browser tab. Includes Zoom bouncing a user to the home URL. */
 export const CONNECTION_OUTSIDE_ZOOM = 'outside_zoom';
 /** Local development. Never worth a notice. */
@@ -45,15 +52,28 @@ export function readLaunchContext(doc = typeof document === 'undefined' ? null :
   return LAUNCH_UNKNOWN;
 }
 
+// getUserContext's answer for a user who is signed into Zoom but has not added
+// the app, or whose grant Zoom dropped after a scope change. The one status the
+// in-client promptAuthorize flow can fix in a click. An 'unauthenticated' user
+// is not signed into Zoom at all — a true guest, who joined by invitation and
+// is not the organizer — and is left alone.
+export const STATUS_AUTHENTICATED = 'authenticated';
+export const STATUS_AUTHORIZED = 'authorized';
+
 /**
  * @param {Object} input
  * @param {boolean} input.sdkReady - Did initializeZoomSdk() resolve true?
  * @param {'client'|'browser'|'unknown'} input.launch
  * @param {boolean} input.isDev - Running against the local dev server.
+ * @param {string|null} [input.authStatus] - getUserContext().status, or null
+ *   when the client did not say. Only consulted when the handshake succeeded.
  * @returns {string} One of the CONNECTION_* constants.
  */
-export function resolveConnectionState({ sdkReady, launch, isDev = false }) {
-  if (sdkReady) return CONNECTION_CONNECTED;
+export function resolveConnectionState({ sdkReady, launch, isDev = false, authStatus = null }) {
+  // A handshake that succeeded says the app is installed on this client; only
+  // the status says whether Zoom still holds this user's grant. Null is "did
+  // not say" (an older client, or getUserContext refused), never a problem.
+  if (sdkReady) return authStatus === STATUS_AUTHENTICATED ? CONNECTION_UNAUTHORIZED : CONNECTION_CONNECTED;
   if (launch === LAUNCH_CLIENT) return CONNECTION_REVOKED;
   if (launch === LAUNCH_BROWSER) return CONNECTION_OUTSIDE_ZOOM;
 
@@ -68,7 +88,7 @@ export function resolveConnectionState({ sdkReady, launch, isDev = false }) {
 
 /** Does this state warrant telling the organizer something? */
 export function needsAttention(state) {
-  return state === CONNECTION_REVOKED || state === CONNECTION_OUTSIDE_ZOOM;
+  return state === CONNECTION_REVOKED || state === CONNECTION_OUTSIDE_ZOOM || state === CONNECTION_UNAUTHORIZED;
 }
 
 // Organizer state this app writes on its own origin. Any of them means the

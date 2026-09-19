@@ -1,10 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { ZOOM_INSTALL_URL, ZOOM_RECONNECT_HELP_URL, TIMER_APP_URL } from '@toastmaster-timer/shared';
-import { initializeZoomSdk, openExternalUrl } from '../utils/zoomSdk';
+import {
+  initializeZoomSdk,
+  openExternalUrl,
+  promptZoomAuthorize,
+  readZoomUserStatus,
+  setUserStatusChangeCallback,
+} from '../utils/zoomSdk';
 import {
   CONNECTION_CONNECTED,
   CONNECTION_REVOKED,
+  CONNECTION_UNAUTHORIZED,
+  STATUS_AUTHORIZED,
   isReturningUser,
   needsAttention,
   readLaunchContext,
@@ -47,6 +55,22 @@ function markModalSeen() {
  * broken app. Exported for testing.
  */
 export function noticeCopy(state, returning) {
+  // Guest mode has its own copy whether or not they have used the app before:
+  // the symptom is the same permission dialog on every color change, and the
+  // fix is one click inside Zoom rather than a trip to the browser.
+  if (state === CONNECTION_UNAUTHORIZED) {
+    return {
+      bannerText: 'Zoom asks permission on every color change until you approve this app.',
+      title: 'Approve Toastmusters Timer in Zoom',
+      body:
+        'Zoom is treating this app as a guest, which usually happens after an app update ' +
+        'changes what it asks for. Until you approve it again, Zoom will pop up an "Allow" ' +
+        'dialog every time the timer changes your background. Approving takes one click and ' +
+        (returning ? 'leaves your agendas, roles and reports exactly where they are.' : 'the timer then runs without interruptions.'),
+      cta: 'Approve in Zoom',
+    };
+  }
+
   if (!returning) {
     return {
       bannerText: 'Add Toastmusters Timer to Zoom to control your video during meetings.',
@@ -96,13 +120,20 @@ export default function ZoomConnectionNotice() {
   const [returning, setReturning] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const { showToast } = useToast();
+  // The status callback below is registered once and outlives every render, so
+  // it reads the current state through a ref rather than a stale closure.
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     let cancelled = false;
 
     initializeZoomSdk()
       .catch(() => false)
-      .then((sdkReady) => {
+      .then(async (sdkReady) => {
+        // Only a client that shook hands can say how the user stands with it;
+        // asking a refused SDK would just be a second failure to read.
+        const authStatus = sdkReady ? await readZoomUserStatus().catch(() => null) : null;
         if (cancelled) return;
 
         const launch = readLaunchContext();
@@ -110,6 +141,7 @@ export default function ZoomConnectionNotice() {
           sdkReady: Boolean(sdkReady),
           launch,
           isDev: import.meta.env.DEV,
+          authStatus,
         });
         if (!needsAttention(resolved)) return;
 
@@ -128,8 +160,24 @@ export default function ZoomConnectionNotice() {
         });
       });
 
+    // The in-client approval flow reports back through the SDK, not through
+    // the button's promise: stand the notice down the moment Zoom says the
+    // user is authorized again, and say so, since the dialog they clicked
+    // through gave them no other confirmation that the popups will stop.
+    // Only while the notice is up: the same event fires on a role change
+    // (host to co-host), where an already-authorized user has nothing to hear.
+    setUserStatusChangeCallback((status) => {
+      if (cancelled || status !== STATUS_AUTHORIZED) return;
+      if (stateRef.current !== CONNECTION_UNAUTHORIZED) return;
+      setState(CONNECTION_CONNECTED);
+      setModalOpen(false);
+      trackEvent('zoom_reauthorized');
+      showToast('Approved. Zoom will stop asking permission for background changes.', 'success', 5000);
+    });
+
     return () => {
       cancelled = true;
+      setUserStatusChangeCallback(null);
     };
   }, []);
 
@@ -153,7 +201,24 @@ export default function ZoomConnectionNotice() {
     closeModal();
   };
 
-  const reAdd = () => handOff(INSTALL_URL, 'zoom_reconnect_clicked', { returning_user: returning });
+  /**
+   * Guest mode's fix is inside the client: Zoom's own add-the-app prompt, no
+   * browser involved. The install URL stays as the fallback for a client that
+   * refused promptAuthorize, where the browser flow still restores the grant.
+   */
+  const approveInZoom = async () => {
+    trackEvent('zoom_reauthorize_clicked', { connection_state: state, returning_user: returning });
+    if (await promptZoomAuthorize()) {
+      closeModal();
+      return;
+    }
+    await handOff(INSTALL_URL, 'zoom_reconnect_clicked', { returning_user: returning, fallback: true });
+  };
+
+  const reAdd = () =>
+    state === CONNECTION_UNAUTHORIZED
+      ? approveInZoom()
+      : handOff(INSTALL_URL, 'zoom_reconnect_clicked', { returning_user: returning });
   const browserTimer = () => handOff(TIMER_APP_URL, 'browser_timer_fallback_clicked');
   const why = () => handOff(ZOOM_RECONNECT_HELP_URL, 'zoom_reconnect_help_clicked');
 

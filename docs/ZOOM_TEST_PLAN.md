@@ -55,6 +55,37 @@ Requires Step 1 to be done with the current scopes.
 
 ---
 
+## Step 1c: Verify the Guest-Mode Notice
+
+The failure this catches: after a scope or capability change, every existing
+user is `authenticated` rather than `authorized`. The app opens as before, but
+the Zoom client asks the user's permission on every `setVirtualBackground`
+call — an "Allow" dialog on every color change. The app must notice and offer
+the in-client fix.
+
+1. With the app **not** authorized for the current scopes (skip Step 1, or
+   change a capability in the Marketplace and reopen the app), open the app in
+   a meeting.
+2. Expected: an amber banner at the top reads "Zoom asks permission on every
+   color change until you approve this app", and a modal titled "Approve
+   Toastmusters Timer in Zoom" opens once per session. The PostHog event
+   `zoom_connection_degraded` carries `connection_state: unauthorized`.
+3. Start a speech in Timer + Camera: confirm the "Allow" dialog on each color
+   change, which is the symptom.
+4. Click **Approve in Zoom**. Expected: Zoom's own add-the-app prompt opens
+   inside the client (no browser tab), our modal closes, the banner stays.
+5. Approve the app. Expected: the banner disappears, a toast says "Approved.
+   Zoom will stop asking permission for background changes", the debug log
+   shows `User context changed; Zoom now reports the user as authorized` after
+   a second `Zoom SDK configured` line, and PostHog records `zoom_reauthorized`.
+6. Start another speech: no "Allow" dialog on color changes. Clearing the
+   background at the end still confirms once; that dialog is Zoom's and stays.
+7. On a client that refuses `promptAuthorize` (older desktop, or the
+   capability not yet granted in the Marketplace), the button must open the
+   OAuth URL in the browser instead and log `promptAuthorize not granted`.
+
+---
+
 ## Step 2: Verify the App Appears in Zoom
 
 1. Open the Zoom Desktop Client

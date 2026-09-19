@@ -92,6 +92,8 @@ export const USED_SDK_APIS = [
   { name: 'getMeetingParticipants', capability: 'getMeetingParticipants', required: false, purpose: 'Speaker suggestions' },
   { name: 'getUserContext', capability: 'getUserContext', required: false, purpose: 'Putting yourself in the speaker list' },
   { name: 'getAppContext', capability: 'getAppContext', required: false, purpose: 'Recognising a returning user across meetings and devices' },
+  { name: 'promptAuthorize', capability: 'promptAuthorize', required: false, purpose: 'Re-approving the app from inside Zoom' },
+  { name: 'onMyUserContextChange', capability: 'onMyUserContextChange', required: false, purpose: 'Noticing the app being re-approved' },
   { name: 'shareApp', capability: 'shareApp', required: false, purpose: 'Sharing the stage to the meeting' },
   { name: 'onShareApp', capability: 'onShareApp', required: false, purpose: 'Following Zoom\'s own sharing toolbar' },
   { name: 'onShareScreen', capability: 'onShareScreen', required: false, purpose: 'Noticing Zoom\'s own Stop Share' },
@@ -1598,6 +1600,142 @@ export function initializeZoomSdk() {
   return sdkInitPromise;
 }
 
+/**
+ * Ask the client for every capability the app uses, and record what it refused.
+ *
+ * Separate from initialization because the SDK requires it to run again after
+ * the user's status changes: what a guest was refused, a user who has just
+ * added the app is granted, and the client only re-evaluates on a fresh
+ * config() call. Throws when even the required set is refused.
+ */
+async function configureZoomSdk() {
+  // Landscape 16:9, matching the branded backgrounds, so Timer Window mode
+  // opens close to the asset's shape instead of the old 400x600 portrait that
+  // letterboxed it badly. The client clamps this: documented minimums are
+  // 336x342 on Windows and 320x760 on Mac, with a 75%-of-screen maximum, so a
+  // small Mac display may still force a taller window. The layered backdrop in
+  // TimerStage is what keeps those cases presentable — this only improves the
+  // starting point, and the user can always resize.
+  const baseOptions = { popoutSize: { width: 1152, height: 648 }, version: '1.0.0' };
+  let configResult;
+  try {
+    configResult = await zoomSdk.config({
+      ...baseOptions,
+      capabilities: [...REQUIRED_CAPABILITIES, ...OPTIONAL_CAPABILITIES],
+    });
+  } catch (optionalCapabilityError) {
+    log(
+      `Config failed with optional capabilities (${optionalCapabilityError.message || optionalCapabilityError.name}). Retrying with required only.`,
+      'warn'
+    );
+    configResult = await zoomSdk.config({
+      ...baseOptions,
+      capabilities: [...REQUIRED_CAPABILITIES],
+    });
+  }
+
+  // config() resolves whether or not every capability was granted; the
+  // refusals arrive here rather than as a rejection.
+  unsupportedApis = new Set(configResult?.unsupportedApis || []);
+  log(`Zoom SDK configured. Config: ${JSON.stringify(configResult)}`, 'info');
+  const refused = USED_SDK_APIS.filter((api) => unsupportedApis.has(api.name));
+  if (refused.length) {
+    log(`Client refused: ${refused.map((api) => `${api.name} (${api.purpose})`).join(', ')}`, 'warn');
+  }
+  return configResult;
+}
+
+// Told when the user's standing with Zoom changes, with the new status string.
+let userStatusChangeCallback = null;
+
+/**
+ * Register a callback for the user's authorization status changing, so the
+ * notice that asked them to re-approve the app can stand down the moment they
+ * have.
+ * @param {Function|null} callback - Receives the new status
+ *   ('unauthenticated' | 'authenticated' | 'authorized')
+ */
+export function setUserStatusChangeCallback(callback) {
+  userStatusChangeCallback = callback;
+}
+
+/**
+ * React to the user's context changing: re-run config(), as the SDK requires,
+ * and report the new status. Exported for testing.
+ *
+ * The event itself carries only role and screen name, so the status is read
+ * back with getUserContext. The re-configuration comes first: a user who has
+ * just added the app is granted what a guest was refused, and every
+ * isApiAvailable check in this module reads off that answer.
+ *
+ * Never throws — this runs as an SDK event handler with nobody to catch it.
+ */
+export async function handleMyUserContextChange() {
+  if (!sdkAvailable || !zoomSdk) return;
+  try {
+    await configureZoomSdk();
+  } catch (error) {
+    log(`Could not re-configure after the user context changed: ${error.message || error.name}`, 'warn');
+  }
+  const status = await readZoomUserStatus();
+  log(`User context changed; Zoom now reports the user as ${status || 'unknown'}`, 'info');
+  if (userStatusChangeCallback) userStatusChangeCallback(status);
+}
+
+/**
+ * Subscribe to user-context changes. Non-fatal where refused: the notice then
+ * simply stays up until the webview is next reloaded, which Zoom does whenever
+ * the panel is closed and reopened.
+ */
+function subscribeToUserContext() {
+  if (!isApiAvailable('onMyUserContextChange')) {
+    log('onMyUserContextChange unavailable; authorization changes will not be noticed until reload', 'warn');
+    return;
+  }
+  try {
+    zoomSdk.onMyUserContextChange(handleMyUserContextChange);
+    log('Subscribed to onMyUserContextChange', 'info');
+  } catch (error) {
+    log(`Failed to subscribe to onMyUserContextChange: ${error.message || error.name}`, 'warn');
+  }
+}
+
+/**
+ * Ask Zoom to walk the user through adding (or re-adding) the app, from inside
+ * the client.
+ *
+ * This is the cure for guest mode. A user whose grant Zoom dropped — which it
+ * does whenever the app's scopes or capabilities change in the Marketplace —
+ * still opens the app from their Apps list, but the client treats them as a
+ * guest and asks for their confirmation on every setVirtualBackground call:
+ * a permission dialog on every color change of a speech. promptAuthorize runs
+ * the in-client OAuth flow that restores the grant; the resulting status change
+ * arrives through onMyUserContextChange.
+ *
+ * The prompt is non-blocking and the promise settles when it has been shown,
+ * not when the user has answered, so the return value says only whether Zoom
+ * took the request. False means the client refused the capability (or the
+ * SDK is not here at all), and the caller should fall back to the browser
+ * install flow.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function promptZoomAuthorize() {
+  await initializeZoomSdk();
+  if (!sdkAvailable || !zoomSdk || !isApiAvailable('promptAuthorize')) {
+    log('promptAuthorize not granted by this client; falling back to the browser install flow', 'warn');
+    return false;
+  }
+  try {
+    await zoomSdk.promptAuthorize();
+    log('Asked Zoom to prompt the user to add the app', 'info');
+    return true;
+  } catch (error) {
+    log(`promptAuthorize failed: ${error.message || error.name}`, 'warn');
+    return false;
+  }
+}
+
 async function initializeZoomSdkOnce() {
   sdkInitialized = true;
 
@@ -1605,46 +1743,16 @@ async function initializeZoomSdkOnce() {
     // Check if we're in a Zoom environment
     // The SDK will be available when running in Zoom client
     log('Initializing Zoom SDK...', 'info');
-    // Landscape 16:9, matching the branded backgrounds, so Timer Window mode
-    // opens close to the asset's shape instead of the old 400x600 portrait that
-    // letterboxed it badly. The client clamps this: documented minimums are
-    // 336x342 on Windows and 320x760 on Mac, with a 75%-of-screen maximum, so a
-    // small Mac display may still force a taller window. The layered backdrop in
-    // TimerStage is what keeps those cases presentable — this only improves the
-    // starting point, and the user can always resize.
-    const baseOptions = { popoutSize: { width: 1152, height: 648 }, version: '1.0.0' };
-    let configResult;
-    try {
-      configResult = await zoomSdk.config({
-        ...baseOptions,
-        capabilities: [...REQUIRED_CAPABILITIES, ...OPTIONAL_CAPABILITIES],
-      });
-    } catch (optionalCapabilityError) {
-      log(
-        `Config failed with optional capabilities (${optionalCapabilityError.message || optionalCapabilityError.name}). Retrying with required only.`,
-        'warn'
-      );
-      configResult = await zoomSdk.config({
-        ...baseOptions,
-        capabilities: [...REQUIRED_CAPABILITIES],
-      });
-    }
-
+    await configureZoomSdk();
     sdkAvailable = true;
-    // config() resolves whether or not every capability was granted; the
-    // refusals arrive here rather than as a rejection.
-    unsupportedApis = new Set(configResult?.unsupportedApis || []);
-    log(`Zoom SDK initialized successfully. Config: ${JSON.stringify(configResult)}`, 'info');
-    const refused = USED_SDK_APIS.filter((api) => unsupportedApis.has(api.name));
-    if (refused.length) {
-      log(`Client refused: ${refused.map((api) => `${api.name} (${api.purpose})`).join(', ')}`, 'warn');
-    }
+    log('Zoom SDK initialized successfully', 'info');
     subscribeToCameraResolution();
     subscribeToAppPopout();
     subscribeToAppVisibility();
     subscribeToShareApp();
     subscribeToShareScreen();
     subscribeToMeetingView();
+    subscribeToUserContext();
     return true;
   } catch (error) {
     // SDK not available (running locally or not in Zoom environment)
