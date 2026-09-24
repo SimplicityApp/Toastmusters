@@ -543,6 +543,27 @@ describe('camera resolution tracking', () => {
     expect(sdkMock.config.mock.calls[1][0].capabilities).toContain('deleteVideoFilter');
   });
 
+  it('treats a capability the retry never asked for as refused', async () => {
+    const { initializeZoomSdk, isApiAvailable } = await loadModule();
+    // The required-only retry resolves clean: config() only reports refusals
+    // among what it was asked for, and it was not asked for the optional set.
+    sdkMock.config.mockRejectedValueOnce(new Error('unsupported capability'));
+    sdkMock.config.mockResolvedValueOnce({ unsupportedApis: [] });
+
+    await initializeZoomSdk();
+
+    // Reading that empty list on its own would mark every optional API
+    // available on the one client that just refused the whole optional set,
+    // so every graceful-degradation branch would be skipped and the calls
+    // would reject at the bridge instead.
+    expect(isApiAvailable('setVirtualBackground')).toBe(false);
+    expect(isApiAvailable('getUserContext')).toBe(false);
+    expect(isApiAvailable('openUrl')).toBe(false);
+    // What the retry did ask for stays available.
+    expect(isApiAvailable('setVideoFilter')).toBe(true);
+    expect(isApiAvailable('deleteVideoFilter')).toBe(true);
+  });
+
   it('sizes the overlay to the reported camera resolution', async () => {
     const { handleMyMediaChange, getOverlayBudget, getOverlayDimensions } = await loadModule();
 

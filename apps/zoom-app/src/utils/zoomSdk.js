@@ -1617,26 +1617,37 @@ async function configureZoomSdk() {
   // TimerStage is what keeps those cases presentable — this only improves the
   // starting point, and the user can always resize.
   const baseOptions = { popoutSize: { width: 1152, height: 648 }, version: '1.0.0' };
+  let requested = [...REQUIRED_CAPABILITIES, ...OPTIONAL_CAPABILITIES];
   let configResult;
   try {
-    configResult = await zoomSdk.config({
-      ...baseOptions,
-      capabilities: [...REQUIRED_CAPABILITIES, ...OPTIONAL_CAPABILITIES],
-    });
+    configResult = await zoomSdk.config({ ...baseOptions, capabilities: requested });
   } catch (optionalCapabilityError) {
     log(
       `Config failed with optional capabilities (${optionalCapabilityError.message || optionalCapabilityError.name}). Retrying with required only.`,
       'warn'
     );
-    configResult = await zoomSdk.config({
-      ...baseOptions,
-      capabilities: [...REQUIRED_CAPABILITIES],
-    });
+    requested = [...REQUIRED_CAPABILITIES];
+    configResult = await zoomSdk.config({ ...baseOptions, capabilities: requested });
   }
 
   // config() resolves whether or not every capability was granted; the
   // refusals arrive here rather than as a rejection.
-  unsupportedApis = new Set(configResult?.unsupportedApis || []);
+  //
+  // It only reports on what it was asked for, though, so the required-only
+  // retry above comes back with an empty refusal list — which read on its own
+  // would mark every optional API available on precisely the client that just
+  // refused them. What was not requested on this pass is not granted, whatever
+  // the response says, so fold it in here. This matters more now that
+  // handleMyUserContextChange re-runs config() mid-session: one transient
+  // rejection would otherwise turn a correctly degraded session into one that
+  // skips every fallback and lets the calls reject at the bridge instead.
+  const askedFor = new Set(requested);
+  unsupportedApis = new Set([
+    ...(configResult?.unsupportedApis || []),
+    ...USED_SDK_APIS.filter((api) => api.capability && !askedFor.has(api.capability)).map(
+      (api) => api.name
+    ),
+  ]);
   log(`Zoom SDK configured. Config: ${JSON.stringify(configResult)}`, 'info');
   const refused = USED_SDK_APIS.filter((api) => unsupportedApis.has(api.name));
   if (refused.length) {
