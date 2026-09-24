@@ -1,10 +1,16 @@
 import '@testing-library/jest-dom';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ZoomConnectionNotice from './ZoomConnectionNotice';
 import { ToastProvider } from '../context/ToastContext';
 import { ZOOM_INSTALL_URL, TIMER_APP_URL } from '@toastmaster-timer/shared';
-import { initializeZoomSdk, openExternalUrl } from '../utils/zoomSdk';
+import {
+  initializeZoomSdk,
+  openExternalUrl,
+  promptZoomAuthorize,
+  readZoomUserStatus,
+  setUserStatusChangeCallback,
+} from '../utils/zoomSdk';
 import { trackEvent } from '../utils/posthog';
 
 // The component prefers VITE_ZOOM_OAUTH_REDIRECT and falls back to the shared
@@ -17,6 +23,9 @@ const INSTALL_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_INSTALL_URL
 vi.mock('../utils/zoomSdk', () => ({
   initializeZoomSdk: vi.fn(),
   openExternalUrl: vi.fn(),
+  promptZoomAuthorize: vi.fn(),
+  readZoomUserStatus: vi.fn(),
+  setUserStatusChangeCallback: vi.fn(),
 }));
 vi.mock('../utils/posthog', () => ({ trackEvent: vi.fn() }));
 
@@ -44,7 +53,18 @@ beforeEach(() => {
   setLaunchContext(null);
   openExternalUrl.mockResolvedValue(true);
   initializeZoomSdk.mockResolvedValue(false);
+  // An older client that never says: the pre-guest-mode picture, and the one
+  // every test below that is not about guest mode should keep seeing.
+  readZoomUserStatus.mockResolvedValue(null);
+  promptZoomAuthorize.mockResolvedValue(true);
 });
+
+/** The client shook hands, but reports the user as signed in without the app. */
+function inGuestMode() {
+  initializeZoomSdk.mockResolvedValue(true);
+  readZoomUserStatus.mockResolvedValue('authenticated');
+  setLaunchContext('client');
+}
 
 describe('ZoomConnectionNotice', () => {
   it('says nothing at all when the handshake succeeded', async () => {
@@ -163,5 +183,118 @@ describe('ZoomConnectionNotice', () => {
       launch_context: 'client',
       returning_user: true,
     });
+  });
+
+  // Zoom drops every user's grant when the app's scopes change. The app still
+  // opens, so the revoked notice never fires — but the client now asks the
+  // user's permission on every color change, which is the bug this catches.
+  it('tells a guest-mode user why Zoom keeps asking, and offers the in-client fix', async () => {
+    inGuestMode();
+    localStorage.setItem('toastmaster_agenda', '[{"role":"Speaker 1"}]');
+    renderNotice();
+
+    const modal = within(await screen.findByRole('dialog'));
+    expect(modal.getByText('Approve Toastmusters Timer in Zoom')).toBeInTheDocument();
+    expect(modal.getByText(/every time the timer changes your background/)).toBeInTheDocument();
+    expect(modal.getByText(/agendas, roles and reports exactly where they are/)).toBeInTheDocument();
+    expect(modal.getByRole('button', { name: /approve in zoom/i })).toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledWith('zoom_connection_degraded', expect.objectContaining({
+      connection_state: 'unauthorized',
+    }));
+  });
+
+  it('does not read the status, or nag, when the user is authorized', async () => {
+    initializeZoomSdk.mockResolvedValue(true);
+    readZoomUserStatus.mockResolvedValue('authorized');
+    setLaunchContext('client');
+    renderNotice();
+
+    await waitFor(() => expect(readZoomUserStatus).toHaveBeenCalled());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  // The fix lives inside the client: Zoom's own add-the-app prompt, with no
+  // trip to a browser. Sending them to the install URL instead would work but
+  // costs a browser tab mid-meeting.
+  it('approves through Zoom\'s own prompt rather than the browser', async () => {
+    const user = userEvent.setup();
+    inGuestMode();
+    renderNotice();
+    const modal = within(await screen.findByRole('dialog'));
+
+    await user.click(modal.getByRole('button', { name: /approve in zoom/i }));
+
+    expect(promptZoomAuthorize).toHaveBeenCalled();
+    expect(openExternalUrl).not.toHaveBeenCalled();
+    expect(trackEvent).toHaveBeenCalledWith('zoom_reauthorize_clicked', expect.any(Object));
+    // The prompt is Zoom's to show; ours closes so the two are not stacked.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // The banner holds until Zoom actually reports the grant restored.
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  // A client that refused promptAuthorize can still be fixed the long way.
+  it('falls back to the browser install flow when the client refuses promptAuthorize', async () => {
+    const user = userEvent.setup();
+    inGuestMode();
+    promptZoomAuthorize.mockResolvedValue(false);
+    renderNotice();
+    const modal = within(await screen.findByRole('dialog'));
+
+    await user.click(modal.getByRole('button', { name: /approve in zoom/i }));
+
+    expect(openExternalUrl).toHaveBeenCalledWith(INSTALL_URL);
+    expect(trackEvent).toHaveBeenCalledWith('zoom_reconnect_clicked', expect.objectContaining({ fallback: true }));
+  });
+
+  // The approval happens in Zoom's dialog, which tells the app nothing on its
+  // own; the SDK's status-change event is the only word that it worked.
+  it('stands down the moment Zoom reports the user authorized again', async () => {
+    inGuestMode();
+    renderNotice();
+    await screen.findByRole('status');
+    await waitFor(() => expect(setUserStatusChangeCallback).toHaveBeenCalledWith(expect.any(Function)));
+    const onStatus = setUserStatusChangeCallback.mock.calls.find(([cb]) => typeof cb === 'function')[0];
+
+    // Signing in without adding the app is not the fix; nothing changes.
+    act(() => onStatus('authenticated'));
+    expect(screen.getByRole('status')).toBeInTheDocument();
+
+    act(() => onStatus('authorized'));
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Zoom will stop asking permission/)).toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledWith('zoom_reauthorized');
+  });
+
+  // onMyUserContextChange also fires when the organizer is made co-host. An
+  // authorized user who was never shown the notice must not be congratulated.
+  it('says nothing on a status report while no notice is up', async () => {
+    initializeZoomSdk.mockResolvedValue(true);
+    readZoomUserStatus.mockResolvedValue('authorized');
+    setLaunchContext('client');
+    renderNotice();
+    await waitFor(() => expect(setUserStatusChangeCallback).toHaveBeenCalledWith(expect.any(Function)));
+    const onStatus = setUserStatusChangeCallback.mock.calls.find(([cb]) => typeof cb === 'function')[0];
+
+    act(() => onStatus('authorized'));
+
+    expect(screen.queryByText(/Zoom will stop asking permission/)).not.toBeInTheDocument();
+    expect(trackEvent).not.toHaveBeenCalledWith('zoom_reauthorized');
+  });
+
+  it('stops listening for status changes when it unmounts', async () => {
+    inGuestMode();
+    const { unmount } = render(
+      <ToastProvider>
+        <ZoomConnectionNotice />
+      </ToastProvider>
+    );
+    await screen.findByRole('status');
+
+    unmount();
+
+    expect(setUserStatusChangeCallback).toHaveBeenLastCalledWith(null);
   });
 });
