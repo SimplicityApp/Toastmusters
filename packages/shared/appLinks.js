@@ -33,6 +33,16 @@ export const TOOLS = [
 ];
 
 /**
+ * Zoom's OAuth authorize endpoint. One host worldwide: a user's region changes
+ * nothing here, and this app is registered on the global Marketplace only (the
+ * China platform, zoom.com.cn, is a separate service with its own apps). The
+ * Worker builds every install link from this, and the Zoom app accepts a
+ * stamped link only if it is on this origin — both from here, so they cannot
+ * disagree.
+ */
+export const ZOOM_AUTHORIZE_URL = 'https://zoom.us/oauth/authorize';
+
+/**
  * OAuth client id of the production Zoom app, and the redirect URI registered
  * against it in the Marketplace. The redirect URI must match the registered
  * value byte for byte, which is why it is still on the old host: the new
@@ -50,7 +60,7 @@ export const ZOOM_OAUTH_REDIRECT_URL = 'https://www.timer.simple-tech.app/oauth/
  * two cannot drift apart.
  */
 export const ZOOM_INSTALL_URL =
-  'https://zoom.us/oauth/authorize?response_type=code' +
+  `${ZOOM_AUTHORIZE_URL}?response_type=code` +
   `&client_id=${ZOOM_CLIENT_ID}` +
   `&redirect_uri=${encodeURIComponent(ZOOM_OAUTH_REDIRECT_URL)}`;
 

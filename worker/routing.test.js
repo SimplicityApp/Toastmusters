@@ -468,12 +468,34 @@ describe('zoom launch marker', () => {
       new Request('https://www.timer.simple-tech.app/zoom/support.html', {
         headers: { host: 'www.timer.simple-tech.app', 'x-zoom-app-context': 'opaque-blob' },
       }),
-      htmlEnv(),
+      { ...htmlEnv(), ZOOM_CLIENT_ID: 'dev-client', WEB_ORIGIN: 'https://www.timer-dev.simple-tech.app' },
       ctx
     );
 
-    expect(await res.text()).not.toContain('zoom-launch');
+    const html = await res.text();
+    expect(html).not.toContain('zoom-launch');
+    expect(html).not.toContain('zoom-install-url');
     expect(res.headers.get('cache-control')).not.toBe('no-store');
+  });
+
+  // The "add the app" link has to name the app this Worker belongs to: the dev
+  // Worker used to serve a bundle whose build-time link installed production.
+  it('stamps the install link for this deployment’s Zoom app', async () => {
+    const res = await worker.fetch(zoomRequest({ 'x-zoom-app-context': 'opaque-blob' }), { ...htmlEnv(), ZOOM_CLIENT_ID: 'dev-client', WEB_ORIGIN: 'https://www.timer-dev.simple-tech.app' }, ctx);
+
+    expect(await res.text()).toContain(
+      '<meta name="zoom-install-url" content="https://zoom.us/oauth/authorize?response_type=code&amp;client_id=dev-client&amp;redirect_uri=https%3A%2F%2Fwww.timer-dev.simple-tech.app%2Foauth%2Fredirect">'
+    );
+  });
+
+  // No link is better than a wrong one: the app falls back to its build-time
+  // value, which is what it always used.
+  it('leaves the install link out when the Worker has no OAuth configuration', async () => {
+    const res = await worker.fetch(zoomRequest(), htmlEnv(), ctx);
+
+    const html = await res.text();
+    expect(html).toContain('zoom-launch');
+    expect(html).not.toContain('zoom-install-url');
   });
 
   it('leaves the rest of the document alone', async () => {

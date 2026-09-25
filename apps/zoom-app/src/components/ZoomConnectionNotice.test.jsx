@@ -18,6 +18,11 @@ import { trackEvent } from '../utils/posthog';
 // that choice so the test passes in both places.
 const INSTALL_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_INSTALL_URL;
 
+// What the dev Worker stamps: the dev Zoom app, sending the browser back to the
+// dev origin. Deliberately not the build-time value.
+const STAMPED_INSTALL_URL =
+  'https://zoom.us/oauth/authorize?response_type=code&client_id=dev-client&redirect_uri=https%3A%2F%2Fwww.timer-dev.simple-tech.app%2Foauth%2Fredirect';
+
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom.
 vi.mock('../utils/zoomSdk', () => ({
@@ -38,6 +43,15 @@ function setLaunchContext(value) {
   document.head.appendChild(meta);
 }
 
+function setInstallUrl(value) {
+  document.head.querySelector('meta[name="zoom-install-url"]')?.remove();
+  if (!value) return;
+  const meta = document.createElement('meta');
+  meta.setAttribute('name', 'zoom-install-url');
+  meta.setAttribute('content', value);
+  document.head.appendChild(meta);
+}
+
 function renderNotice() {
   render(
     <ToastProvider>
@@ -51,6 +65,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   setLaunchContext(null);
+  setInstallUrl(null);
   openExternalUrl.mockResolvedValue(true);
   initializeZoomSdk.mockResolvedValue(false);
   // An older client that never says: the pre-guest-mode picture, and the one
@@ -119,6 +134,34 @@ describe('ZoomConnectionNotice', () => {
 
     expect(openExternalUrl).toHaveBeenCalledWith(INSTALL_URL);
     expect(trackEvent).toHaveBeenCalledWith('zoom_reconnect_clicked', expect.any(Object));
+  });
+
+  // A build-time link names one Zoom app for every deployment; the Worker
+  // stamps the one it actually belongs to, and that has to win — the dev host
+  // used to send its guests through the production install.
+  it('prefers the install link the Worker stamped for this deployment', async () => {
+    const user = userEvent.setup();
+    setLaunchContext('client');
+    setInstallUrl(STAMPED_INSTALL_URL);
+    renderNotice();
+    const modal = within(await screen.findByRole('dialog'));
+
+    await user.click(modal.getByRole('button', { name: /add to zoom/i }));
+
+    expect(openExternalUrl).toHaveBeenCalledWith(STAMPED_INSTALL_URL);
+  });
+
+  it('sends the guest-mode browser fallback to the stamped link too', async () => {
+    const user = userEvent.setup();
+    inGuestMode();
+    setInstallUrl(STAMPED_INSTALL_URL);
+    promptZoomAuthorize.mockResolvedValue(false);
+    renderNotice();
+    const modal = within(await screen.findByRole('dialog'));
+
+    await user.click(modal.getByRole('button', { name: /approve in zoom/i }));
+
+    expect(openExternalUrl).toHaveBeenCalledWith(STAMPED_INSTALL_URL);
   });
 
   // A meeting may be starting in seconds; the browser timer keeps it running.

@@ -14,6 +14,8 @@
  * (worker/index.js). Handshake result + launch context pins the state down.
  */
 
+import { ZOOM_AUTHORIZE_URL } from '@toastmaster-timer/shared';
+
 export const LAUNCH_CLIENT = 'client';
 export const LAUNCH_BROWSER = 'browser';
 export const LAUNCH_UNKNOWN = 'unknown';
@@ -50,6 +52,35 @@ export function readLaunchContext(doc = typeof document === 'undefined' ? null :
   if (content === LAUNCH_CLIENT) return LAUNCH_CLIENT;
   if (content === LAUNCH_BROWSER) return LAUNCH_BROWSER;
   return LAUNCH_UNKNOWN;
+}
+
+const ZOOM_OAUTH_ORIGIN = new URL(ZOOM_AUTHORIZE_URL).origin;
+
+/**
+ * Read the "add this app" link the Worker stamped into the head: the OAuth
+ * authorize URL for the Zoom app *this deployment* belongs to. A build-time
+ * link cannot know that — the dev host served a bundle whose baked-in link
+ * installed the production app — so the Worker, which holds the client id and
+ * the origin its OAuth callback answers on, says.
+ *
+ * Only a link on Zoom's OAuth origin is trusted — the same constant the Worker
+ * builds the link from, so the two cannot drift. The tag is ours, but the
+ * reconnect button hands the organizer's browser wherever this says, so a
+ * corrupt value must not travel. Origin is scheme + host + port, exactly, so
+ * zoom.us.example.com, user@ tricks and http:// all fail it.
+ *
+ * @param {Document} doc
+ * @returns {string|null} Null when the shell was served unstamped (the Vite
+ *   dev server, or a Worker without OAuth configured); callers fall back.
+ */
+export function readInstallUrl(doc = typeof document === 'undefined' ? null : document) {
+  const content = doc?.querySelector('meta[name="zoom-install-url"]')?.getAttribute('content');
+  if (!content) return null;
+  try {
+    return new URL(content).origin === ZOOM_OAUTH_ORIGIN ? content : null;
+  } catch {
+    return null;
+  }
 }
 
 // getUserContext's answer for a user who is signed into Zoom but has not added

@@ -16,16 +16,19 @@ import {
   isReturningUser,
   needsAttention,
   readLaunchContext,
+  readInstallUrl,
   resolveConnectionState,
 } from '../utils/zoomConnection';
 import { trackEvent } from '../utils/posthog';
 import { useToast } from '../context/ToastContext';
 
-// The marketing site builds its "Add to Zoom" href from this env var, so honour
-// it here too — a deployment that has customised the install link must not end
-// up with the in-app reconnect button pointing somewhere else. The shared
-// constant is the fallback, and the only value the Zoom app build has today.
+// The Worker stamps the install link for the Zoom app this deployment belongs
+// to (readInstallUrl), and that wins: a build-time value names one app for
+// every deployment, which is how the dev host sent guests through the
+// production install. Below it, the marketing site's env var, so a deployment
+// that customised its "Add to Zoom" href is honoured, then the shared constant.
 const INSTALL_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_INSTALL_URL;
+const installUrl = () => readInstallUrl() || INSTALL_URL;
 
 // The modal is the loud half; once per app session is enough. The banner below
 // it stays for as long as the problem does.
@@ -212,13 +215,13 @@ export default function ZoomConnectionNotice() {
       closeModal();
       return;
     }
-    await handOff(INSTALL_URL, 'zoom_reconnect_clicked', { returning_user: returning, fallback: true });
+    await handOff(installUrl(), 'zoom_reconnect_clicked', { returning_user: returning, fallback: true });
   };
 
   const reAdd = () =>
     state === CONNECTION_UNAUTHORIZED
       ? approveInZoom()
-      : handOff(INSTALL_URL, 'zoom_reconnect_clicked', { returning_user: returning });
+      : handOff(installUrl(), 'zoom_reconnect_clicked', { returning_user: returning });
   const browserTimer = () => handOff(TIMER_APP_URL, 'browser_timer_fallback_clicked');
   const why = () => handOff(ZOOM_RECONNECT_HELP_URL, 'zoom_reconnect_help_clicked');
 

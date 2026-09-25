@@ -4,7 +4,7 @@ import { handleZoomSession } from './session.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
-import { handleAuthStart, handleOAuthCallback, handleLogout } from './auth.js';
+import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
 import { handleBilling } from './billing.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 
@@ -52,6 +52,11 @@ const SPA_ROUTES = new Set(['/', '/app', '/oauth/redirect', '/billing/success', 
 export function zoomLaunchContext(request) {
   return request.headers.get('x-zoom-app-context') ? 'client' : 'browser';
 }
+
+// The stamped install link lands inside an attribute: the `&` between its
+// query parameters, or a quote, must not end the attribute early.
+const escapeAttribute = (value) =>
+  value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
 // Paths that resolve to the Zoom SPA shell by name rather than by falling
 // through. They need naming because the asset store answers them directly —
@@ -231,7 +236,11 @@ function fetchAsset(env, url, assetPath) {
 
 /**
  * Serve the Zoom SPA shell with the launch context stamped into its <head>, so
- * the app knows on first paint whether it is running inside the Zoom client.
+ * the app knows on first paint whether it is running inside the Zoom client —
+ * and, when the Worker is configured for OAuth, the "add the app" link for the
+ * Zoom app this deployment belongs to. The bundle's build-time link names one
+ * app for every deployment, which is how the dev host sent its guests through
+ * the production install.
  *
  * The marker is per-request, so the shell must not be cached: a stored
  * `content="client"` served to a browser would hide the reconnect notice, and a
@@ -244,7 +253,10 @@ async function fetchZoomShell(env, url, request) {
   if (!response.ok) return response;
 
   const html = await response.text();
-  const marker = `<meta name="zoom-launch" content="${zoomLaunchContext(request)}">`;
+  const installUrl = zoomAuthorizeUrl(env);
+  const marker =
+    `<meta name="zoom-launch" content="${zoomLaunchContext(request)}">` +
+    (installUrl ? `<meta name="zoom-install-url" content="${escapeAttribute(installUrl.toString())}">` : '');
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', 'no-store');
   // Both describe the asset as stored, and the injected marker has just made

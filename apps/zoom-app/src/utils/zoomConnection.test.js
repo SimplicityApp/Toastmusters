@@ -10,6 +10,7 @@ import {
   LAUNCH_UNKNOWN,
   isReturningUser,
   needsAttention,
+  readInstallUrl,
   readLaunchContext,
   resolveConnectionState,
 } from './zoomConnection';
@@ -37,6 +38,40 @@ describe('readLaunchContext', () => {
     expect(readLaunchContext(docWith(null))).toBe(LAUNCH_UNKNOWN);
     expect(readLaunchContext(docWith('nonsense'))).toBe(LAUNCH_UNKNOWN);
     expect(readLaunchContext(null)).toBe(LAUNCH_UNKNOWN);
+  });
+});
+
+describe('readInstallUrl', () => {
+  const DEV_INSTALL =
+    'https://zoom.us/oauth/authorize?response_type=code&client_id=dev&redirect_uri=https%3A%2F%2Fwww.timer-dev.simple-tech.app%2Foauth%2Fredirect';
+
+  function docWithInstall(content) {
+    const doc = document.implementation.createHTMLDocument('t');
+    if (content !== null) {
+      const meta = doc.createElement('meta');
+      meta.setAttribute('name', 'zoom-install-url');
+      meta.setAttribute('content', content);
+      doc.head.appendChild(meta);
+    }
+    return doc;
+  }
+
+  it('reads the install link the Worker stamped for this deployment', () => {
+    expect(readInstallUrl(docWithInstall(DEV_INSTALL))).toBe(DEV_INSTALL);
+  });
+
+  // An unstamped shell (the Vite dev server, a Worker without OAuth configured)
+  // falls back to the build-time link rather than a dead button.
+  it('reports null when the shell was served without one', () => {
+    expect(readInstallUrl(docWithInstall(null))).toBeNull();
+    expect(readInstallUrl(docWithInstall(''))).toBeNull();
+    expect(readInstallUrl(null)).toBeNull();
+  });
+
+  // The reconnect button sends the organizer's browser wherever this says.
+  it('refuses anything that is not a zoom.us link', () => {
+    expect(readInstallUrl(docWithInstall('https://evil.example/oauth/authorize'))).toBeNull();
+    expect(readInstallUrl(docWithInstall('not a url'))).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { verifySessionToken, readBearerToken, mintSessionToken } from './session-token.js';
 import { json, notConfigured, methodNotAllowed } from './http.js';
+import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
 
 /**
  * Who is calling, and how the web app signs in.
@@ -27,7 +28,6 @@ export const WEB_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const REISSUE_AFTER_MS = 24 * 60 * 60 * 1000;
 const STATE_TTL_MS = 10 * 60 * 1000;
 
-const ZOOM_AUTHORIZE_URL = 'https://zoom.us/oauth/authorize';
 const ZOOM_TOKEN_URL = 'https://zoom.us/oauth/token';
 const ZOOM_ME_URL = 'https://api.zoom.us/v2/users/me';
 
@@ -160,6 +160,25 @@ function redirect(location, cookies = []) {
 }
 
 /**
+ * The Zoom OAuth authorize URL for this deployment: the app whose client id
+ * the Worker holds, sending the browser back to WEB_ORIGIN. Sign-in appends a
+ * state to it; the Zoom shell stamps it plain as the "add the app" link, so the
+ * in-app reconnect button and the OAuth callback always name the same app.
+ * They did not: the dev Worker served a bundle whose build-time link installed
+ * production.
+ *
+ * @returns {URL|null} Null when the Worker is not configured for OAuth.
+ */
+export function zoomAuthorizeUrl(env) {
+  if (!env.ZOOM_CLIENT_ID || !env.WEB_ORIGIN) return null;
+  const authorize = new URL(ZOOM_AUTHORIZE_URL);
+  authorize.searchParams.set('response_type', 'code');
+  authorize.searchParams.set('client_id', env.ZOOM_CLIENT_ID);
+  authorize.searchParams.set('redirect_uri', `${env.WEB_ORIGIN}/oauth/redirect`);
+  return authorize;
+}
+
+/**
  * GET /api/auth/zoom/start?returnTo=/app — send the browser to Zoom.
  *
  * The state is signed and carries a nonce that is also set as a short-lived
@@ -177,10 +196,7 @@ export function handleAuthStart(request, url, env, { now = Date.now() } = {}) {
   const nonce = b64url(crypto.randomBytes(16));
   const state = signState({ nonce, purpose: 'signin', returnTo, iat: now, exp: now + STATE_TTL_MS }, env.SESSION_SIGNING_KEY);
 
-  const authorize = new URL(ZOOM_AUTHORIZE_URL);
-  authorize.searchParams.set('response_type', 'code');
-  authorize.searchParams.set('client_id', env.ZOOM_CLIENT_ID);
-  authorize.searchParams.set('redirect_uri', `${env.WEB_ORIGIN}/oauth/redirect`);
+  const authorize = zoomAuthorizeUrl(env);
   authorize.searchParams.set('state', state);
 
   return redirect(authorize.toString(), [oauthCookie(nonce)]);
