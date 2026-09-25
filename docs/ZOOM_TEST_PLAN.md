@@ -27,12 +27,14 @@
    `https://www.timer-dev.simple-tech.app/oauth/redirect`
 5. Verify the redirect page loads with a success message ("You're all set!")
 
-> **Re-run this step whenever the app's scopes or capabilities change in the
-> Marketplace.** Zoom drops the old grant: the app still opens from your Apps
-> list, but `getUserContext()` reports `authenticated` instead of `authorized`,
-> the app context carries no `uid`, and identity/sync silently stay off. In
-> Marketplace this is the **Local Test → Add app → Authorization URL** link.
-> "Preview app" does not authorize.
+> **Re-run this step after an OAuth scope change, within 90 days.** Zoom keeps
+> the old grant working for 90 days after a scope change and only then expires
+> it; adding or removing an API under Features → APIs never touches the grant
+> at all (see `ZOOM_AUTH_AND_REDIRECTS.md`). Once a grant has lapsed the app
+> still opens from your Apps list, but `getUserContext()` reports
+> `authenticated` instead of `authorized`, the app context carries no `uid`,
+> and identity/sync silently stay off. In Marketplace this is the **Local Test
+> → Add app → Authorization URL** link. "Preview app" does not authorize.
 
 ---
 
@@ -57,15 +59,19 @@ Requires Step 1 to be done with the current scopes.
 
 ## Step 1c: Verify the Guest-Mode Notice
 
-The failure this catches: after a scope or capability change, every existing
-user is `authenticated` rather than `authorized`. The app opens as before, but
-the Zoom client asks the user's permission on every `setVirtualBackground`
-call — an "Allow" dialog on every color change. The app must notice and offer
-the in-client fix.
+The failure this catches: a user who is signed into Zoom but has not added
+the app — or whose grant lapsed 90 days after a scope change — is
+`authenticated` rather than `authorized`. The app opens as before, but the
+Zoom client asks the user's permission on every `setVirtualBackground` call —
+an "Allow" dialog on every color change. The app must notice and offer the
+in-client fix.
 
-1. With the app **not** authorized for the current scopes (skip Step 1, or
-   change a capability in the Marketplace and reopen the app), open the app in
-   a meeting.
+1. Put a second account into the `authenticated` state. Changing a capability
+   or a scope does **not** do this; follow "Reaching the `authenticated` state
+   deliberately" in `ZOOM_AUTH_AND_REDIRECTS.md` (guest-mode testing on, a
+   guest account in the same meeting, opened from the App Launcher — not from
+   the invitation, which gives `unauthenticated` on desktop). Then open the
+   app in the meeting as that account.
 2. Expected: an amber banner at the top reads "Zoom asks permission on every
    color change until you approve this app", and a modal titled "Approve
    Toastmusters Timer in Zoom" opens once per session. The PostHog event

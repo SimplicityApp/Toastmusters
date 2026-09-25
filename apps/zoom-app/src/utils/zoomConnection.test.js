@@ -148,10 +148,11 @@ describe('isReturningUser', () => {
 });
 
 describe('guest mode: the handshake succeeded but Zoom holds no grant for this user', () => {
-  // The state this exists for. Zoom drops every user's grant when the app's
-  // scopes or capabilities change in the Marketplace; the app still opens and
-  // config() still resolves, but the client asks the user's permission on
-  // every setVirtualBackground call — a dialog on every color change.
+  // The state this exists for: signed into Zoom, app not added — or a grant
+  // that lapsed 90 days after a scope change (docs/ZOOM_AUTH_AND_REDIRECTS.md).
+  // The app still opens and config() still resolves, but the client asks the
+  // user's permission on every setVirtualBackground call — a dialog on every
+  // color change.
   it('calls a working SDK with an authenticated-not-authorized user unauthorized', () => {
     expect(
       resolveConnectionState({ sdkReady: true, launch: LAUNCH_CLIENT, authStatus: STATUS_AUTHENTICATED })

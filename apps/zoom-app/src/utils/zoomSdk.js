@@ -1715,8 +1715,9 @@ function subscribeToUserContext() {
  * Ask Zoom to walk the user through adding (or re-adding) the app, from inside
  * the client.
  *
- * This is the cure for guest mode. A user whose grant Zoom dropped — which it
- * does whenever the app's scopes or capabilities change in the Marketplace —
+ * This is the cure for guest mode. A user who is signed into Zoom but has not
+ * added the app — or whose grant lapsed, which Zoom does 90 days after a scope
+ * change, never on a capability change (docs/ZOOM_AUTH_AND_REDIRECTS.md) —
  * still opens the app from their Apps list, but the client treats them as a
  * guest and asks for their confirmation on every setVirtualBackground call:
  * a permission dialog on every color change of a speech. promptAuthorize runs
@@ -1875,10 +1876,15 @@ export async function readZoomUserSummary() {
 
   try {
     const context = await zoomSdk.getUserContext();
-    return {
+    const summary = {
       status: typeof context?.status === 'string' ? context.status : null,
       role: typeof context?.role === 'string' ? context.role : null,
     };
+    // The reconnect notice decides from this status, not from config()'s
+    // auth.status above it in the log — and the two are typed differently and
+    // have been seen to disagree. Log it so the panel shows the deciding value.
+    log(`getUserContext: status=${summary.status ?? 'unknown'}, role=${summary.role ?? 'unknown'}`, 'info');
+    return summary;
   } catch (error) {
     log(`Could not read your Zoom sign-in status: ${error.message || error.name}`, 'warn');
     return empty;

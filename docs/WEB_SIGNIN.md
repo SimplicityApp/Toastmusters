@@ -36,10 +36,12 @@ A session is never set without a valid state and matching nonce cookie.
    `user:read` on a classic-scope app. Without it the callback fails with
    `reason=profile` and nobody can sign in on the web.
 
-   Adding a scope invalidates every existing user's grant: they re-consent on
-   next open (Zoom prompts them), and dev testers must re-run the authorize URL
-   in `docs/ZOOM_TEST_PLAN.md`. Add it once, together with the listing update
-   for Pro, and submit for re-review in one go.
+   Adding a scope does not cut existing users off at once: Zoom keeps their
+   current authorization working for 90 days, then the refresh token expires
+   and they re-consent (see `ZOOM_AUTH_AND_REDIRECTS.md`). Dev testers should
+   re-run the authorize URL in `docs/ZOOM_TEST_PLAN.md` right away so the new
+   scope is exercised. Add it once, together with the listing update for Pro,
+   and submit for re-review in one go.
 3. Confirm once, on dev, that `users/me.id` equals the `uid` the app context
    carries (sign in on the web, then compare the PostHog person id with the
    one the Zoom app reports). Both are documented as the Zoom user id.
