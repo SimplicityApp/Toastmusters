@@ -145,6 +145,21 @@
           "id": "icebreakers-028",
           "text": "What is the best piece of unsolicited advice a stranger ever gave you?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "icebreakers-029",
+          "text": "What is the last thing that made you laugh out loud today?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "icebreakers-030",
+          "text": "Which small decision today are you glad you made?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "icebreakers-031",
+          "text": "What do you notice first when you walk into a room full of strangers?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -292,6 +307,21 @@
           "id": "childhood-memories-028",
           "text": "Who was the strictest adult in your childhood, and what did you learn from them?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "childhood-memories-029",
+          "text": "What was the loudest your house ever got during a family gathering as a kid?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "childhood-memories-030",
+          "text": "Which teacher from childhood said something you still remember word for word?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "childhood-memories-031",
+          "text": "What did you and your friends argue about most as children?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -439,6 +469,21 @@
           "id": "travel-places-028",
           "text": "What do you always do the moment you unpack in a new place?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "travel-places-029",
+          "text": "Which town or city surprised you by feeling instantly familiar?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "travel-places-030",
+          "text": "What do you do the moment a trip stops going according to plan?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "travel-places-031",
+          "text": "What is the one travel rule you never break, no matter the trip?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -586,6 +631,21 @@
           "id": "work-career-028",
           "text": "Which task at work do you quietly enjoy more than you admit?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "work-career-029",
+          "text": "What is a workplace tradition you wish more companies had?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "work-career-030",
+          "text": "How do you know when a project has finally gone well?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "work-career-031",
+          "text": "Which coworker's advice changed how you handle stress at work?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -733,6 +793,21 @@
           "id": "leadership-028",
           "text": "Which leadership lesson did you learn from watching a bad boss?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "leadership-029",
+          "text": "What is the kindest way you have seen someone correct a leader's mistake?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "leadership-030",
+          "text": "How do you decide whose voice to bring into a big decision?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "leadership-031",
+          "text": "What is the first thing you check when you take over a struggling project?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -880,6 +955,21 @@
           "id": "technology-028",
           "text": "What is the strangest thing you have ever searched for online?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "technology-029",
+          "text": "Which digital tool reshaped the way you plan your days?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "technology-030",
+          "text": "What is the most surprising way a machine has ever helped you?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "technology-031",
+          "text": "How do you feel when a piece of technology you love becomes outdated?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -1027,6 +1117,21 @@
           "id": "food-drink-028",
           "text": "How do you decide what to order when a menu overwhelms you?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "food-drink-029",
+          "text": "What meal do you always order to test a new restaurant?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "food-drink-030",
+          "text": "Which food have you sworn off but secretly still crave?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "food-drink-031",
+          "text": "How do you feel about cooking for a crowd versus cooking for one?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -1174,6 +1279,21 @@
           "id": "hypotheticals-028",
           "text": "If you had to leave your home in ten minutes, what would you grab first?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "hypotheticals-029",
+          "text": "If everyone in town had to trade jobs for a day, what would you want to try?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "hypotheticals-030",
+          "text": "What would you ask a version of yourself twenty years in the future?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "hypotheticals-031",
+          "text": "If you had to give up one sense for a year, which would you choose and how would you adapt?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -1321,6 +1441,21 @@
           "id": "would-you-rather-028",
           "text": "Would you rather have unlimited time or unlimited energy, and why?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "would-you-rather-029",
+          "text": "Would you rather cook every meal yourself or never cook again, and why?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "would-you-rather-030",
+          "text": "Would you rather live without weekends or without vacations, and how would you cope?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "would-you-rather-031",
+          "text": "Would you rather have unlimited patience or unlimited confidence, and why?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -1468,6 +1603,21 @@
           "id": "quotes-proverbs-028",
           "text": "\"A stitch in time saves nine\": when did fixing a small problem early save you later?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "quotes-proverbs-029",
+          "text": "\"Absence makes the heart grow fonder\": when has distance changed how you felt about someone?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "quotes-proverbs-030",
+          "text": "\"The squeaky wheel gets the grease\": when has speaking up gotten you what you needed?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "quotes-proverbs-031",
+          "text": "\"Curiosity killed the cat\": when has curiosity gotten you into trouble worth it?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -1615,6 +1765,21 @@
           "id": "storytelling-028",
           "text": "What is the story behind the strangest gift you have ever received?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "storytelling-029",
+          "text": "What happened the day a small favor turned into a big adventure?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "storytelling-030",
+          "text": "How did you talk yourself into doing something you were scared of, and what happened?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "storytelling-031",
+          "text": "What is the story of the best decision you made on very little sleep?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -1762,6 +1927,21 @@
           "id": "persuasion-028",
           "text": "How would you convince a skeptic that reading fiction matters?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "persuasion-029",
+          "text": "Why is it worth trying a hobby you might be bad at?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "persuasion-030",
+          "text": "What is the strongest case for eating dinner at the table instead of in front of a screen?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "persuasion-031",
+          "text": "What is the best argument for choosing experiences over things?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -1909,6 +2089,21 @@
           "id": "seasons-celebrations-028",
           "text": "Which brand-new holiday tradition would you love to start with your own family?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "seasons-celebrations-029",
+          "text": "Which holiday decoration do you look forward to putting up each year?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "seasons-celebrations-030",
+          "text": "Which celebration do you wish lasted longer than it does?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "seasons-celebrations-031",
+          "text": "How do you mark a milestone that has no official holiday?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -2056,6 +2251,21 @@
           "id": "humor-028",
           "text": "What is the funniest thing a pet or child has ever said or done around you?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "humor-029",
+          "text": "What is the most ridiculous rule your household has that actually works?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "humor-030",
+          "text": "Which silly nickname have you given an inanimate object in your home?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "humor-031",
+          "text": "What is the funniest thing you have overheard from a stranger?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -2203,6 +2413,21 @@
           "id": "dilemmas-028",
           "text": "What would you do if you found a wallet full of cash on the street?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "dilemmas-029",
+          "text": "A friend posts something online you strongly disagree with: what do you do?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "dilemmas-030",
+          "text": "How do you respond when a shared meal arrives and one order is wrong?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "dilemmas-031",
+          "text": "How do you handle it when a friend consistently talks over you in conversation?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -2350,6 +2575,21 @@
           "id": "learning-growth-028",
           "text": "Which failure are you now grateful actually happened?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "learning-growth-029",
+          "text": "What is a skill you taught yourself entirely from scratch?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "learning-growth-030",
+          "text": "How do you tell the difference between quitting too soon and quitting wisely?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "learning-growth-031",
+          "text": "Who is the most patient teacher you have ever had, and what made them so?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -2497,6 +2737,21 @@
           "id": "nature-outdoors-028",
           "text": "How do you feel when you spot wildlife somewhere unexpected?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "nature-outdoors-029",
+          "text": "Which time of day do you find nature at its most beautiful?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "nature-outdoors-030",
+          "text": "What is the longest you have gone without seeing a tree, and how did it feel?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "nature-outdoors-031",
+          "text": "Which outdoor sound would you miss most if you moved to a big city?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -2644,6 +2899,21 @@
           "id": "habits-routines-028",
           "text": "Which small ritual do you rely on before a big day?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "habits-routines-029",
+          "text": "What is the first habit you break when your schedule gets busy?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "habits-routines-030",
+          "text": "How do you handle a routine that a housemate or partner disrupts?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "habits-routines-031",
+          "text": "What time of day do you feel most tied to your routine?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -2791,6 +3061,21 @@
           "id": "creativity-arts-028",
           "text": "Which artist or creator do you wish you could spend a day with?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "creativity-arts-029",
+          "text": "What is a song you cannot help but sing along to, no matter where you are?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "creativity-arts-030",
+          "text": "Which creative risk are you glad you took, even though it scared you?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "creativity-arts-031",
+          "text": "How do you decide when a creative project is truly finished?",
+          "added": "2026-09-14"
         }
       ]
     },
@@ -2938,6 +3223,21 @@
           "id": "contest-style-028",
           "text": "What is the bravest thing you have ever chosen not to do?",
           "added": "2026-09-07"
+        },
+        {
+          "id": "contest-style-029",
+          "text": "What does patience actually look like in daily life?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "contest-style-030",
+          "text": "How do you decide when to speak up and when to stay quiet?",
+          "added": "2026-09-14"
+        },
+        {
+          "id": "contest-style-031",
+          "text": "What is one small act that restored your faith in people?",
+          "added": "2026-09-14"
         }
       ]
     }
