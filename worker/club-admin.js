@@ -108,6 +108,25 @@ export function mintCode(name, randomInt = () => crypto.randomInt(CODE_ALPHABET.
 
 export const clubByCodeKey = (code) => `club-by-code:${normalizeCode(code)}`;
 export const clubByCustomerKey = (customerId) => `club-by-customer:${customerId}`;
+
+/**
+ * Fold a billing address into the one form we index it under.
+ *
+ * Case only, and the whole address: the local part of an address is
+ * case-sensitive by the letter of the RFC and case-insensitive at every
+ * provider anyone actually bills through, and treating `Sarah@` and `sarah@` as
+ * two clubs would lock an officer out for capitalising their own name.
+ */
+export const normalizeEmail = (email) => String(email ?? '').trim().toLowerCase();
+
+/**
+ * The club a billing address owns.
+ *
+ * An index rather than a scan, because the magic-link route is public: without
+ * it, answering "does this address own a club?" would mean listing every club
+ * record on every request, including every request from someone guessing.
+ */
+export const clubByEmailKey = (email) => `club-by-email:${normalizeEmail(email)}`;
 export const clubDeviceKey = (clubId, deviceId) => `club-device:${clubId}:${deviceId}`;
 export const clubMemberKey = (clubId, uid) => `club-member:${clubId}:zoom:${uid}`;
 export const clubPresetsKey = (clubId) => `club-presets:${clubId}`;
@@ -205,6 +224,9 @@ export async function createClubFromPending(env, pending = {}, options = {}) {
   await store.put(clubKey(clubId), JSON.stringify(club));
   await store.put(clubByCodeKey(code), clubId);
   if (pending.stripeCustomerId) await store.put(clubByCustomerKey(pending.stripeCustomerId), clubId);
+  // The magic link's only lookup. Written here because this is the one moment
+  // the address is known to belong to this club; nothing else ever writes it.
+  if (club.billingEmail) await store.put(clubByEmailKey(club.billingEmail), clubId);
   if (pending.uid) {
     await store.put(
       clubMemberKey(clubId, pending.uid),

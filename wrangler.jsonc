@@ -21,11 +21,30 @@
   //    launch); anything else enforces. The UI still offers the upgrade to
   //    free-plan users either way, so Checkout can be tested on dev.
   //  - STRIPE_AUTOMATIC_TAX: "1" once Stripe Tax is enabled in the dashboard.
+  //  - MAGIC_LINK_FROM: the From address on the club admin link. Its domain has
+  //    to be onboarded for sending first (`npx wrangler email sending enable
+  //    toastmusters.com`, which auto-provisions SPF and DKIM; DMARC is not
+  //    auto-added and should be set alongside it). Dev needs its own onboarded
+  //    domain, since env.dev serves the *-dev hosts.
   "vars": {
     "WEB_ORIGIN": "https://www.timer.simple-tech.app",
     "ENTITLEMENT_ENFORCE": "1",
-    "STRIPE_AUTOMATIC_TAX": "0"
+    "STRIPE_AUTOMATIC_TAX": "0",
+    "MAGIC_LINK_FROM": "no-reply@toastmusters.com"
   },
+
+  // The club admin link, mailed to the club's billing address. A binding rather
+  // than an API key: nothing to store, rotate or leak, and no outbound HTTP
+  // call to wrap the way worker/stripe.js wraps Stripe.
+  //
+  // ⚠️ `"remote": true` on this binding makes `wrangler dev` send REAL mail. It
+  // is the only way to exercise delivery locally, and it belongs in a local
+  // override (wrangler.local.jsonc / --config) — never in this file.
+  //
+  // ⚠️ A hard bounce permanently suppresses the address on the account, and
+  // later sends fail with E_RECIPIENT_SUPPRESSED. The console never claims
+  // delivery; worker/club-magic.js logs suppression loudly instead.
+  "send_email": [{ "name": "EMAIL" }],
 
   // Cross-device user settings, keyed profile:zoom:<uid>. Values are a few KB
   // of preferences, so KV's eventual consistency is fine: the merge is
@@ -133,6 +152,11 @@
       "r2_buckets": [
         { "binding": "CARD_ASSETS", "bucket_name": "toastmaster-timer-card-assets-dev" }
       ],
+      // `send_email` is not inherited by environments either. Dev sends from
+      // its own onboarded domain; the magic link is answered with 200 whether
+      // or not the send succeeds, so an un-onboarded dev domain shows up only
+      // in the Worker log.
+      "send_email": [{ "name": "EMAIL" }],
       // `unsafe` is not inherited by environments; repeated here so dev throttles too.
       "unsafe": {
         "bindings": [
@@ -147,7 +171,8 @@
       "vars": {
         "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
         "ENTITLEMENT_ENFORCE": "0",
-        "STRIPE_AUTOMATIC_TAX": "0"
+        "STRIPE_AUTOMATIC_TAX": "0",
+        "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com"
       }
     }
   }

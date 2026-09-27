@@ -156,7 +156,7 @@ describe('404 handling', () => {
   it('serves the SPA shell with 200 for real app routes', async () => {
     const env = makeEnv(['/index.html']);
 
-    for (const path of ['/', '/app', '/oauth/redirect']) {
+    for (const path of ['/', '/app', '/oauth/redirect', '/club/admin', '/club/manage']) {
       const res = await worker.fetch(
         get(`https://www.timer.simple-tech.app${path}`),
         env,

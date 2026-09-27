@@ -97,7 +97,9 @@ function printClub(clubId, club) {
       `  ver       ${club.ver}`,
       `  status    ${club.status}`,
       `  timezone  ${club.timezone ?? '(device default)'}`,
+      `  billing   ${club.billingEmail ?? '(none — the magic-link door will not work)'}`,
       `  link      https://www.timer.toastmusters.com/pro/${formatCode(club.code)}`,
+      '  console   https://www.timer.toastmusters.com/club/admin',
       '',
     ].join('\n')
   );

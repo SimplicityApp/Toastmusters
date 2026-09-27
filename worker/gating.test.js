@@ -2,9 +2,12 @@ import crypto from 'node:crypto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
+import { handleClubPresets } from './club-presets.js';
+import { appendSpeech, listMeetings } from './club-meetings.js';
 import { mintSessionToken } from './session-token.js';
 import { mintClubToken } from './club-token.js';
 import { grantKey, entitlementKey, clubKey } from './entitlements.js';
+import { clubMemberKey } from './club-admin.js';
 
 /**
  * The paywall, end to end through the two gated handlers: reads stay open for
@@ -24,6 +27,11 @@ function makeKv(seed = {}) {
       return type === 'json' ? JSON.parse(raw) : raw;
     },
     put: async (key, value) => { store.set(key, value); },
+    delete: async (key) => { store.delete(key); },
+    list: async ({ prefix = '' } = {}) => ({
+      keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+      list_complete: true,
+    }),
   };
 }
 
@@ -175,5 +183,52 @@ describe('club devices', () => {
     // assert the shape through the handler that always reports it.
     const refused = await handleAsset(...assetReq('PUT', 'nobody'), env);
     expect((await refused.json()).entitlement.club).toBeNull();
+  });
+});
+
+/**
+ * What revocation costs a device, and what it does not.
+ *
+ * The club token is HMAC-only so that sending it on every request stays cheap,
+ * so revoking an already-issued one has to consult state on the paths that were
+ * already going to write. A revoked device stops publishing, appending and
+ * consuming the club's quota immediately; what it keeps, for up to the token's
+ * 24 hours, is the ability to read a club it was already reading.
+ */
+describe('a revoked device', () => {
+  const presets = { rules: { Speech: { green: 300, yellow: 360, red: 420, graceAfterRed: 30 } }, order: [], hiddenBuiltins: [] };
+
+  const presetsReq = (uid, clubToken) =>
+    new Request('https://x/api/club/presets', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...bearer(uid), ...clubHeader(clubToken) },
+      body: JSON.stringify(presets),
+    });
+
+  const appendReq = (clubToken) =>
+    new Request('https://x/api/club/meetings/20260929/speeches', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...clubHeader(clubToken) },
+      body: JSON.stringify({ speechId: 's-1', name: 'Sarah', role: 'Speech', duration: '5:12', color: 'green', finishedAt: 1 }),
+    });
+
+  const listReq = (clubToken) => new Request('https://x/api/club/meetings', { headers: clubHeader(clubToken) });
+
+  it('is refused on publish and on append, and still reads', async () => {
+    const live = seedClubDevice({ clubId: 'club-1', deviceId: 'ok', uid: 'sarah' });
+    kv.store.set(clubMemberKey('club-1', 'sarah'), JSON.stringify({ role: 'admin' }));
+
+    // It could do both a moment ago.
+    expect((await handleClubPresets(presetsReq('sarah', live), env)).status).toBe(200);
+    expect((await appendSpeech(appendReq(live), env, '20260929')).status).toBe(200);
+
+    const dead = seedClubDevice({ clubId: 'club-1', deviceId: 'gone', uid: 'sarah', revokedAt: Date.now() });
+
+    expect((await handleClubPresets(presetsReq('sarah', dead), env)).status).toBe(403);
+    expect((await appendSpeech(appendReq(dead), env, '20260929')).status).toBe(403);
+
+    // Reads ride the token's own life: this is a club it was already reading,
+    // and the 24-hour expiry is what bounds it.
+    expect((await listMeetings(listReq(dead), env)).status).toBe(200);
   });
 });

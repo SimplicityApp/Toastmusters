@@ -6,6 +6,8 @@ import { mintClubToken } from './club-token.js';
 import { normalizeCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
 import { handleClubPresets, readClubPresets } from './club-presets.js';
 import { handleClubMeetings } from './club-meetings.js';
+import { handleClubAdminRoutes } from './club-admin-routes.js';
+import { handleMagicLinkRequest, handleClubManage, handleClubManageSignOut } from './club-magic.js';
 
 /**
  * Joining a club from a device, and asking the club what it looks like today.
@@ -330,5 +332,16 @@ export function handleClub(request, url, env) {
   if (route === 'activate') return handleClubActivate(request, env);
   if (route === 'presets') return handleClubPresets(request, env);
   if (route === 'meetings' || route.startsWith('meetings/')) return handleClubMeetings(request, route, env);
+
+  // The console's second door. Public (and rate-limited) on the way in, so it
+  // sits ahead of the admin routes, which all require a credential.
+  if (route === 'magic-link') return handleMagicLinkRequest(request, env);
+  if (route === 'manage') return handleClubManage(request, url, env);
+  if (route === 'manage/signout') return handleClubManageSignOut(request);
+
+  // roster, members/<uid>/role, devices/<id>/revoke, kit.
+  const admin = handleClubAdminRoutes(request, route, env);
+  if (admin) return admin;
+
   return json({ error: 'Not found' }, 404);
 }

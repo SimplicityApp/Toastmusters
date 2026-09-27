@@ -42,7 +42,19 @@ const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|
 // Paths the root SPA (apps/web) owns via react-router. Anything else that
 // misses the asset lookup is a genuine 404 — serving index.html with HTTP 200
 // for unknown URLs creates soft 404s that waste crawl budget.
-const SPA_ROUTES = new Set(['/', '/app', '/oauth/redirect', '/billing/success', '/billing/cancel', '/account']);
+const SPA_ROUTES = new Set([
+  '/',
+  '/app',
+  '/oauth/redirect',
+  '/billing/success',
+  '/billing/cancel',
+  '/account',
+  // The officer's console and the page that spends a mailed admin link. Both
+  // are browser-only: an officer reviewing their roster is not in a meeting,
+  // and a magic link cannot open inside the Zoom sidebar.
+  '/club/admin',
+  '/club/manage',
+]);
 
 // Root SPA routes whose tail is data rather than a page: /pro/<code> is the
 // officer's shareable activation link, so the set of valid paths is the set of
