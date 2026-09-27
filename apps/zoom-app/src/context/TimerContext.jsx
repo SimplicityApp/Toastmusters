@@ -5,6 +5,8 @@ import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRo
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
 import { parseEasySpeakText } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
+import { recordSpeech } from '@toastmaster-timer/shared';
+import { getSessionToken } from '../utils/zoomIdentity';
 import { resolveActiveRules, resolveActiveHiddenBuiltins, resolveActiveRoleOrder } from '@toastmaster-timer/shared';
 import { useToast } from './ToastContext';
 import { trackEvent } from '../utils/posthog';
@@ -487,15 +489,24 @@ export function TimerProvider({ children }) {
     return `Finished ${seconds} second${seconds > 1 ? 's' : ''} before green`;
   }, []);
 
+  // The record grows an id and a finish time. Both are for the club archive:
+  // the id is what makes the upload an append to a key that has never existed,
+  // so a retry rewrites the same bytes, and the timestamp is what orders a
+  // meeting two laptops timed together. They stay out of SYNCED_KEYS all the
+  // same — see the note on `toastmaster_reports` in profileMerge.js.
   const addReport = useCallback((entry) => {
-    setReports(prev => [...prev, {
+    const record = {
+      speechId: (globalThis.crypto?.randomUUID?.() ?? `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`),
       name: entry.name,
       role: entry.role,
       duration: formatTime(entry.duration),
       color: entry.color,
       comments: entry.comments || '',
-      disqualified: entry.disqualified === true
-    }]);
+      disqualified: entry.disqualified === true,
+      finishedAt: Date.now(),
+    };
+    setReports(prev => [...prev, record]);
+    return record;
   }, []);
 
   const clearAllReports = useCallback(() => {
@@ -519,7 +530,11 @@ export function TimerProvider({ children }) {
           comment = formatBeforeGreenComment(elapsedTime, rules.green);
         }
       }
-      addReport({ name: currentSpeaker.name, role: currentSpeaker.role, duration: elapsedTime, color: currentStatus, comments: comment, disqualified });
+      const record = addReport({ name: currentSpeaker.name, role: currentSpeaker.role, duration: elapsedTime, color: currentStatus, comments: comment, disqualified });
+      // Queued, not awaited: FINISH hands the timer back to the organizer at
+      // once, and a club that cannot be reached right now is a retry rather
+      // than anything anybody has to see. A device with no club queues nothing.
+      recordSpeech(record, { getToken: getSessionToken });
       trackEvent('speech_finished', { speaker_name: currentSpeaker.name || 'Unnamed', role: currentSpeaker.role, duration: elapsedTime, final_status: currentStatus });
       // Drives the periodic prompt cadence (see PeriodicPrompts).
       recordSpeechFinished();

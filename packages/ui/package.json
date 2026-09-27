@@ -8,6 +8,7 @@
     ".": "./index.js",
     "./BrandedReportHeader": "./BrandedReportHeader.jsx",
     "./ClubBadge": "./ClubBadge.jsx",
+    "./ReportHistoryList": "./ReportHistoryList.jsx",
     "./content-pages.css": "./content-pages.css"
   },
   "peerDependencies": {

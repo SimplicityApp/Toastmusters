@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
-import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, initClubFromCache, refreshClub, warmClubLogo } from '@toastmaster-timer/shared'
+import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, initClubFromCache, refreshClub, warmClubLogo, drainOutbox } from '@toastmaster-timer/shared'
 import { initPostHog, identifyUser, setUserProperties, registerSessionProperties } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
@@ -52,6 +52,12 @@ try {
 // refresh at app start — never in the middle of a meeting.
 refreshClub({ getToken: getSessionToken }).catch((error) => {
   console.warn('Failed to refresh the club:', error);
+});
+
+// Speeches the last session could not hand over — a webview reload mid-meeting
+// is routine here, which is exactly why the queue lives in localStorage.
+drainOutbox({ getToken: getSessionToken }).catch((error) => {
+  console.warn('Failed to send queued speeches to the club:', error);
 });
 
 // Tie this session to the Zoom user, so a returning organizer is the same

@@ -7,7 +7,7 @@ import App from './App.jsx'
 import './index.css'
 import { initPostHog } from './utils/posthog.js'
 import { startWebSession } from './utils/webIdentity.js'
-import { initClubFromCache, refreshClub, warmClubLogo } from '@toastmaster-timer/shared'
+import { initClubFromCache, refreshClub, warmClubLogo, drainOutbox } from '@toastmaster-timer/shared'
 
 // Before the first paint, and synchronous: a browser that joined a club is Pro,
 // and reading that out of localStorage now is what stops the plan flashing
@@ -43,5 +43,10 @@ deferInit(() => {
   // place, so a lapse can only land on a successful one.
   refreshClub().catch((error) => {
     console.warn('Failed to refresh the club:', error)
+  })
+  // Speeches the last session could not hand over — a tab closed mid-meeting,
+  // a hall with no wifi. The queue is in localStorage precisely so this works.
+  drainOutbox().catch((error) => {
+    console.warn('Failed to send queued speeches to the club:', error)
   })
 })

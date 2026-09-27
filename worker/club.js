@@ -5,6 +5,7 @@ import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.
 import { mintClubToken } from './club-token.js';
 import { normalizeCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
 import { handleClubPresets, readClubPresets } from './club-presets.js';
+import { handleClubMeetings } from './club-meetings.js';
 
 /**
  * Joining a club from a device, and asking the club what it looks like today.
@@ -328,5 +329,6 @@ export function handleClub(request, url, env) {
   if (route === '') return handleClubState(request, env);
   if (route === 'activate') return handleClubActivate(request, env);
   if (route === 'presets') return handleClubPresets(request, env);
+  if (route === 'meetings' || route.startsWith('meetings/')) return handleClubMeetings(request, route, env);
   return json({ error: 'Not found' }, 404);
 }
