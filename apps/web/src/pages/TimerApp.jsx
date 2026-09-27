@@ -11,6 +11,7 @@ import ReportTab from '../components/ReportTab'
 import Footer from '../components/Footer'
 import PeriodicPrompts from '../components/PeriodicPrompts'
 import AccountMenu from '../components/AccountMenu'
+import ClubStatusBanner from '../components/ClubStatusBanner'
 import '../App.css'
 
 function MinimizedFloatingButtons({ onRestore }) {
@@ -67,6 +68,10 @@ function TimerAppContent() {
           </button>
         </div>
       </div>
+      {/* Above the tabs, ahead of everything: the week of warning a club gets
+          before it loses Pro has to be seen by whoever is timing, who is rarely
+          whoever pays. */}
+      <ClubStatusBanner />
       <NavTabs activeTab={activeTab} onTabChange={setActiveTab} />
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'live' && <LiveTab onTimerStart={() => setPanelMinimized(true)} />}

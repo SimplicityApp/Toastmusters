@@ -6,6 +6,7 @@ import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, DEFAULT_CUSTOM_RULES, load
 import {
   activeClubName,
   canPublishPresets,
+  lapsedClubName,
   clubPresetsAvailable,
   clubPresetsLive,
   ensureForked,
@@ -45,6 +46,9 @@ export default function EditRulesModal({ isOpen, onClose }) {
 
   const clubName = activeClubName();
   const clubHasPresets = clubPresetsAvailable();
+  // A lapse leaves the club's list where it is and simply stops applying it, so
+  // the editor owes the timer an explanation rather than a silent reversion.
+  const lapsedClub = lapsedClubName();
   const clubList = clubHasPresets ? loadClubPresets() : null;
   const clubId = loadClub()?.club?.id ?? null;
   const mayPublish = canPublishPresets();
@@ -252,7 +256,7 @@ export default function EditRulesModal({ isOpen, onClose }) {
             <TimeInputModeToggle mode={timeInputMode} onModeChange={(m) => { saveTimeInputMode(m); setTimeInputMode(m); }} />
           </div>
         </div>
-        {clubHasPresets && (
+        {clubHasPresets ? (
           <ClubPresetBanner
             clubName={clubName || 'Your club'}
             source={source}
@@ -260,7 +264,18 @@ export default function EditRulesModal({ isOpen, onClose }) {
             onUseMine={handleUseMyPresets}
             onResetToClub={handleResetToClub}
           />
-        )}
+        ) : lapsedClub ? (
+          /* The club's list is still sitting in its own key, untouched. Saying
+             so is the difference between "our presets were deleted" and "our
+             subscription ended", and only one of those is worth renewing over. */
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-semibold text-gray-900">{lapsedClub}&apos;s Pro has ended</p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              These are your own timings again. Nothing was deleted — when the club renews, its
+              shared presets come back on the next refresh with nothing to re-enter.
+            </p>
+          </div>
+        ) : null}
 
         <div className="space-y-4">
           {rolesToShow.map((role) => {

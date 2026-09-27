@@ -8,6 +8,7 @@ import {
   activateClub,
   leaveClub,
   subscribeClub,
+  lapsedClubName,
 } from '@toastmaster-timer/shared';
 import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
@@ -49,13 +50,16 @@ function useClub() {
   return useSyncExternalStore(subscribeClub, loadClub, () => null);
 }
 
-async function startCheckout(interval) {
+async function startCheckout(interval, clubName) {
   const token = getSessionToken();
   if (!token) return { error: 'no_session' };
   const response = await fetch('/api/billing/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ interval }),
+    // An empty name never blocks the purchase: the club is minted with a
+    // generated placeholder and renaming is a one-field edit, whereas a buyer
+    // stopped at a required field is a sale lost.
+    body: JSON.stringify({ interval, ...(clubName.trim() ? { clubName: clubName.trim() } : {}) }),
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.url) return { error: body.error || `checkout_${response.status}` };
@@ -83,6 +87,8 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   const [code, setCode] = useState('');
   const [clubBusy, setClubBusy] = useState(false);
   const [clubError, setClubError] = useState(null);
+  // What the buyer calls their club. Optional, and never a gate on checkout.
+  const [clubNameInput, setClubNameInput] = useState('');
   const abortRef = useRef({ aborted: false });
 
   useEffect(() => {
@@ -90,6 +96,10 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     // plan_source separates buyers from timers who activated a club code, which
     // is what the upgrade-funnel read needs to mean anything.
     trackEvent('upgrade_prompt_shown', { source, plan: entitlement.plan, plan_source: entitlement.source });
+    // The renewal funnel's other end: a device that came looking after the
+    // club's Pro stopped, which is the moment a renewal is most likely.
+    const lapsed = lapsedClubName();
+    if (lapsed) trackEvent('club_lapsed_shown', { surface: 'zoom', source, club_id: loadClub()?.club?.id ?? null });
     resolveZoomIdentity().then(setIdentity);
     abortRef.current = { aborted: false };
     return () => {
@@ -101,10 +111,10 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   useEffect(() => {
     if (isOpen && isPro && phase === 'waiting') {
       setPhase('done');
-      trackEvent('checkout_completed', { source });
+      trackEvent('checkout_completed', { source, club_id: club?.club?.id ?? null });
       onUpgraded?.();
     }
-  }, [isOpen, isPro, phase, source, onUpgraded]);
+  }, [isOpen, isPro, phase, source, onUpgraded, club]);
 
   if (!isOpen) return null;
 
@@ -113,9 +123,9 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   const handleBuy = async (interval) => {
     setPhase('opening');
     setError(null);
-    trackEvent('checkout_started', { source, interval });
+    trackEvent('checkout_started', { source, interval, club_id: clubId, named_club: Boolean(clubNameInput.trim()) });
 
-    const result = await startCheckout(interval);
+    const result = await startCheckout(interval, clubNameInput);
     if (result.error) {
       setError(
         result.error === 'Plan is not available'
@@ -123,13 +133,13 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
           : 'Could not start checkout. Please try again.'
       );
       setPhase('error');
-      trackEvent('checkout_failed', { source, interval, reason: result.error });
+      trackEvent('checkout_failed', { source, interval, reason: result.error, club_id: clubId });
       return;
     }
 
     setCheckoutUrl(result.url);
     const opened = await openExternalUrl(result.url);
-    if (!opened) trackEvent('checkout_open_failed', { source, interval });
+    if (!opened) trackEvent('checkout_open_failed', { source, interval, club_id: clubId });
     setPhase('waiting');
 
     const becamePro = await waitForPro({ getToken: getSessionToken, signal: abortRef.current });
@@ -197,6 +207,11 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
 
   const clubName = club?.club?.name || 'your club';
   const clubActive = Boolean(club?.entitled);
+  const clubId = club?.club?.id ?? null;
+  // A club that lapsed is not a club that was never joined: the device still
+  // knows which one to check, so the modal names it rather than pretending the
+  // last six months did not happen.
+  const lapsedClub = lapsedClubName();
 
   /**
    * The code field. Below the prices rather than above them: a buyer is the
@@ -363,11 +378,38 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
 
     return (
       <>
+        {/* The pitch is the club, not personal sync. A treasurer who is not the
+            person timing has to see what the whole club gets, in the order the
+            club would rank it — the buyer's own sync is the fourth line, not
+            the first. */}
+        {lapsedClub && (
+          <p className="text-sm text-gray-700 mb-3">
+            <span className="font-semibold">{lapsedClub}&apos;s Pro has ended.</span>{' '}
+            Nothing was deleted — renew and every device gets its presets, branding and
+            archive back with nothing re-entered.
+          </p>
+        )}
         <ul className="text-sm text-gray-700 space-y-1.5 mb-4">
-          <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Timing rules, roles and agenda follow you to every computer</li>
-          <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Custom card artwork backed up and synced</li>
+          <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Your club&apos;s brand kit on every timer card and report</li>
+          <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Shared timing presets — set once, every timer gets them</li>
+          <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Every meeting saved to your club&apos;s archive</li>
+          <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Your settings backed up and synced across devices</li>
           <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> The timer itself stays free, always</li>
         </ul>
+        {/* Optional, and deliberately so: payment is the one moment this name
+            naturally exists, but a buyer stopped at a required field is a sale
+            lost. Empty mints "Club 7K2QM9", which an officer can rename. */}
+        <label htmlFor="club-name" className="block text-sm font-medium text-gray-700">
+          Your club&apos;s name <span className="font-normal text-gray-400">(optional)</span>
+        </label>
+        <input
+          id="club-name"
+          value={clubNameInput}
+          onChange={(event) => setClubNameInput(event.target.value)}
+          placeholder="Downtown Speakers"
+          maxLength={80}
+          className="mt-1 mb-4 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+        />
         {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
         <div className="grid grid-cols-2 gap-2">
           {Object.entries(PRICE_COPY).map(([interval, copy]) => (
@@ -396,10 +438,10 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
         <div className="flex justify-between items-start mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-500" />
-            {/* The reframed "One Pro account for your whole club" pitch lands
-                with the club-name field in Phase 7; the code field is what
-                Phase 1 owes a timer who was told where to type. */}
-            {isPro || phase === 'done' ? 'Toastmasters Timer Pro' : 'Take your setup everywhere'}
+            {/* The pitch that passes the 30-second test: a treasurer who never
+                times a meeting has to see what their whole club gets, not what
+                one laptop gets. */}
+            {isPro || phase === 'done' ? 'Toastmasters Timer Pro' : 'One Pro account for your whole club'}
           </h3>
           <button
             onClick={onClose}

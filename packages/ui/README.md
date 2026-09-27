@@ -30,6 +30,16 @@ Anything outside the floor goes through an inline `style`, which is also how the
 club's own colour arrives: it is data, not a token, and no build step could know
 it.
 
+## No dependencies but React
+
+This directory has no `node_modules` of its own, and resolution walks up from
+*here* rather than from the app doing the building — `packages/ui/node_modules`,
+`packages/node_modules`, then the repo root. `lucide-react` is installed in
+`apps/zoom-app` and `apps/web` and in none of those three, so importing it from
+a shared component fails both builds. Icons here are inline SVG paths; anything
+that genuinely wants a package belongs in the app that owns it, or has to be
+installed at the root first.
+
 ## Keeping the classes in the build
 
 Both apps' `tailwind.config.js` files list `../../packages/ui/**/*.{js,jsx}` in

@@ -124,6 +124,71 @@ describe('club code entry', () => {
   });
 });
 
+describe('the club-framed pitch', () => {
+  it('sells the club, and sends the optional name with the purchase', async () => {
+    const user = userEvent.setup();
+    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ url: 'https://checkout.stripe.com/c/cs_1' }) });
+    renderModal();
+
+    expect(await screen.findByText(/One Pro account for your whole club/i)).toBeInTheDocument();
+    expect(screen.getByText(/brand kit on every timer card/i)).toBeInTheDocument();
+    expect(screen.getByText(/Shared timing presets/i)).toBeInTheDocument();
+    expect(screen.getByText(/saved to your club's archive/i)).toBeInTheDocument();
+    expect(screen.getByText(/timer itself stays free/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/your club's name/i), 'Downtown Speakers');
+    await user.click(screen.getByRole('button', { name: /monthly/i }));
+
+    const [path, init] = global.fetch.mock.calls.find(([p]) => p === '/api/billing/checkout');
+    expect(path).toBe('/api/billing/checkout');
+    expect(JSON.parse(init.body)).toEqual({ interval: 'monthly', clubName: 'Downtown Speakers' });
+  });
+
+  // A buyer stopped at a required field is a sale lost; the club is minted with
+  // a placeholder instead.
+  it('checks out with the field left empty and sends no key at all', async () => {
+    const user = userEvent.setup();
+    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ url: 'https://checkout.stripe.com/c/cs_1' }) });
+    renderModal();
+
+    await user.click(await screen.findByRole('button', { name: /yearly/i }));
+
+    const [, init] = global.fetch.mock.calls.find(([p]) => p === '/api/billing/checkout');
+    expect(JSON.parse(init.body)).toEqual({ interval: 'yearly' });
+  });
+});
+
+describe('a club whose Pro has ended', () => {
+  beforeEach(() => {
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify({
+        clubToken: 'tok.sig',
+        lastRefreshAt: Date.now(),
+        ...clubState({ plan: 'free', entitled: false, status: 'canceled', source: 'none' }),
+      })
+    );
+    initClubFromCache();
+  });
+
+  // Nothing is hard-deleted, and the device still knows which club to check, so
+  // the modal names it rather than pretending the last six months did not happen.
+  it('names the club, keeps the code field, and offers the pricing again', async () => {
+    renderModal();
+
+    expect(await screen.findByText(/Downtown Speakers's Pro has ended/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /monthly/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/already on pro through your club/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith('club_lapsed_shown', {
+        surface: 'zoom',
+        source: 'footer',
+        club_id: 'club-1',
+      })
+    );
+  });
+});
+
 describe('an already-activated device', () => {
   beforeEach(() => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ clubToken: 'tok.sig', lastRefreshAt: Date.now(), ...clubState() }));

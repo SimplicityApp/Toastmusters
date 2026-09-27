@@ -87,6 +87,29 @@ function stripeFailure(error, what) {
 const CHECKOUT_SESSION_ID = /^cs_[A-Za-z0-9_]+$/;
 
 /**
+ * Long enough for "Downtown Toastmasters Speakers Club of Greater Toronto",
+ * short enough that a pasted paragraph cannot approach Stripe's 500-character
+ * metadata-value limit and get the whole Checkout session rejected.
+ */
+export const MAX_CLUB_NAME_LENGTH = 80;
+
+/**
+ * The club's name, as it is safe to carry into Stripe metadata.
+ *
+ * Optional by design: an empty field must never block a purchase. The club is
+ * minted with a generated placeholder instead, and renaming is a one-field
+ * edit — whereas a buyer stopped at a required field is a sale lost.
+ *
+ * @param {unknown} value
+ * @returns {string|null} null when there is nothing worth sending
+ */
+export function readClubName(value) {
+  if (typeof value !== 'string') return null;
+  const collapsed = value.trim().replace(/\s+/g, ' ');
+  return collapsed ? collapsed.slice(0, MAX_CLUB_NAME_LENGTH) : null;
+}
+
+/**
  * @param {Request} request
  * @param {URL} url
  * @param {Object} env
@@ -134,13 +157,20 @@ export async function handleBilling(request, url, env, deps = {}) {
       }
       const customer = await findOrCreateCustomer(stripe, env, session.uid);
 
+      // Payment is the one moment the club's name naturally exists, so it rides
+      // along with it. Both bags, because the two are read at different times:
+      // the session's on `checkout.session.completed`, the subscription's by
+      // every later subscription event and by anyone reading the dashboard.
+      const clubName = readClubName(body.clubName);
+      const metadata = () => ({ uid: session.uid, ...(clubName ? { club_name: clubName } : {}) });
+
       const checkout = await stripe.createCheckoutSession({
         mode: 'subscription',
         customer,
         client_reference_id: session.uid,
         line_items: [{ price: priceId, quantity: 1 }],
-        metadata: { uid: session.uid },
-        subscription_data: { metadata: { uid: session.uid } },
+        metadata: metadata(),
+        subscription_data: { metadata: metadata() },
         allow_promotion_codes: true,
         // Stripe Tax has to be switched on in the dashboard first, and Checkout
         // refuses the session if it is not. Opt in per environment.

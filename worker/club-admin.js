@@ -110,6 +110,22 @@ export const clubByCodeKey = (code) => `club-by-code:${normalizeCode(code)}`;
 export const clubByCustomerKey = (customerId) => `club-by-customer:${customerId}`;
 
 /**
+ * Where checkout parks the raw material a club record is made from.
+ *
+ * Payment is the only moment the club's name and an address to reach the buyer
+ * both naturally exist, so the webhook writes them here rather than leaving
+ * them in Stripe for someone to dig out later. A human then runs the CLI over
+ * this prefix and calls `createClubFromPending()`; moving that call into the
+ * webhook is a one-line change when volume justifies it.
+ *
+ * Keyed by the Stripe customer because that is the one identifier every later
+ * subscription event also carries, and because it is what `club-by-customer:`
+ * is keyed by — so "has this payment already become a club?" is one read.
+ */
+export const CLUB_PENDING_PREFIX = 'club-pending:';
+export const clubPendingKey = (customerId) => `${CLUB_PENDING_PREFIX}${customerId}`;
+
+/**
  * Fold a billing address into the one form we index it under.
  *
  * Case only, and the whole address: the local part of an address is

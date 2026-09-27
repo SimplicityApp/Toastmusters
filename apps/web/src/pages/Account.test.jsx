@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { resetEntitlementForTests } from '@toastmaster-timer/shared';
 import { resetWebIdentityForTests } from '../utils/webIdentity';
@@ -74,5 +75,30 @@ describe('Account', () => {
     );
     await waitFor(() => expect(screen.getByText('Monthly')).toBeInTheDocument());
     expect(screen.getByText('Yearly')).toBeInTheDocument();
+  });
+
+  // Payment is the one moment the club's name naturally exists, but an empty
+  // field must never stand between a treasurer and a purchase.
+  it('carries the optional club name into checkout without ever requiring it', async () => {
+    const user = userEvent.setup();
+    stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement({ plan: 'free', entitled: false });
+
+    render(
+      <MemoryRouter initialEntries={['/account']}>
+        <Account />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('Monthly')).toBeInTheDocument());
+    await user.click(screen.getByText('Yearly'));
+    expect(JSON.parse(fetch.mock.calls.find(([url]) => url === '/api/billing/checkout')[1].body))
+      .toEqual({ interval: 'yearly' });
+
+    await user.type(screen.getByLabelText(/your club's name/i), 'Downtown Speakers');
+    await user.click(screen.getByText('Monthly'));
+    expect(JSON.parse(fetch.mock.calls.filter(([url]) => url === '/api/billing/checkout')[1][1].body))
+      .toEqual({ interval: 'monthly', clubName: 'Downtown Speakers' });
   });
 });

@@ -9,14 +9,29 @@
  * later means calling the same `createClubFromPending()` from the Stripe
  * webhook, with nothing to re-derive.
  *
+ * The everyday path is `pending` then `create --pending <cus_id>`: checkout
+ * parks the buyer's uid, the club name they typed and the address Stripe
+ * collected under `club-pending:<cus_id>`, and this turns one of those into a
+ * club without anyone retyping it out of the Stripe dashboard.
+ *
  * Usage:
- *   node scripts/club-cli.mjs create --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]
- *   node scripts/club-cli.mjs rotate --env dev --club <clubId>
- *   node scripts/club-cli.mjs show   --env dev --club <clubId> | --code DTSP-7K2QM9
+ *   node scripts/club-cli.mjs pending --env dev
+ *   node scripts/club-cli.mjs create  --env dev --pending cus_123 [--name "Downtown Speakers"] [--tz America/Toronto]
+ *   node scripts/club-cli.mjs create  --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]
+ *   node scripts/club-cli.mjs rotate  --env dev --club <clubId>
+ *   node scripts/club-cli.mjs show    --env dev --club <clubId> | --code DTSP-7K2QM9
  */
 
 import { spawnSync } from 'node:child_process';
-import { createClubFromPending, rotateClubCode, normalizeCode, formatCode, clubByCodeKey } from '../worker/club-admin.js';
+import {
+  createClubFromPending,
+  rotateClubCode,
+  normalizeCode,
+  formatCode,
+  clubByCodeKey,
+  clubPendingKey,
+  CLUB_PENDING_PREFIX,
+} from '../worker/club-admin.js';
 import { clubKey } from '../worker/entitlements.js';
 
 const BINDING = 'PROFILES';
@@ -87,6 +102,32 @@ function kvNamespace(envName) {
   };
 }
 
+const envFlag = (flags) => (typeof flags.env === 'string' ? ` --env ${flags.env}` : '');
+
+/** One payment that has not become a club yet. */
+async function readPending(store, customerId) {
+  return store.get(clubPendingKey(customerId), 'json');
+}
+
+/**
+ * Every payment still waiting for a club.
+ *
+ * The inbox the manual bridge works from: checkout persisted the raw material
+ * at the moment it existed, so minting a club is reading this list rather than
+ * digging through the Stripe dashboard.
+ */
+async function listPending(store) {
+  const { keys } = await store.list({ prefix: CLUB_PENDING_PREFIX });
+  const out = [];
+  for (const entry of keys ?? []) {
+    const customerId = entry.name.slice(CLUB_PENDING_PREFIX.length);
+    // eslint-disable-next-line no-await-in-loop
+    const record = await readPending(store, customerId);
+    if (record) out.push({ customerId, record });
+  }
+  return out;
+}
+
 function printClub(clubId, club) {
   process.stdout.write(
     [
@@ -109,16 +150,51 @@ async function main() {
   const { command, flags } = parseArgs(process.argv.slice(2));
   const env = { PROFILES: kvNamespace(flags.env === true ? undefined : flags.env) };
 
+  if (command === 'pending') {
+    const waiting = await listPending(env.PROFILES);
+    if (!waiting.length) {
+      process.stdout.write('\n  Nothing waiting. Every payment has become a club.\n\n');
+      return;
+    }
+    process.stdout.write(`\n  ${waiting.length} payment${waiting.length === 1 ? '' : 's'} waiting for a club:\n`);
+    for (const { customerId, record } of waiting) {
+      process.stdout.write(
+        [
+          '',
+          `  customer  ${customerId}`,
+          `  name      ${record.clubName ?? '(none typed — a placeholder will be minted)'}`,
+          `  buyer     ${record.uid ?? '(no uid — nobody will be an admin)'}`,
+          `  billing   ${record.email ?? '(none — the magic-link door will not work)'}`,
+          `  paid      ${record.paidAt ? new Date(record.paidAt).toISOString() : '(unknown)'}`,
+          `  mint it   node scripts/club-cli.mjs create${envFlag(flags)} --pending ${customerId}`,
+          '',
+        ].join('\n')
+      );
+    }
+    return;
+  }
+
   if (command === 'create') {
-    if (!flags.name) throw new Error('--name is required');
+    // The everyday path: everything but the timezone came out of checkout, so
+    // there is nothing to retype and nothing to mistype.
+    const pending = typeof flags.pending === 'string' ? await readPending(env.PROFILES, flags.pending) : null;
+    if (typeof flags.pending === 'string' && !pending) {
+      throw new Error(`No pending record at ${clubPendingKey(flags.pending)}`);
+    }
+    if (!pending && !flags.name) throw new Error('--name (or --pending <cus_id>) is required');
 
     const { clubId, club } = await createClubFromPending(
       env,
       {
-        clubName: flags.name,
-        uid: typeof flags.uid === 'string' ? flags.uid : null,
-        email: typeof flags.email === 'string' ? flags.email : null,
-        stripeCustomerId: typeof flags.customer === 'string' ? flags.customer : null,
+        // Explicit flags win over what checkout captured: an operator correcting
+        // a typo in the buyer's club name should not have to edit KV first.
+        clubName: typeof flags.name === 'string' ? flags.name : (pending?.clubName ?? null),
+        uid: typeof flags.uid === 'string' ? flags.uid : (pending?.uid ?? null),
+        email: typeof flags.email === 'string' ? flags.email : (pending?.email ?? null),
+        stripeCustomerId:
+          typeof flags.customer === 'string'
+            ? flags.customer
+            : (pending?.stripeCustomerId ?? (typeof flags.pending === 'string' ? flags.pending : null)),
         timezone: typeof flags.tz === 'string' ? flags.tz : null,
       },
       // The prefix is cosmetic and carries no entropy — the six-character
@@ -127,9 +203,16 @@ async function main() {
     );
 
     printClub(clubId, club);
-    if (!flags.uid) {
-      process.stdout.write('  (no --uid: nobody is an admin of this club yet)\n\n');
+    if (!(typeof flags.uid === 'string' || pending?.uid)) {
+      process.stdout.write('  (no uid: nobody is an admin of this club yet)\n');
     }
+    if (typeof flags.pending === 'string') {
+      // Dropped only after the club is written, so a crash in between leaves
+      // the payment waiting rather than losing it.
+      await env.PROFILES.delete(clubPendingKey(flags.pending));
+      process.stdout.write(`  (cleared ${clubPendingKey(flags.pending)})\n`);
+    }
+    process.stdout.write('\n');
     return;
   }
 
@@ -157,9 +240,11 @@ async function main() {
     [
       '',
       'Usage:',
-      '  node scripts/club-cli.mjs create --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]',
-      '  node scripts/club-cli.mjs rotate --env dev --club <clubId>',
-      '  node scripts/club-cli.mjs show   --env dev --club <clubId> | --code DTSP-7K2QM9',
+      '  node scripts/club-cli.mjs pending --env dev',
+      '  node scripts/club-cli.mjs create  --env dev --pending cus_123 [--name "Downtown Speakers"] [--tz America/Toronto]',
+      '  node scripts/club-cli.mjs create  --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]',
+      '  node scripts/club-cli.mjs rotate  --env dev --club <clubId>',
+      '  node scripts/club-cli.mjs show    --env dev --club <clubId> | --code DTSP-7K2QM9',
       '',
       'Omit --env to act on production.',
       '',

@@ -37,12 +37,35 @@ export const PRESET_SOURCE_STORAGE_KEY = 'toastmaster_preset_source';
  * re-publishes its default still reaches every field nobody touched.
  */
 export const CLUB_BADGE_STORAGE_KEY = 'toastmaster_club_badge';
+/**
+ * The day this device last dismissed the renewal reminder.
+ *
+ * A date rather than a flag, because the reminder is supposed to come back: a
+ * club in grace has a handful of days to act, and the person who can act is
+ * rarely the person timing. Dismissing it buys quiet for the rest of the
+ * meeting, not for the rest of the grace window.
+ */
+export const CLUB_GRACE_DISMISSED_STORAGE_KEY = 'toastmaster_club_grace_dismissed';
 
 const ACTIVATE_ENDPOINT = '/api/club/activate';
 const CLUB_ENDPOINT = '/api/club';
 
 /** Once a day. A Tuesday publish reaches every device by the next meeting. */
 export const CLUB_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The server's own grace window, mirrored here so the countdown the device
+ * shows and the moment the Worker stops entitling are the same date.
+ *
+ * Kept in step with `PAST_DUE_GRACE_MS` in `worker/entitlements.js`. It is
+ * duplicated rather than fetched because the banner has to be right on the
+ * first paint, before any network call; the server stays the authority, and a
+ * device that is a day out simply shows a countdown a day off on a state the
+ * next refresh corrects.
+ */
+export const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 let cached;
 let loaded = false;
@@ -214,6 +237,114 @@ export function clubBadgeDefault() {
  */
 export function clubBadgePlacement() {
   return normalizeBadgePlacement(loadClubBadgeOverride(), clubBadgeDefault());
+}
+
+// ---------------------------------------------------------------------------
+// Grace and lapse: the three stages the device follows the server through
+// ---------------------------------------------------------------------------
+
+export const CLUB_ACTIVE = 'active';
+export const CLUB_GRACE = 'grace';
+export const CLUB_LAPSED = 'lapsed';
+
+/**
+ * Where the club stands: active, inside its grace window, or lapsed.
+ *
+ * Derived from the plan fields the server recomputes on every refresh rather
+ * than from anything stored, which is what makes a lapse land on the next app
+ * start with nothing written and nothing to reconcile. The two grace shapes
+ * come straight from `subscriptionGrantsAccess`: a failed payment keeps Pro for
+ * seven days past the period end, a scheduled cancellation keeps it until the
+ * paid period runs out.
+ *
+ * @param {number} [now]
+ * @returns {{state: 'active'|'grace'|'lapsed', clubId: string|null,
+ *   clubName: string|null, endsAt: number|null, daysLeft: number|null,
+ *   isAdmin: boolean}|null} null when this device has never joined a club
+ */
+export function clubLifecycle(now = Date.now()) {
+  const club = loadClub();
+  if (!club) return null;
+
+  const base = {
+    clubId: club.club?.id ?? null,
+    clubName: club.club?.name || null,
+    endsAt: null,
+    daysLeft: null,
+    // Only an admin can do anything about it, so only an admin is offered the
+    // billing action. Everyone else is told who to ask.
+    isAdmin: club.role === 'admin',
+  };
+
+  if (!club.entitled) return { ...base, state: CLUB_LAPSED };
+
+  const failing = club.status === 'past_due';
+  const ending = club.status === 'canceled' || club.cancelAtPeriodEnd;
+  if (!failing && !ending) return { ...base, state: CLUB_ACTIVE };
+
+  const periodEnd = typeof club.currentPeriodEnd === 'number' ? club.currentPeriodEnd : null;
+  // A past_due club with no period end is entitled indefinitely server-side, so
+  // there is a warning to give but no date to give with it.
+  const endsAt = failing ? (periodEnd === null ? null : periodEnd + PAST_DUE_GRACE_MS) : periodEnd;
+
+  return {
+    ...base,
+    state: CLUB_GRACE,
+    endsAt,
+    daysLeft: endsAt === null ? null : Math.max(0, Math.ceil((endsAt - now) / DAY_MS)),
+  };
+}
+
+/** The club whose Pro has ended, for the copy that has to name it. */
+export function lapsedClubName() {
+  const club = loadClub();
+  if (!club || club.entitled) return null;
+  return club.club?.name || 'Your club';
+}
+
+/** The device's own calendar day, which is the unit the reminder returns on. */
+function localDay(now) {
+  const date = new Date(now);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Whether the renewal reminder has already been dismissed today. */
+export function graceReminderDismissedToday(now = Date.now()) {
+  try {
+    return localStorage.getItem(CLUB_GRACE_DISMISSED_STORAGE_KEY) === localDay(now);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Quiet for the rest of today. Tomorrow it comes back, because the club still
+ * has not been renewed and the person who can renew it may not be here yet.
+ */
+export function dismissGraceReminder(now = Date.now()) {
+  try {
+    localStorage.setItem(CLUB_GRACE_DISMISSED_STORAGE_KEY, localDay(now));
+  } catch {
+    // Private mode. The reminder simply stays up for this page load.
+  }
+}
+
+/**
+ * The renewal reminder this device should be showing, or null.
+ *
+ * Grace only, deliberately. A lapsed club has nothing left to warn about — the
+ * warning already ran for a week — and a banner that returned every day to a
+ * club nobody intends to renew would be nagging rather than reminding. The
+ * lapse explains itself where someone goes looking for it: the Footer reads
+ * "Upgrade", the upgrade modal names the club, and the rules editor says why
+ * the club's presets are gone.
+ *
+ * @param {number} [now]
+ */
+export function clubGraceReminder(now = Date.now()) {
+  const life = clubLifecycle(now);
+  if (!life || life.state !== CLUB_GRACE) return null;
+  return graceReminderDismissedToday(now) ? null : life;
 }
 
 /**
@@ -590,6 +721,13 @@ export function leaveClub() {
   // The badge placement goes with the club: it is a position on the club's
   // badge, and there is no badge to place once the club is gone.
   clearClubBadgeOverride();
+  try {
+    // So a device that rejoins a club in grace is reminded on day one rather
+    // than inheriting a dismissal from the club it left.
+    localStorage.removeItem(CLUB_GRACE_DISMISSED_STORAGE_KEY);
+  } catch {
+    // Private mode; there was nothing stored to clear.
+  }
   logoImage = null;
   logoImageUrl = null;
   // Only a club-derived plan goes away with the club. A buyer who leaves their

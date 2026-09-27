@@ -5,6 +5,7 @@ import NavTabs from './components/NavTabs';
 import Footer from './components/Footer';
 import PeriodicPrompts from './components/PeriodicPrompts';
 import ZoomConnectionNotice from './components/ZoomConnectionNotice';
+import ClubStatusBanner from './components/ClubStatusBanner';
 import './App.css';
 
 const LiveTab = lazy(() => import('./components/LiveTab'));
@@ -19,6 +20,10 @@ function App() {
       <TimerProvider>
         <div className="app-container w-full h-screen flex flex-col bg-white">
           <ZoomConnectionNotice />
+          {/* Above the tabs, ahead of everything: the week of warning a club
+              gets before it loses Pro has to be seen by whoever is timing, who
+              is rarely whoever pays. */}
+          <ClubStatusBanner />
           <NavTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
           <Suspense fallback={

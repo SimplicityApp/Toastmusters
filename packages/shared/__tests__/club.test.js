@@ -6,6 +6,13 @@ import {
   CLUB_REFRESH_INTERVAL_MS,
   loadClub,
   clubHeaders,
+  clubLifecycle,
+  clubGraceReminder,
+  dismissGraceReminder,
+  graceReminderDismissedToday,
+  lapsedClubName,
+  PAST_DUE_GRACE_MS,
+  CLUB_GRACE_DISMISSED_STORAGE_KEY,
   initClubFromCache,
   activateClub,
   refreshClub,
@@ -233,11 +240,122 @@ describe('refreshClub', () => {
   });
 });
 
+const DAY = 24 * 60 * 60 * 1000;
+
+describe('grace and lapse', () => {
+  // The device follows the server's policy rather than inventing its own:
+  // past_due keeps Pro for seven days past the period end.
+  it('counts down a failed payment through the server\'s seven-day window', () => {
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify(cached({ status: 'past_due', currentPeriodEnd: NOW - 2 * DAY }))
+    );
+
+    expect(clubLifecycle(NOW)).toMatchObject({
+      state: 'grace',
+      clubName: 'Downtown Speakers',
+      endsAt: NOW - 2 * DAY + PAST_DUE_GRACE_MS,
+      daysLeft: 5,
+    });
+  });
+
+  // A scheduled cancellation keeps Pro until the paid period runs out, with no
+  // extra grace on top: that time was already paid for.
+  it('counts a scheduled cancellation down to its paid period end', () => {
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify(cached({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: NOW + 3 * DAY }))
+    );
+
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'grace', daysLeft: 3, endsAt: NOW + 3 * DAY });
+  });
+
+  it('says nothing at all about a healthy club, or about no club', () => {
+    expect(clubLifecycle(NOW)).toBeNull();
+
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    resetClubForTests();
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'active' });
+    expect(clubGraceReminder(NOW)).toBeNull();
+  });
+
+  // Only an admin can act on it; everyone else is told who to ask.
+  it('offers the billing action to an admin and to nobody else', () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ status: 'past_due', currentPeriodEnd: NOW })));
+    expect(clubGraceReminder(NOW)).toMatchObject({ isAdmin: false });
+
+    resetClubForTests();
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify(cached({ status: 'past_due', currentPeriodEnd: NOW, role: 'admin' }))
+    );
+    expect(clubGraceReminder(NOW)).toMatchObject({ isAdmin: true });
+  });
+
+  // Quiet for the rest of the meeting, not for the rest of the grace window:
+  // the person who can renew may not have opened the app yet.
+  it('goes quiet for today and comes back tomorrow', () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ status: 'past_due', currentPeriodEnd: NOW })));
+
+    expect(clubGraceReminder(NOW)).not.toBeNull();
+    dismissGraceReminder(NOW);
+    expect(graceReminderDismissedToday(NOW)).toBe(true);
+    expect(clubGraceReminder(NOW)).toBeNull();
+    expect(clubGraceReminder(NOW + DAY)).not.toBeNull();
+  });
+
+  // A lapsed club has had its week of warning already; a banner that returned
+  // daily to a club nobody intends to renew would be nagging, not reminding.
+  it('stops reminding once the club has lapsed, and names it instead', () => {
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify(cached({ plan: 'free', entitled: false, status: 'canceled', source: 'none' }))
+    );
+
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'lapsed' });
+    expect(clubGraceReminder(NOW)).toBeNull();
+    expect(lapsedClubName()).toBe('Downtown Speakers');
+  });
+
+  // The whole round trip, through the one path that can change it: a refresh.
+  it('goes grace → lapsed → renewed, keeping the cache and the club\'s list throughout', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, '{"rules":{"Evaluator":{"green":120}}}');
+    initClubFromCache();
+
+    await refreshClub({
+      fetchImpl: respondWith(clubState({ status: 'past_due', currentPeriodEnd: NOW - DAY })),
+      force: true,
+      now: NOW,
+    });
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'grace', daysLeft: 6 });
+    expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true });
+
+    await refreshClub({
+      fetchImpl: respondWith(clubState({ plan: 'free', entitled: false, status: 'canceled', source: 'none' })),
+      force: true,
+      now: NOW,
+    });
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'lapsed' });
+    expect(getEntitlement()).toMatchObject({ plan: 'free', entitled: false });
+    // Nothing is hard-deleted on the device either: the club and its published
+    // list stay put, which is what makes renewal need no re-activation.
+    expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeTruthy();
+    expect(localStorage.getItem(CLUB_PRESETS_STORAGE_KEY)).toBeTruthy();
+
+    await refreshClub({ fetchImpl: respondWith(clubState()), force: true, now: NOW });
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'active' });
+    expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true, source: 'club' });
+    expect(lapsedClubName()).toBeNull();
+  });
+});
+
 describe('leaveClub', () => {
   it('clears the club and its presets, and returns the device to free', () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
     localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, '{"rules":{}}');
     localStorage.setItem(PRESET_SOURCE_STORAGE_KEY, 'club');
+    localStorage.setItem(CLUB_GRACE_DISMISSED_STORAGE_KEY, '2026-09-27');
     localStorage.setItem('toastmaster_role_rules', '{"Evaluator":{}}');
     initClubFromCache();
 
@@ -246,6 +364,7 @@ describe('leaveClub', () => {
     expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(CLUB_PRESETS_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(PRESET_SOURCE_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(CLUB_GRACE_DISMISSED_STORAGE_KEY)).toBeNull();
     expect(getEntitlement()).toEqual(FREE_ENTITLEMENT);
     expect(clubHeaders()).toEqual({});
     // The device's own presets were never written over, so there is nothing to

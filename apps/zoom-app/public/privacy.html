@@ -74,7 +74,7 @@
 <body>
     <div class="container">
         <h1>Privacy Policy</h1>
-        <p class="last-updated">Last Updated: September 8, 2026</p>
+        <p class="last-updated">Last Updated: September 27, 2026</p>
 
         <h2>1. Introduction</h2>
         <p>
@@ -85,10 +85,13 @@
         <h2>2. Information We Collect</h2>
         <p>Toastmaster Timer is designed with privacy in mind. We collect minimal information:</p>
         <ul>
-            <li><strong>Local Storage Data:</strong> The app stores timing rules, agenda items, reports and any card artwork you upload in your browser's local storage. Meeting reports stay on your device only.</li>
+            <li><strong>Local Storage Data:</strong> The app stores timing rules, agenda items, reports and any card artwork you upload in your browser's local storage. On a free device, meeting reports stay on your device only; on a device that has joined a Pro club, they are also saved to that club's archive, as described below.</li>
             <li><strong>Zoom Participant Information:</strong> When you use the app in a Zoom meeting, we may access participant names to help you select speakers. Participant names are used only within the app and are not sent to our servers.</li>
             <li><strong>Zoom User Identifier:</strong> When you open the app, Zoom provides a signed context containing your Zoom user ID. We use it to recognise you as a returning user so your settings can follow you between devices, and to count returning users in our product analytics. It is an opaque identifier: it is not your name, and it is not your email address. If you use the app as an unauthenticated guest, Zoom does not provide it and we do not identify you at all.</li>
             <li><strong>Subscription Status:</strong> If you subscribe to the Pro plan, we store your plan, its status and renewal date, and the identifiers of your Stripe customer and subscription, against your Zoom user ID. We never see or store your card number: payment details are entered on Stripe's own pages and held by Stripe.</li>
+            <li><strong>Billing Email Address:</strong> If you subscribe to the Pro plan, we store the email address you entered on Stripe's checkout page, against your Stripe customer identifier. It is stored for one purpose: a Pro subscription covers a whole club, and the club's officers change, so the club's settings page can be reached by a sign-in link sent to the address that pays. We do not use it for marketing and we do not share it. It never comes from Zoom — Zoom does not give us your email address, and we do not ask Zoom for it.</li>
+            <li><strong>Club Information (Pro):</strong> A Pro subscription creates a club record holding the club's name, an optional logo you upload, a colour, the club's shared timing presets, and a list of the devices and Zoom user IDs that have joined the club with its code. A club member's role (admin, editor or member) is stored against their Zoom user ID.</li>
+            <li><strong>Timing Reports (Pro clubs only):</strong> On a device that has joined a Pro club, each finished speech is saved to that club's archive on our servers: the speaker name as the timer typed it, the role, the duration, and any comment the timer added. Speaker names on the timing report are typed by the timer, so please enter only what your club is comfortable recording. On a free device, reports stay on the device and are never sent to us. If a club shares a report as a link, that report becomes readable by anyone holding the link.</li>
             <li><strong>Sign-in on the web (optional):</strong> On our website you can sign in with your Zoom account. Zoom then tells us your Zoom user ID, the same identifier described above, so your settings and plan are the same on the web and in Zoom. We do not receive your password, and we do not keep the access token Zoom issues.</li>
             <li><strong>Usage Data:</strong> We collect anonymous product analytics — which features are used, how many speeches are timed, and approximate country — to understand how the app is used and what to improve. We do not sell this data or use it for advertising.</li>
         </ul>
@@ -102,6 +105,9 @@
             <li>Control virtual backgrounds in Zoom meetings (when you grant permission)</li>
             <li>Keep your settings and card artwork the same on every device you use (Pro plan)</li>
             <li>Know whether you have an active Pro subscription, so the paid features work</li>
+            <li>Deliver your club's shared timing presets and branding to every device that has joined it with the club code (Pro plan)</li>
+            <li>Keep your club's timing reports so the club can look back at them and share them (Pro plan)</li>
+            <li>Send a sign-in link to the club's billing address when someone asks for one, so a club is never locked out of its own settings (Pro plan)</li>
         </ul>
 
         <h2>4. Data Storage</h2>
@@ -114,9 +120,18 @@
             request carrying your own signed session.
         </p>
         <p>
-            Meeting reports are not synced and never leave your device. You can remove everything
-            stored on your device by clearing your browser's local storage, and you can have the
-            synced copy deleted by contacting us.
+            On a free device, meeting reports are not synced and never leave your device. On a
+            device that has joined a Pro club, each finished speech is additionally saved to that
+            club's archive on Cloudflare infrastructure, so the club keeps its own timing history
+            and nothing is lost if a laptop fails mid-meeting. The archive is readable by anyone
+            holding the club's code; a report the club chooses to share as a link is readable by
+            anyone holding that link.
+        </p>
+        <p>
+            You can remove everything stored on your device by clearing your browser's local
+            storage. You can have the synced copy of your settings deleted, and you can have a
+            club's record, its archive or an individual report deleted, by contacting us at the
+            address below.
         </p>
 
         <h2>5. Virtual Backgrounds</h2>
@@ -139,8 +154,10 @@
             the app and store synced settings and subscription status, and
             <a href="https://stripe.com/privacy" target="_blank">Stripe</a> to process payments for
             the Pro plan. When you subscribe, Stripe collects your payment details and email address
-            for receipts under its own privacy policy; we receive only your plan status and opaque
-            Stripe identifiers. We do not sell your information or share it with advertisers.
+            for receipts under its own privacy policy; we receive your plan status, opaque Stripe
+            identifiers, and the email address you entered, which we store for the club sign-in link
+            described above. Sign-in emails are sent through Cloudflare. We do not sell your
+            information or share it with advertisers.
         </p>
 
         <h2>7. Data Security</h2>
@@ -166,7 +183,7 @@
         <ul>
             <li>Access your locally stored data at any time through the app</li>
             <li>Delete your data by clearing your browser's local storage</li>
-            <li>Ask us to delete the synced copy of your settings, by contacting us at the address below</li>
+            <li>Ask us to delete the synced copy of your settings, your club's billing address, or your club's timing archive, by contacting us at the address below</li>
             <li>Use the app as a Zoom guest, in which case we do not identify you at all</li>
             <li>Uninstall the app at any time, which will remove all associated permissions</li>
         </ul>

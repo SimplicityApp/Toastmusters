@@ -40,6 +40,8 @@ export default function Account() {
   const [searchParams] = useSearchParams()
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
+  // What the buyer calls their club. Optional, and never a gate on checkout.
+  const [clubName, setClubName] = useState('')
 
   const signinFailure = searchParams.get('signin') === 'failed' ? SIGNIN_ERRORS[searchParams.get('reason')] || SIGNIN_ERRORS.failed : null
 
@@ -55,8 +57,14 @@ export default function Account() {
   const handleCheckout = async (interval) => {
     setBusy(interval)
     setError(null)
-    trackEvent('checkout_started', { source: 'web_account', interval })
-    const { ok, body } = await postJson('/api/billing/checkout', { interval })
+    trackEvent('checkout_started', { source: 'web_account', interval, named_club: Boolean(clubName.trim()) })
+    // An empty name never blocks the purchase: the club is minted with a
+    // generated placeholder and renaming is a one-field edit, whereas a buyer
+    // stopped at a required field is a sale lost.
+    const { ok, body } = await postJson('/api/billing/checkout', {
+      interval,
+      ...(clubName.trim() ? { clubName: clubName.trim() } : {}),
+    })
     if (!ok || !body.url) {
       setBusy(null)
       setError(body.error === 'Plan is not available' ? 'Plans are not set up yet. Please try again later.' : 'Could not start checkout. Please try again.')
@@ -128,14 +136,29 @@ export default function Account() {
       <>
         <span className="text-lg font-semibold text-white">Free</span>
         <p className="mt-2 text-gray-300">The timer, agenda and reports, on this device.</p>
+        {/* One Pro account for the whole club: the club's own lines come first,
+            because the person paying is rarely the person timing. */}
         <ul className="mt-4 space-y-1.5 text-gray-200">
-          <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Pro: timing rules, roles and agenda follow you to every computer and into Zoom</li>
-          <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Pro: custom card artwork backed up and synced</li>
+          <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Pro: your club&apos;s brand kit on every timer card and report</li>
+          <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Pro: shared timing presets — set once, every timer gets them</li>
+          <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Pro: every meeting saved to your club&apos;s archive</li>
+          <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Pro: your settings and card artwork synced across devices</li>
         </ul>
         {entitlement.status && entitlement.currentPeriodEnd && (
           <p className="mt-3 text-sm text-gray-400">Your previous plan ended on {new Date(entitlement.currentPeriodEnd).toLocaleDateString()}.</p>
         )}
-        <div className="mt-5 grid grid-cols-2 gap-3">
+        <label htmlFor="checkout-club-name" className="mt-5 block text-sm font-medium text-gray-200">
+          Your club&apos;s name <span className="font-normal text-gray-400">(optional)</span>
+        </label>
+        <input
+          id="checkout-club-name"
+          value={clubName}
+          onChange={(event) => setClubName(event.target.value)}
+          placeholder="Downtown Speakers"
+          maxLength={80}
+          className="mt-1 w-full rounded-md border border-white/20 bg-black/30 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <div className="mt-4 grid grid-cols-2 gap-3">
           {[
             ['monthly', 'Monthly', 'Cancel any time'],
             ['yearly', 'Yearly', 'Two months free'],
