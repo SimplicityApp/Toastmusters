@@ -19,6 +19,7 @@
     "./profileSync": "./profileSync.js",
     "./cardAssetSync": "./cardAssetSync.js",
     "./entitlement": "./entitlement.js",
-    "./club": "./club.js"
+    "./club": "./club.js",
+    "./clubPresets": "./clubPresets.js"
   }
 }

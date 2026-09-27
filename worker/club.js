@@ -3,7 +3,8 @@ import { readSession, readClub } from './auth.js';
 import { json, methodNotAllowed, notConfigured, unauthorized } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
 import { mintClubToken } from './club-token.js';
-import { normalizeCode, clubByCodeKey, clubDeviceKey, clubMemberKey } from './club-admin.js';
+import { normalizeCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
+import { handleClubPresets, readClubPresets } from './club-presets.js';
 
 /**
  * Joining a club from a device, and asking the club what it looks like today.
@@ -78,18 +79,45 @@ export function deviceLabel(request) {
 /**
  * The whole club, as a device needs to see it.
  *
- * `kit`, `presets` and `badge` are placeholders until phases 2 and 3 fill them;
- * they are in the contract now so a device caching this document today does not
- * need a migration when they arrive.
+ * The split down the middle of this document is the point. Content — the
+ * presets, and the kit and badge default that arrive in Phase 3 — is versioned,
+ * and a device replaces its copy only when `ver` moves, which is what lets a
+ * timer's local list survive a daily refresh and lose only to an actual
+ * publish. Everything below `timezone` carries no version and is applied every
+ * time, because it can change with nothing having been written: a club lapses
+ * when a grace window expires against the clock, and a member's role changes
+ * under a different uid entirely.
+ *
+ * @param {Object} env
+ * @param {string} clubId
+ * @param {Object|null} club - the already-read club record
+ * @param {Object} access - the combined entitlement from resolveAccess
+ * @param {{uid?: string|null}} [caller] - whose role to report, if anyone's
  */
-export function buildClubState(clubId, club, access) {
+export async function buildClubState(env, clubId, club, access, { uid = null } = {}) {
+  const [presets, role] = await Promise.all([
+    readClubPresets(env, clubId),
+    readMemberRole(env, clubId, uid),
+  ]);
+
   return {
     ver: club?.ver ?? 1,
     club: { id: clubId, name: club?.name ?? null },
     kit: null, // Phase 3
-    presets: null, // Phase 2
+    presets: presets
+      ? {
+        rules: presets.rules ?? {},
+        order: presets.order ?? [],
+        hiddenBuiltins: presets.hiddenBuiltins ?? [],
+        publishedBy: presets.publishedBy ?? null,
+        publishedAt: presets.publishedAt ?? null,
+      }
+      : null,
     badge: null, // Phase 3
     timezone: club?.timezone ?? null,
+    // Not versioned: a guest device sees null and a promotion takes effect on
+    // the next refresh without anything being republished.
+    role,
     plan: access.plan,
     entitled: access.entitled,
     status: access.status,
@@ -187,7 +215,7 @@ export async function handleClubActivate(request, env) {
   const clubToken = mintClubToken({ clubId, deviceId, uid, ver: club.ver ?? 1 }, env.SESSION_SIGNING_KEY, now);
   if (!clubToken) return notConfigured('Club activation');
 
-  return json({ clubToken, ...buildClubState(clubId, club, access) });
+  return json({ clubToken, ...(await buildClubState(env, clubId, club, access, { uid })) });
 }
 
 /**
@@ -224,7 +252,7 @@ export async function handleClubState(request, env) {
     await store.put(clubDeviceKey(claims.clubId, claims.deviceId), JSON.stringify({ ...device, lastSeenAt: now }));
   }
 
-  const state = buildClubState(claims.clubId, club, access);
+  const state = await buildClubState(env, claims.clubId, club, access, { uid: session?.uid ?? null });
   const clubToken = mintClubToken(
     { clubId: claims.clubId, deviceId: claims.deviceId, uid: claims.uid, ver: club.ver ?? 1 },
     env.SESSION_SIGNING_KEY,
@@ -245,5 +273,6 @@ export function handleClub(request, url, env) {
   const route = url.pathname.slice('/api/club'.length).replace(/^\/+|\/+$/g, '');
   if (route === '') return handleClubState(request, env);
   if (route === 'activate') return handleClubActivate(request, env);
+  if (route === 'presets') return handleClubPresets(request, env);
   return json({ error: 'Not found' }, 404);
 }

@@ -1,9 +1,10 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { DEFAULT_ROLE_RULES, detectRoleFromText, getDefaultGraceAfterRed } from '@toastmaster-timer/shared';
 import { calculateStatus, formatTime } from '@toastmaster-timer/shared';
-import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, loadRoleRules, saveRoleOrder, loadRoleOrder, loadHiddenBuiltinRoles, saveHiddenBuiltinRoles, clearAgenda, clearReports } from '@toastmaster-timer/shared';
+import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports } from '@toastmaster-timer/shared';
 import { parseEasySpeakText } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
+import { resolveActiveRules, resolveActiveHiddenBuiltins, resolveActiveRoleOrder } from '@toastmaster-timer/shared';
 import { setPageBackgroundFromStatus } from '../utils/pageBackground';
 import { useToast } from './ToastContext';
 import { trackEvent } from '../utils/posthog';
@@ -60,23 +61,13 @@ export function TimerProvider({ children }) {
     return saved && saved.length > 0 ? saved : [];
   });
 
-  const [hiddenBuiltinRoles, setHiddenBuiltinRoles] = useState(() => {
-    const saved = loadHiddenBuiltinRoles();
-    return saved && saved.length > 0 ? saved : [];
-  });
+  // Seeded from the club's published list when this device is running it, and
+  // from the device's own keys otherwise. The decision lives in clubPresets.js.
+  const [hiddenBuiltinRoles, setHiddenBuiltinRoles] = useState(() => resolveActiveHiddenBuiltins());
 
-  const [roleRules, setRoleRules] = useState(() => {
-    const savedRules = loadRoleRules();
-    const savedHidden = loadHiddenBuiltinRoles();
-    const merged = savedRules ? { ...DEFAULT_ROLE_RULES, ...savedRules } : { ...DEFAULT_ROLE_RULES };
-    (savedHidden || []).forEach((r) => delete merged[r]);
-    return merged;
-  });
+  const [roleRules, setRoleRules] = useState(() => resolveActiveRules());
 
-  const [customRoleOrder, setCustomRoleOrder] = useState(() => {
-    const saved = loadRoleOrder();
-    return saved && saved.length > 0 ? saved : [];
-  });
+  const [customRoleOrder, setCustomRoleOrder] = useState(() => resolveActiveRoleOrder());
 
   // --- refs ---
   const rafRef = useRef(null);
@@ -390,6 +381,18 @@ export function TimerProvider({ children }) {
     });
   }, []);
 
+  /**
+   * Re-read whichever timing list is now live.
+   *
+   * The seeds above run once, at mount. Moving the club/personal switch, or
+   * taking a freshly published list, changes the answer they were seeded from.
+   */
+  const reloadRoleRules = useCallback(() => {
+    setHiddenBuiltinRoles(resolveActiveHiddenBuiltins());
+    setCustomRoleOrder(resolveActiveRoleOrder());
+    setRoleRules(resolveActiveRules());
+  }, []);
+
   // --- memoized context values (1b) ---
   const tickValue = useMemo(() => ({
     elapsedTime,
@@ -425,6 +428,7 @@ export function TimerProvider({ children }) {
     addRoleRules,
     removeRoleRules,
     resetAllRoleRulesToDefaults,
+    reloadRoleRules,
   }), [
     currentSpeaker,
     agenda,
@@ -453,6 +457,7 @@ export function TimerProvider({ children }) {
     addRoleRules,
     removeRoleRules,
     resetAllRoleRulesToDefaults,
+    reloadRoleRules,
   ]);
 
   return (

@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { DEFAULT_ROLE_RULES, detectRoleFromText, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules } from '@toastmaster-timer/shared';
 import { calculateStatus, formatTime, getDisplaySeconds } from '@toastmaster-timer/shared';
-import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, loadRoleRules, saveRoleOrder, loadRoleOrder, loadHiddenBuiltinRoles, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
+import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
 import { parseEasySpeakText } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
+import { resolveActiveRules, resolveActiveHiddenBuiltins, resolveActiveRoleOrder } from '@toastmaster-timer/shared';
 import { useToast } from './ToastContext';
 import { trackEvent } from '../utils/posthog';
 
@@ -108,16 +109,14 @@ export function TimerProvider({ children }) {
     return saved && saved.length > 0 ? saved : [];
   });
 
-  const [hiddenBuiltinRoles, setHiddenBuiltinRoles] = useState(() => {
-    const saved = loadHiddenBuiltinRoles();
-    return saved && saved.length > 0 ? saved : [];
-  });
+  // The three seeds below come from the club's published list when this device
+  // is running it, and from the device's own keys otherwise. That decision
+  // lives entirely in clubPresets.js; everything downstream — roleOptions, the
+  // rules editor, the speaker picker — is unchanged either way.
+  const [hiddenBuiltinRoles, setHiddenBuiltinRoles] = useState(() => resolveActiveHiddenBuiltins());
 
   const [roleRules, setRoleRules] = useState(() => {
-    const savedRules = loadRoleRules();
-    const savedHidden = loadHiddenBuiltinRoles();
-    const merged = savedRules ? { ...DEFAULT_ROLE_RULES, ...savedRules } : { ...DEFAULT_ROLE_RULES };
-    (savedHidden || []).forEach((r) => delete merged[r]);
+    const merged = resolveActiveRules();
     // An interim build briefly shipped the break role under the name 'Break';
     // drop any saved copy so it does not linger as a stray custom role.
     delete merged['Break'];
@@ -128,10 +127,7 @@ export function TimerProvider({ children }) {
     return merged;
   });
 
-  const [customRoleOrder, setCustomRoleOrder] = useState(() => {
-    const saved = loadRoleOrder();
-    return saved && saved.length > 0 ? saved : [];
-  });
+  const [customRoleOrder, setCustomRoleOrder] = useState(() => resolveActiveRoleOrder());
 
   // --- refs ---
   const rafRef = useRef(null);
@@ -592,6 +588,24 @@ export function TimerProvider({ children }) {
     });
   }, []);
 
+  /**
+   * Re-read whichever timing list is now live.
+   *
+   * The seeds above run once, at mount. Moving the club/personal switch, or
+   * taking a freshly published list, changes the answer they were seeded from,
+   * so the editor calls this instead of asking the timer to be reloaded.
+   */
+  const reloadRoleRules = useCallback(() => {
+    setHiddenBuiltinRoles(resolveActiveHiddenBuiltins());
+    setCustomRoleOrder(resolveActiveRoleOrder());
+    setRoleRules(() => {
+      const merged = resolveActiveRules();
+      delete merged['Break'];
+      merged[BREAK_ROLE] = deriveBreakRules(DEFAULT_BREAK_SECONDS);
+      return merged;
+    });
+  }, []);
+
   // --- memoized context values (1b) ---
   const tickValue = useMemo(() => ({
     elapsedTime,
@@ -629,6 +643,7 @@ export function TimerProvider({ children }) {
     addRoleRules,
     removeRoleRules,
     resetAllRoleRulesToDefaults,
+    reloadRoleRules,
   }), [
     currentSpeaker,
     agenda,
@@ -659,6 +674,7 @@ export function TimerProvider({ children }) {
     addRoleRules,
     removeRoleRules,
     resetAllRoleRulesToDefaults,
+    reloadRoleRules,
   ]);
 
   return (

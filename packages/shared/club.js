@@ -21,8 +21,9 @@ import { FREE_ENTITLEMENT, setEntitlement, getEntitlement } from './entitlement.
  */
 
 export const CLUB_STORAGE_KEY = 'toastmaster_club';
-/** Written from Phase 2; listed here so leaving clears everything club-shaped. */
+/** The club's published list, as the device last received it. */
 export const CLUB_PRESETS_STORAGE_KEY = 'toastmaster_club_presets';
+/** Which list this device is running: 'club' or 'personal'. */
 export const PRESET_SOURCE_STORAGE_KEY = 'toastmaster_preset_source';
 
 const ACTIVATE_ENDPOINT = '/api/club/activate';
@@ -54,6 +55,71 @@ function writeStored(value) {
   } catch {
     // Private mode, or storage disabled. The in-memory copy still carries this
     // page load, which is all the club needs to work in this meeting.
+  }
+}
+
+/**
+ * The club's published list, as this device last received it.
+ *
+ * Read and written here rather than through storage.js on purpose: every setter
+ * in storage.js announces its write to the sync layer, and the club's keys must
+ * never reach the profile document. `toastmaster_role_rules` is a SYNCED_KEY,
+ * so a club list that found its way into it would be pushed into the buyer's
+ * *personal* profile and from there onto every other device they own.
+ *
+ * @returns {{rules: Object, order: string[], hiddenBuiltins: string[],
+ *   publishedBy: string|null, publishedAt: number|null}|null}
+ */
+export function loadClubPresets() {
+  try {
+    const raw = localStorage.getItem(CLUB_PRESETS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.rules || typeof parsed.rules !== 'object') return null;
+    return {
+      rules: parsed.rules,
+      order: Array.isArray(parsed.order) ? parsed.order : [],
+      hiddenBuiltins: Array.isArray(parsed.hiddenBuiltins) ? parsed.hiddenBuiltins : [],
+      publishedBy: parsed.publishedBy ?? null,
+      publishedAt: typeof parsed.publishedAt === 'number' ? parsed.publishedAt : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** @param {Object|null} presets - null removes the key */
+export function saveClubPresets(presets) {
+  try {
+    if (presets?.rules) localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, JSON.stringify(presets));
+    else localStorage.removeItem(CLUB_PRESETS_STORAGE_KEY);
+  } catch {
+    // Private mode. The club still works this page load; it just re-fetches.
+  }
+}
+
+/** The stored switch position, or null when it has never been set explicitly. */
+export function readPresetSource() {
+  try {
+    const value = localStorage.getItem(PRESET_SOURCE_STORAGE_KEY);
+    return value === 'club' || value === 'personal' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move the switch. Always explicit: the switch must only ever move because
+ * something moved it, never because a derived default quietly changed.
+ *
+ * @param {'club'|'personal'|null} source - null clears it back to derived
+ */
+export function writePresetSource(source) {
+  try {
+    if (source === 'club' || source === 'personal') localStorage.setItem(PRESET_SOURCE_STORAGE_KEY, source);
+    else localStorage.removeItem(PRESET_SOURCE_STORAGE_KEY);
+  } catch {
+    // Same as above: the derived default still answers for this page load.
   }
 }
 
@@ -112,16 +178,24 @@ function clubEntitlementOf(state) {
   };
 }
 
-/** Fold a `clubState` document from the server into what we keep on the device. */
+/**
+ * Fold a `clubState` document from the server into what we keep on the device.
+ *
+ * The published list is deliberately absent: it lives in its own key so that
+ * `resolveActiveRules()` can read it without parsing the whole club, and so
+ * that applying it stays a separate, version-gated decision.
+ */
 function toCacheEntry(state, { clubToken, lastRefreshAt }) {
   return {
     clubToken,
     ver: state?.ver ?? 1,
     club: state?.club ?? null,
     kit: state?.kit ?? null,
-    presets: state?.presets ?? null,
     badge: state?.badge ?? null,
     timezone: state?.timezone ?? null,
+    // Recomputed by the server on every request, never versioned: a promotion
+    // takes effect on the next refresh with nothing republished.
+    role: state?.role ?? null,
     plan: state?.plan ?? 'free',
     entitled: Boolean(state?.entitled),
     status: state?.status ?? null,
@@ -211,6 +285,10 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
     return { ok: false, error: body?.error || (response.status === 429 ? 'too_many_attempts' : 'invalid_code') };
   }
 
+  // Activation is the one moment a device has no club list at all, so the
+  // published one is taken unconditionally. Whether it is the list that shows
+  // is a separate question, answered by the switch in clubPresets.js.
+  saveClubPresets(body.presets ?? null);
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
   return { ok: true, club: entry };
@@ -265,6 +343,12 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
   }
   if (!body?.club) return club;
 
+  // Content moves only when `ver` moves. A plain daily refresh therefore leaves
+  // a device's list exactly as it was, and only an actual publish replaces it —
+  // and even then the switch is not touched, so a device sitting on its own
+  // presets stays there with a newer club list waiting behind the toggle.
+  if ((body.ver ?? 1) !== (club.ver ?? 1)) saveClubPresets(body.presets ?? null);
+
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken ?? club.clubToken, lastRefreshAt: now }));
   applyPlan(clubEntitlementOf(entry));
   return entry;
@@ -281,18 +365,33 @@ export function leaveClub() {
   cached = null;
   loaded = true;
   writeStored(null);
-  for (const key of [CLUB_PRESETS_STORAGE_KEY, PRESET_SOURCE_STORAGE_KEY]) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Nothing to do; the club token is already gone, which is what gates.
-    }
-  }
+  // A deletion, never a restore: the personal keys were not written over while
+  // the club was active, so there is nothing to put back.
+  saveClubPresets(null);
+  writePresetSource(null);
   // Only a club-derived plan goes away with the club. A buyer who leaves their
   // own club keeps the subscription they paid for.
   if (getEntitlement().source === 'club') setEntitlement(FREE_ENTITLEMENT);
   notify();
   return had;
+}
+
+/**
+ * Take the answer to a publish: the club's list is now this, at this version.
+ *
+ * Recording the new `ver` here is what stops the next daily refresh treating
+ * the publisher's own device as out of date and replacing the list it just
+ * shared — with the same content, but through the path that exists to overwrite.
+ *
+ * @param {number} ver
+ * @param {Object} presets
+ * @returns {Object|null} the club as it now stands
+ */
+export function rememberPublishedPresets(ver, presets) {
+  const club = loadClub();
+  if (!club) return null;
+  saveClubPresets(presets ?? null);
+  return store({ ...club, ver: typeof ver === 'number' ? ver : club.ver });
 }
 
 /** Test seam: drop the in-memory copy so the next read comes from storage. */

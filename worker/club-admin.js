@@ -110,6 +110,41 @@ export const clubByCodeKey = (code) => `club-by-code:${normalizeCode(code)}`;
 export const clubByCustomerKey = (customerId) => `club-by-customer:${customerId}`;
 export const clubDeviceKey = (clubId, deviceId) => `club-device:${clubId}:${deviceId}`;
 export const clubMemberKey = (clubId, uid) => `club-member:${clubId}:zoom:${uid}`;
+export const clubPresetsKey = (clubId) => `club-presets:${clubId}`;
+
+/**
+ * What a person may change club-wide.
+ *
+ * Roles live only on member records, never on device records, which is what
+ * makes "you cannot grant editing rights to an anonymous device" true by
+ * construction: a guest has no member record to carry a role. A revoked member
+ * reads as no role at all rather than as a demotion, so losing the role and
+ * losing the person are one code path.
+ *
+ * Never throws: it is consulted on the app-start refresh, and a KV hiccup must
+ * degrade to "no role", not to an error the app has to handle.
+ *
+ * @param {Object} env
+ * @param {string|null|undefined} clubId
+ * @param {string|null|undefined} uid
+ * @returns {Promise<'admin'|'editor'|'member'|null>}
+ */
+export async function readMemberRole(env, clubId, uid) {
+  if (!clubId || !uid) return null;
+  const store = entitlementStore(env);
+  if (!store) return null;
+  let member;
+  try {
+    member = await store.get(clubMemberKey(clubId, uid), 'json');
+  } catch {
+    return null;
+  }
+  if (!member || member.revokedAt) return null;
+  return member.role === 'admin' || member.role === 'editor' ? member.role : 'member';
+}
+
+/** Whether a role may publish the club's presets, kit and badge placement. */
+export const canPublish = (role) => role === 'admin' || role === 'editor';
 
 async function freeCode(store, name, randomInt, attempts = 8) {
   for (let i = 0; i < attempts; i += 1) {
