@@ -120,11 +120,18 @@ describe('POST /api/club/activate', () => {
       plan: 'pro',
       entitled: true,
       source: 'club',
-      // Phases 2 and 3 fill these; they are in the contract now so a device
-      // caching this document today needs no migration later.
-      kit: null,
+      // A club that has set no kit still gets one: the name is always there,
+      // and the defaults are what a device renders until an admin chooses.
+      kit: {
+        name: 'Downtown Speakers',
+        logoHash: null,
+        logoUrl: null,
+        primaryColor: '#772432',
+        showOnCards: true,
+        showOnReports: true,
+      },
+      badge: { x: 0.8, y: 0.12, scale: 0.12 },
       presets: null,
-      badge: null,
     });
 
     const claims = verifyClubToken(body.clubToken, SIGNING_KEY);

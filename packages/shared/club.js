@@ -1,4 +1,5 @@
 import { FREE_ENTITLEMENT, setEntitlement, getEntitlement } from './entitlement.js';
+import { DEFAULT_BADGE_PLACEMENT, DEFAULT_PRIMARY_COLOR, normalizeBadgePlacement } from './clubBadge.js';
 
 /**
  * The club this device joined, as the device remembers it.
@@ -25,6 +26,17 @@ export const CLUB_STORAGE_KEY = 'toastmaster_club';
 export const CLUB_PRESETS_STORAGE_KEY = 'toastmaster_club_presets';
 /** Which list this device is running: 'club' or 'personal'. */
 export const PRESET_SOURCE_STORAGE_KEY = 'toastmaster_preset_source';
+/**
+ * Where this device puts the club's badge, when it has moved it.
+ *
+ * Device-local and NOT synced, deliberately: the club's placement is the club's
+ * default and arrives on `clubState.badge`, while the move a timer makes is
+ * about their own tile — where their face is, what their camera frames — which
+ * is exactly the kind of thing that must not follow them to another machine.
+ * Only the fields this device actually changed are stored, so a club that
+ * re-publishes its default still reaches every field nobody touched.
+ */
+export const CLUB_BADGE_STORAGE_KEY = 'toastmaster_club_badge';
 
 const ACTIVATE_ENDPOINT = '/api/club/activate';
 const CLUB_ENDPOINT = '/api/club';
@@ -121,6 +133,198 @@ export function writePresetSource(source) {
   } catch {
     // Same as above: the derived default still answers for this page load.
   }
+}
+
+/**
+ * This device's overrides to the club's badge placement, or null.
+ *
+ * Sparse on purpose — only the fields the timer actually moved. A club that
+ * later republishes its default still reaches every field nobody touched.
+ *
+ * @returns {{x?: number, y?: number, scale?: number, visible?: boolean}|null}
+ */
+export function loadClubBadgeOverride() {
+  try {
+    const raw = localStorage.getItem(CLUB_BADGE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const out = {};
+    const x = Number(parsed.x);
+    const y = Number(parsed.y);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      out.x = Math.min(1, Math.max(0, x));
+      out.y = Math.min(1, Math.max(0, y));
+    }
+    const scale = Number(parsed.scale);
+    if (Number.isFinite(scale) && scale > 0) out.scale = scale;
+    if (typeof parsed.visible === 'boolean') out.visible = parsed.visible;
+    return Object.keys(out).length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move, resize or hide the badge on this device.
+ *
+ * Written straight to localStorage rather than through storage.js: every setter
+ * there announces its write to the sync layer, and this key must never reach
+ * the profile document.
+ *
+ * @param {{x?: number, y?: number, scale?: number, visible?: boolean}} patch
+ * @returns {{x: number, y: number, scale: number, visible: boolean}} the
+ *   placement now in effect
+ */
+export function saveClubBadgeOverride(patch) {
+  const next = { ...(loadClubBadgeOverride() ?? {}), ...(patch ?? {}) };
+  try {
+    localStorage.setItem(CLUB_BADGE_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Private mode. The badge still draws from the club default this load.
+  }
+  return clubBadgePlacement();
+}
+
+/** Drop this device's move and go back to the club's placement. */
+export function clearClubBadgeOverride() {
+  try {
+    localStorage.removeItem(CLUB_BADGE_STORAGE_KEY);
+  } catch {
+    // Same as above.
+  }
+  return clubBadgePlacement();
+}
+
+/** Whether this device has moved the badge away from the club's placement. */
+export function hasClubBadgeOverride() {
+  return Boolean(loadClubBadgeOverride());
+}
+
+/** The club's own placement, as last published. */
+export function clubBadgeDefault() {
+  return normalizeBadgePlacement(loadClub()?.badge, DEFAULT_BADGE_PLACEMENT);
+}
+
+/**
+ * Where the badge goes on this device: the club's placement, with whatever this
+ * device moved layered on top.
+ *
+ * @returns {{x: number, y: number, scale: number, visible: boolean}}
+ */
+export function clubBadgePlacement() {
+  return normalizeBadgePlacement(loadClubBadgeOverride(), clubBadgeDefault());
+}
+
+/**
+ * The club's brand kit, or null when there is nothing to render.
+ *
+ * A lapsed club answers null, which is what makes the lapse behaviour fall out
+ * for free: the badge and the report header simply stop being drawn, with
+ * nothing deleted and nothing to restore on renewal.
+ *
+ * @returns {{name: string, logoUrl: string|null, primaryColor: string,
+ *   showOnCards: boolean, showOnReports: boolean}|null}
+ */
+export function clubKit() {
+  const club = loadClub();
+  if (!club?.entitled) return null;
+  const kit = club.kit;
+  if (!kit || typeof kit !== 'object') return null;
+  const name = String(kit.name ?? club.club?.name ?? '').trim();
+  if (!name) return null;
+  return {
+    name,
+    logoUrl: typeof kit.logoUrl === 'string' && kit.logoUrl ? kit.logoUrl : null,
+    primaryColor: typeof kit.primaryColor === 'string' && kit.primaryColor ? kit.primaryColor : DEFAULT_PRIMARY_COLOR,
+    showOnCards: kit.showOnCards !== false,
+    showOnReports: kit.showOnReports !== false,
+  };
+}
+
+// The decoded logo, and the URL it came from. Module-level because the badge is
+// composited once per pushed frame and decoding there would put an image decode
+// inside the 25 ms warm budget that card switching is held to.
+let logoImage = null;
+let logoImageUrl = null;
+let logoPending = null;
+
+/** The decoded club logo, or null when there is none or it has not landed yet. */
+export function getClubLogoImage() {
+  return logoImage;
+}
+
+/**
+ * Decode the club's logo once, so the compositor never waits on the network.
+ *
+ * Never rejects: a logo that will not load leaves a name-only badge, which is
+ * the same badge a club without a logo gets. Called from app start, alongside
+ * the card pre-decode that already warms the timing cards.
+ *
+ * @param {{loadImage?: (url: string) => Promise<CanvasImageSource>}} [options]
+ * @returns {Promise<CanvasImageSource|null>}
+ */
+export function warmClubLogo({ loadImage } = {}) {
+  const url = clubKit()?.logoUrl ?? null;
+  if (!url) {
+    logoImage = null;
+    logoImageUrl = null;
+    logoPending = null;
+    return Promise.resolve(null);
+  }
+  if (logoImageUrl === url && (logoImage || logoPending)) return logoPending ?? Promise.resolve(logoImage);
+
+  logoImageUrl = url;
+  logoImage = null;
+  const load =
+    loadImage ??
+    ((src) =>
+      new Promise((resolve, reject) => {
+        if (typeof Image === 'undefined') {
+          reject(new Error('No Image constructor'));
+          return;
+        }
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error(`Could not load ${src}`));
+        // Same-origin, so the canvas it is drawn onto stays untainted and
+        // getImageData still works on the composited frame.
+        image.src = src;
+      }));
+
+  logoPending = Promise.resolve()
+    .then(() => load(url))
+    .then((image) => {
+      if (logoImageUrl !== url) return logoImage;
+      logoImage = image;
+      notify();
+      return image;
+    })
+    .catch(() => null)
+    .finally(() => {
+      logoPending = null;
+    });
+
+  return logoPending;
+}
+
+/**
+ * Everything the badge renderer needs, or null when nothing should be drawn.
+ *
+ * One flat answer rather than two lookups, because the camera-mode dirty-check
+ * compares this whole object to decide whether a bridge push is redundant.
+ *
+ * @returns {{kit: Object, placement: Object}|null}
+ */
+export function clubBadgeState() {
+  const kit = clubKit();
+  if (!kit || !kit.showOnCards) return null;
+  const placement = clubBadgePlacement();
+  if (!placement.visible) return null;
+  return {
+    kit: { ...kit, logo: logoImageUrl === kit.logoUrl ? logoImage : null },
+    placement,
+  };
 }
 
 function notify() {
@@ -228,6 +432,15 @@ export function initClubFromCache() {
   return club ?? null;
 }
 
+/** Decode the club's logo, if there is one, without making anyone wait. */
+function warmLogoQuietly() {
+  try {
+    warmClubLogo();
+  } catch {
+    // A name-only badge is the fallback, and it is a perfectly good badge.
+  }
+}
+
 /**
  * Apply a plan the server just reported for the club.
  *
@@ -291,6 +504,7 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
   saveClubPresets(body.presets ?? null);
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
+  warmLogoQuietly();
   return { ok: true, club: entry };
 }
 
@@ -351,6 +565,10 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
 
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken ?? club.clubToken, lastRefreshAt: now }));
   applyPlan(clubEntitlementOf(entry));
+  // The kit is club-wide and carries no device override, so it simply lands;
+  // the badge *default* lands too, while whatever this device moved sits in its
+  // own key and survives.
+  warmLogoQuietly();
   return entry;
 }
 
@@ -369,6 +587,11 @@ export function leaveClub() {
   // the club was active, so there is nothing to put back.
   saveClubPresets(null);
   writePresetSource(null);
+  // The badge placement goes with the club: it is a position on the club's
+  // badge, and there is no badge to place once the club is gone.
+  clearClubBadgeOverride();
+  logoImage = null;
+  logoImageUrl = null;
   // Only a club-derived plan goes away with the club. A buyer who leaves their
   // own club keeps the subscription they paid for.
   if (getEntitlement().source === 'club') setEntitlement(FREE_ENTITLEMENT);
@@ -399,4 +622,7 @@ export function resetClubForTests() {
   cached = undefined;
   loaded = false;
   listeners.clear();
+  logoImage = null;
+  logoImageUrl = null;
+  logoPending = null;
 }

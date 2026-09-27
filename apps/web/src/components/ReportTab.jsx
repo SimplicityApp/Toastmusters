@@ -3,7 +3,9 @@ import { useTimer } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
 import { Copy, Check, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
+import BrandedReportHeader from '@toastmaster-timer/ui/BrandedReportHeader';
 import ConfirmModal from './ConfirmModal';
+import { useClub } from '../hooks/useClub';
 
 function ColorDot({ color }) {
   const colorClasses = { green: 'bg-green-500', yellow: 'bg-yellow-500', red: 'bg-red-500', blue: 'bg-blue-500' };
@@ -13,6 +15,9 @@ function ColorDot({ color }) {
 export default memo(function ReportTab() {
   const { reports, clearAllReports } = useTimer();
   const { showToast } = useToast();
+  // The club's header, on a surface free never touches. With no club, or with
+  // "Show on reports" off, nothing renders and the tab is what it always was.
+  const { kit } = useClub();
   const [copied, setCopied] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showClipboardFallback, setShowClipboardFallback] = useState(false);
@@ -48,6 +53,9 @@ export default memo(function ReportTab() {
         <div className="text-center py-8 text-gray-500">No reports yet. Complete speeches in the LIVE tab to generate reports.</div>
       ) : (
         <>
+          {kit?.showOnReports && (
+            <BrandedReportHeader clubName={kit.name} primaryColor={kit.primaryColor} logoUrl={kit.logoUrl} />
+          )}
           <div className="overflow-x-auto -mx-4">
             <div className="inline-block min-w-full align-middle">
               <table className="w-full border-collapse text-sm">

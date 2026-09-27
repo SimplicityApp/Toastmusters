@@ -7,12 +7,15 @@ import App from './App.jsx'
 import './index.css'
 import { initPostHog } from './utils/posthog.js'
 import { startWebSession } from './utils/webIdentity.js'
-import { initClubFromCache, refreshClub } from '@toastmaster-timer/shared'
+import { initClubFromCache, refreshClub, warmClubLogo } from '@toastmaster-timer/shared'
 
 // Before the first paint, and synchronous: a browser that joined a club is Pro,
 // and reading that out of localStorage now is what stops the plan flashing
 // "free" while /api/me is still in flight.
 initClubFromCache()
+// The club's logo, decoded once so the badge and the report header have it on
+// first paint. Never awaited; a failure leaves a name-only badge.
+warmClubLogo()
 
 // Render first with uninitialized posthog (all trackEvent calls already check __loaded)
 ReactDOM.createRoot(document.getElementById('root')).render(

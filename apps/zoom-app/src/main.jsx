@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
-import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, initClubFromCache, refreshClub } from '@toastmaster-timer/shared'
+import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, initClubFromCache, refreshClub, warmClubLogo } from '@toastmaster-timer/shared'
 import { initPostHog, identifyUser, setUserProperties, registerSessionProperties } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
@@ -34,6 +34,12 @@ const sdkReady = initializeZoomSdk().catch(() => {
 Promise.all([sdkReady, initCardImages()]).then(() => preloadBackgroundImages()).catch((error) => {
   console.warn('Failed to pre-load background images:', error);
 });
+
+// The club's logo, decoded once here rather than inside the compositor. Card
+// switching is held to a 25 ms warm budget, and an image decode in that path
+// would not fit in it. Never awaited, and a failure leaves a name-only badge —
+// which is the same badge a club without a logo gets.
+warmClubLogo();
 
 try {
   initPostHog();

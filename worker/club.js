@@ -76,11 +76,65 @@ export function deviceLabel(request) {
   return browser || os || 'Unknown device';
 }
 
+/** Toastmasters maroon: the kit's colour until a club chooses its own. */
+export const DEFAULT_PRIMARY_COLOR = '#772432';
+
+/**
+ * Top-right, mirroring the Toastmasters International logo on the other side of
+ * the card, and the only corner that stays visible in camera mode — the centre
+ * and the bottom of that frame are where the organizer is.
+ */
+export const DEFAULT_BADGE_PLACEMENT = Object.freeze({ x: 0.8, y: 0.12, scale: 0.12 });
+
+/**
+ * The club's brand kit, as a device needs it: structured identity rather than
+ * another image upload.
+ *
+ * The logo is handed over as a URL rather than a hash because its reader is a
+ * canvas compositor and a report page, neither of which should have to know how
+ * our object keys are built. Public and immutable, so the edge serves it.
+ */
+export function buildKit(clubId, club) {
+  const name = String(club?.name ?? '').trim();
+  if (!name) return null;
+  const kit = club?.kit && typeof club.kit === 'object' ? club.kit : {};
+  const logoHash = typeof kit.logoHash === 'string' && kit.logoHash ? kit.logoHash : null;
+  return {
+    name,
+    logoHash,
+    logoUrl: logoHash ? `/api/club-assets/${clubId}/${logoHash}` : null,
+    primaryColor: typeof kit.primaryColor === 'string' && kit.primaryColor ? kit.primaryColor : DEFAULT_PRIMARY_COLOR,
+    // Default on, both of them: a club that set a kit wants to see it, and a
+    // club that has no kit never reaches here at all.
+    showOnCards: kit.showOnCards !== false,
+    showOnReports: kit.showOnReports !== false,
+  };
+}
+
+/**
+ * The club's badge placement — the default every device starts from.
+ *
+ * It rides along with the published presets because an admin sets it the same
+ * way they set the presets: by positioning it on their own device and choosing
+ * "Share with my club". A device that later moves it keeps that move in a key
+ * of its own, so a republish reaches every device that never touched it.
+ */
+export function buildBadge(presets) {
+  const badge = presets?.badge;
+  if (!badge || typeof badge !== 'object') return { ...DEFAULT_BADGE_PLACEMENT };
+  const number = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+  return {
+    x: Math.min(1, Math.max(0, number(badge.x, DEFAULT_BADGE_PLACEMENT.x))),
+    y: Math.min(1, Math.max(0, number(badge.y, DEFAULT_BADGE_PLACEMENT.y))),
+    scale: Math.min(1, Math.max(0.01, number(badge.scale, DEFAULT_BADGE_PLACEMENT.scale))),
+  };
+}
+
 /**
  * The whole club, as a device needs to see it.
  *
  * The split down the middle of this document is the point. Content — the
- * presets, and the kit and badge default that arrive in Phase 3 — is versioned,
+ * presets, the brand kit, and the badge default — is versioned,
  * and a device replaces its copy only when `ver` moves, which is what lets a
  * timer's local list survive a daily refresh and lose only to an actual
  * publish. Everything below `timezone` carries no version and is applied every
@@ -103,7 +157,7 @@ export async function buildClubState(env, clubId, club, access, { uid = null } =
   return {
     ver: club?.ver ?? 1,
     club: { id: clubId, name: club?.name ?? null },
-    kit: null, // Phase 3
+    kit: buildKit(clubId, club),
     presets: presets
       ? {
         rules: presets.rules ?? {},
@@ -113,7 +167,7 @@ export async function buildClubState(env, clubId, club, access, { uid = null } =
         publishedAt: presets.publishedAt ?? null,
       }
       : null,
-    badge: null, // Phase 3
+    badge: buildBadge(presets),
     timezone: club?.timezone ?? null,
     // Not versioned: a guest device sees null and a promotion takes effect on
     // the next refresh without anything being republished.

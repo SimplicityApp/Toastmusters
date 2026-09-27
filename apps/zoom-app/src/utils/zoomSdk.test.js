@@ -59,6 +59,16 @@ function stubCanvas() {
     // The band over a video background is four fillRects; the color is read off
     // fillStyle at the moment of the call, as a real 2D context would.
     fillRect: (x, y, w, h) => operations.push(['fillRect', x, y, w, h, ctx.fillStyle]),
+    // The club badge draws a rounded pill as an explicit path rather than
+    // calling roundRect, which an older Zoom webview may not have.
+    save: () => operations.push(['save']),
+    restore: () => operations.push(['restore']),
+    beginPath: () => operations.push(['beginPath']),
+    closePath: () => operations.push(['closePath']),
+    moveTo: (...args) => operations.push(['moveTo', ...args]),
+    lineTo: (...args) => operations.push(['lineTo', ...args]),
+    quadraticCurveTo: (...args) => operations.push(['quadraticCurveTo', ...args]),
+    fill: () => operations.push(['fill', ctx.fillStyle]),
     measureText: (text) => ({ width: String(text).length * 40 }),
     getImageData: (x, y, w, h) => ({
       width: w,
@@ -3842,5 +3852,231 @@ describe('reading who Zoom says this is', () => {
     sdkMock.getUserContext = vi.fn().mockResolvedValue({ status: 'authenticated' });
     const again = await loadModule();
     expect(await again.readZoomUserSummary()).toEqual({ status: 'authenticated', role: null });
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * The club's badge on the pushed frame.
+ *
+ * The constraint the whole design bends around is the fast path: built-in cards
+ * go over as `setVirtualBackground({ fileUrl })` with no pixels crossing the
+ * bridge, which is what holds card switching inside the warm budget in
+ * e2e/zoom.card-switch-perf.spec.js. The badge must therefore never reach the
+ * background — it rides the same layer the readout already rides.
+ */
+describe("the club's badge", () => {
+  const CLUB = {
+    clubToken: 'club-token',
+    ver: 2,
+    club: { id: 'club-1', name: 'Downtown Speakers' },
+    kit: {
+      name: 'Downtown Speakers',
+      logoUrl: null,
+      primaryColor: '#772432',
+      showOnCards: true,
+      showOnReports: true,
+    },
+    badge: { x: 0.8, y: 0.12, scale: 0.12 },
+    entitled: true,
+    plan: 'pro',
+    lastRefreshAt: Date.now(),
+  };
+
+  /**
+   * Seed the club the way an activation would, then hand back a fresh module.
+   *
+   * The club cache is read once and memoized in packages/shared, and
+   * vi.resetModules() does not clear the mock registry — so the shared module
+   * instance outlives loadModule() and has to be told to re-read.
+   */
+  async function loadWithClub(over = {}) {
+    if (over) localStorage.setItem('toastmaster_club', JSON.stringify({ ...CLUB, ...over }));
+    const loaded = await loadModule();
+    const shared = await import('@toastmaster-timer/shared');
+    shared.resetClubForTests();
+    return loaded;
+  }
+
+  /**
+   * How many times the club's name was drawn onto a frame.
+   *
+   * Matched on its opening rather than in full: the stub measures every glyph
+   * at 40px, so the name is past the badge's 44%-of-frame ceiling and comes out
+   * ellipsized — which is itself the behaviour clubBadge.test.js pins down.
+   */
+  const badgeNames = (operations) =>
+    operations.filter(([op, text]) => op === 'fillText' && String(text).startsWith('Down')).length;
+
+  it('still pushes built-in cards by fileUrl with a club active', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, applyOverlay } = await loadWithClub();
+    await initializeZoomSdk();
+
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+
+    // Zero pixels across the bridge for the card itself. If the badge had been
+    // composited into the background instead, every colour change would ship a
+    // megabyte and the warm budget would be gone.
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledWith({
+      fileUrl: 'https://zoom.example/backgrounds/green.png',
+    });
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the badge on the foreground layer, not the background', async () => {
+    const { operations } = stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, applyOverlay } = await loadWithClub();
+    await initializeZoomSdk();
+
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+
+    expect(sdkMock.setVirtualForeground).toHaveBeenCalledWith({
+      imageData: expect.anything(),
+      persistence: 'meeting',
+    });
+    expect(badgeNames(operations)).toBeGreaterThan(0);
+  });
+
+  it('repaints when the badge alone moves', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, applyOverlay, setClubBadgePlacement } = await loadWithClub();
+    await initializeZoomSdk();
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+    const before = sdkMock.setVirtualForeground.mock.calls.length;
+
+    setClubBadgePlacement({ x: 0.2, y: 0.8 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The dirty-check compares only the readout's own fields, so without the
+    // badge in it a drag would look right on the preview tile and do nothing at
+    // all in the meeting.
+    expect(sdkMock.setVirtualForeground.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('skips the push when nothing about the badge changed', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, applyOverlay, setClubBadgePlacement, getClubBadgePlacement } =
+      await loadModule();
+    await initializeZoomSdk();
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+    const before = sdkMock.setVirtualForeground.mock.calls.length;
+
+    setClubBadgePlacement({ x: getClubBadgePlacement().x });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sdkMock.setVirtualForeground.mock.calls.length).toBe(before);
+  });
+
+  it('keeps the badge up when the organizer hides the clock', async () => {
+    const { operations } = stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, applyOverlay, setOverlayTimeLabel, setOverlayTimeVisible } =
+      await loadModule();
+    await initializeZoomSdk();
+    setOverlayTimeLabel('00:05');
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+
+    setOverlayTimeVisible(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const drawnAfterHiding = operations.length;
+    setOverlayTimeLabel('00:06');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Hiding the clock is not a request to take the club's name off the card,
+    // so the layer stays up rather than being removed.
+    expect(sdkMock.removeVirtualForeground).not.toHaveBeenCalled();
+    expect(badgeNames(operations)).toBeGreaterThan(0);
+    // ...and the hidden clock still repaints nothing, exactly as before.
+    expect(operations.length).toBe(drawnAfterHiding);
+  });
+
+  it("draws nothing when the club turned 'Show on cards' off", async () => {
+    const { operations } = stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, applyOverlay } = await loadWithClub({ kit: { ...CLUB.kit, showOnCards: false } });
+    await initializeZoomSdk();
+
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+
+    expect(badgeNames(operations)).toBe(0);
+    // Nothing to draw at all, so the layer is not pushed either: the frame is
+    // what it was before any of this existed.
+    expect(sdkMock.setVirtualForeground).not.toHaveBeenCalled();
+  });
+
+  it('bakes the badge into the card-mode filter frame instead', async () => {
+    const { operations } = stubCanvas();
+    stubImage();
+    saveOverlayMode('card');
+    sdkMock.setVideoFilter.mockResolvedValue({ status: 'ok' });
+    const { initializeZoomSdk, applyOverlay } = await loadWithClub();
+    await initializeZoomSdk();
+
+    // No speech running: card mode used to composite only when there was a
+    // readout to bake, so the badge needs its own reason to render.
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+
+    expect(badgeNames(operations)).toBeGreaterThan(0);
+    expect(sdkMock.setVideoFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-pushes the card-mode frame when the badge moves', async () => {
+    stubCanvas();
+    stubImage();
+    saveOverlayMode('card');
+    sdkMock.setVideoFilter.mockResolvedValue({ status: 'ok' });
+    const { initializeZoomSdk, applyOverlay, setClubBadgePlacement } = await loadWithClub();
+    await initializeZoomSdk();
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+
+    setClubBadgePlacement({ x: 0.2, y: 0.85 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // A frame carrying the badge somewhere else is a different frame, the same
+    // way a frame carrying a different readout is.
+    expect(sdkMock.setVideoFilter).toHaveBeenCalledTimes(2);
+  });
+
+  it('puts the badge back where the club placed it', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, setClubBadgePlacement, resetClubBadgePlacement, getClubBadgePlacement, isClubBadgeMoved } =
+      await loadWithClub();
+    await initializeZoomSdk();
+
+    setClubBadgePlacement({ x: 0.1, y: 0.9 });
+    expect(isClubBadgeMoved()).toBe(true);
+
+    resetClubBadgePlacement();
+
+    expect(isClubBadgeMoved()).toBe(false);
+    expect(getClubBadgePlacement()).toEqual({ x: 0.8, y: 0.12, scale: 0.12, visible: true });
+  });
+
+  it('leaves the frame alone for a device with no club', async () => {
+    const { operations } = stubCanvas();
+    saveOverlayMode('camera');
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const { initializeZoomSdk, applyOverlay, hasClubBadge } = await loadWithClub(null);
+    await initializeZoomSdk();
+
+    await applyOverlay('https://zoom.example/backgrounds/green.png');
+
+    expect(hasClubBadge()).toBe(false);
+    expect(operations.filter(([op]) => op === 'fillText')).toHaveLength(0);
+    expect(sdkMock.setVirtualForeground).not.toHaveBeenCalled();
   });
 });

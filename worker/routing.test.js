@@ -183,6 +183,25 @@ describe('404 handling', () => {
     expect((await worker.fetch(get('https://www.timer.simple-tech.app/pro'), env, ctx)).status).toBe(404);
   });
 
+  // The club logo is an API route, not an asset the SPA owns: it must never
+  // fall through to the shell, or the badge compositor would be handed HTML to
+  // decode as an image.
+  it('never serves the SPA shell for /api/club-assets/*', async () => {
+    const env = { ...makeEnv(['/index.html', '/404.html']), CARD_ASSETS: undefined };
+
+    const res = await worker.fetch(
+      get('https://www.timer.simple-tech.app/api/club-assets/club-1/abc.png'),
+      env,
+      ctx
+    );
+
+    // 503 because no bucket is bound here — the point is that it reached the
+    // handler rather than the asset store.
+    expect(res.status).toBe(503);
+    expect(res.headers.get('x-asset-path')).toBeNull();
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
   it('returns a real 404 for unknown paths instead of a soft 404', async () => {
     const env = makeEnv(['/index.html', '/404.html']);
     const res = await worker.fetch(

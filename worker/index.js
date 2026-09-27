@@ -7,6 +7,7 @@ import { handleMe } from './me.js';
 import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
 import { handleBilling } from './billing.js';
 import { handleClub } from './club.js';
+import { handleClubAsset } from './club-assets.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
@@ -110,6 +111,15 @@ export default {
     // Custom card artwork. Same placement rationale as the two above.
     if (pathname.startsWith('/api/assets/')) {
       return handleAsset(request, url, env);
+    }
+
+    // The club's logo, served to anyone. Ahead of host routing so the Zoom app
+    // can reach it from the zoom.<domain> host, and ahead of the www redirect
+    // so the badge compositor is never asked to follow a 301 mid-frame. This is
+    // the one asset route with no session at all: its readers are a guest's
+    // compositor and a crawler fetching a shared report's preview.
+    if (pathname.startsWith('/api/club-assets/')) {
+      return handleClubAsset(request, url, env);
     }
 
     // Club activation and the daily club refresh. Ahead of the www redirect

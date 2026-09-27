@@ -20,6 +20,7 @@
     "./cardAssetSync": "./cardAssetSync.js",
     "./entitlement": "./entitlement.js",
     "./club": "./club.js",
+    "./clubBadge": "./clubBadge.js",
     "./clubPresets": "./clubPresets.js"
   }
 }

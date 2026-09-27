@@ -56,6 +56,19 @@ describe('the Content-Security-Policy the app ships', () => {
       expect(imgSrc, `img-src in ${path} must allow blob:`).toContain('blob:');
     }
   });
+
+  it('lets the club logo load from our own origin', () => {
+    // The brand kit's logo is served by the Worker at
+    // /api/club-assets/<clubId>/<name> — same origin on every host the apps run
+    // on, including zoom.<domain>, since that path is dispatched ahead of host
+    // routing. So 'self' is the whole requirement, and naming it here is what
+    // stops a future tightening of img-src taking the badge and the branded
+    // report header down silently.
+    for (const { path, policy } of policies()) {
+      const imgSrc = policy.match(/img-src ([^;]*)/)?.[1];
+      expect(imgSrc, `img-src in ${path} must allow same-origin images`).toContain("'self'");
+    }
+  });
 });
 
 describe('the root policy the Worker serves', () => {
