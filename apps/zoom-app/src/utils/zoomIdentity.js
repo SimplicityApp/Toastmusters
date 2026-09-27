@@ -1,3 +1,4 @@
+import { clubHeaders } from '@toastmaster-timer/shared';
 import { readAppContext, readZoomUserSummary } from './zoomSdk';
 
 /**
@@ -46,7 +47,9 @@ const ANONYMOUS = Object.freeze({
 async function requestSession(context) {
   const response = await fetch(SESSION_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // The club rides along so the entitlement that comes back is the combined
+    // one; without it the answer would overwrite club-derived Pro with free.
+    headers: { 'Content-Type': 'application/json', ...clubHeaders() },
     body: JSON.stringify(context ? { context } : {}),
     // Identity is per-user; a cached response would hand us someone else's.
     cache: 'no-store',

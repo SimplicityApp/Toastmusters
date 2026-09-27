@@ -35,9 +35,11 @@ describe('handleZoomSession', () => {
     expect(body.uid).toBe('uid-1');
     expect(body.meetingId).toBe('m-1');
     expect(verifySessionToken(body.token, SIGNING_KEY)).toMatchObject({ uid: 'uid-1' });
-    // No storage bound and enforcement on: free, so the app can offer the upgrade.
+    // No storage bound and enforcement on: free, so the app can offer the
+    // upgrade. `club` is null because this request carried no X-Club header —
+    // the answer is the combined one, and there was nothing to combine.
     expect(body.entitlement).toEqual({
-      plan: 'free', status: null, entitled: false, currentPeriodEnd: null, cancelAtPeriodEnd: false, source: 'none',
+      plan: 'free', status: null, entitled: false, currentPeriodEnd: null, cancelAtPeriodEnd: false, source: 'none', club: null,
     });
   });
 

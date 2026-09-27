@@ -55,6 +55,23 @@
     { "binding": "toastmaster_timer_card_assets_dev", "bucket_name": "toastmaster-timer-card-assets-dev", "remote": true }
   ],
 
+  // Club activation is the Worker's only public, guessable-input route, so it
+  // is the only one that is throttled. Entropy and throttling both stay because
+  // they fail differently: entropy does nothing against a leaked code, and
+  // throttling does nothing against a short one.
+  // `period` must be 10 or 60; namespace_id is a per-Worker identifier, not an
+  // account resource, so nothing has to be created before deploying.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "CLUB_ACTIVATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": { "limit": 10, "period": 60 }
+      }
+    ]
+  },
+
   // Static Assets: serves the combined monorepo build in ./dist.
   //  - web app (apps/web)        -> served at /
   //  - zoom app (apps/zoom-app)  -> served at /zoom/
@@ -116,6 +133,17 @@
       "r2_buckets": [
         { "binding": "CARD_ASSETS", "bucket_name": "toastmaster-timer-card-assets-dev" }
       ],
+      // `unsafe` is not inherited by environments; repeated here so dev throttles too.
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "CLUB_ACTIVATE_LIMITER",
+            "type": "ratelimit",
+            "namespace_id": "1001",
+            "simple": { "limit": 10, "period": 60 }
+          }
+        ]
+      },
       "vars": {
         "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
         "ENTITLEMENT_ENFORCE": "0",

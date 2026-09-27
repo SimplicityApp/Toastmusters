@@ -1,5 +1,6 @@
-import { readSession } from './auth.js';
-import { resolveEntitlement } from './entitlements.js';
+import { readSession, readClub } from './auth.js';
+import { resolveAccess } from './entitlements.js';
+import { verifiedClubId } from './club.js';
 import { mergeProfiles, normalizeProfile } from '../packages/shared/profileMerge.js';
 
 /**
@@ -62,7 +63,11 @@ export async function handleProfile(request, env) {
     return json({ error: 'Method not allowed' }, 405);
   }
 
-  const entitlement = await resolveEntitlement(env, session.uid);
+  // Two credentials, either of which entitles this write. The club is resolved
+  // here rather than read off the user's record, so a device that left the club
+  // or a club that lapsed is refused on this very request.
+  const clubId = await verifiedClubId(env, readClub(request, env));
+  const entitlement = await resolveAccess(env, { uid: session.uid, clubId });
   if (!entitlement.entitled) {
     return json({ error: 'upgrade_required', entitlement }, 402);
   }

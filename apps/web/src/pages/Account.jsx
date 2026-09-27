@@ -5,6 +5,7 @@ import { refreshEntitlement } from '@toastmaster-timer/shared'
 import { useEntitlement, useWebIdentity } from '../hooks/useEntitlement'
 import { signInUrl, signOut } from '../utils/webIdentity'
 import { trackEvent } from '../utils/posthog'
+import ClubCodeSection from '../components/ClubCodeSection'
 
 /**
  * The signed-in user's plan, and the way to buy or manage it from the web.
@@ -96,7 +97,9 @@ export default function Account() {
             <span className="text-lg font-semibold">Pro</span>
           </div>
           <p className="mt-2 text-gray-300">
-            {entitlement.source === 'grant'
+            {entitlement.source === 'club'
+              ? 'Through your club.'
+              : entitlement.source === 'grant'
               ? 'Complimentary access.'
               : entitlement.cancelAtPeriodEnd && entitlement.currentPeriodEnd
                 ? `Ends on ${new Date(entitlement.currentPeriodEnd).toLocaleDateString()}.`
@@ -105,7 +108,9 @@ export default function Account() {
                   : 'Active.'}
             {' '}Your settings and card artwork follow you between the web and Zoom.
           </p>
-          {entitlement.source !== 'grant' && (
+          {/* A club member never bought anything here, so there is no portal
+              to open — the club's billing belongs to whoever paid. */}
+          {entitlement.source !== 'grant' && entitlement.source !== 'club' && (
             <button
               onClick={handlePortal}
               disabled={busy === 'portal'}
@@ -171,6 +176,13 @@ export default function Account() {
             {signinFailure}
           </p>
         )}
+
+        <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
+          <h3 className="text-sm uppercase tracking-wide text-gray-400">Your club</h3>
+          <div className="mt-2">
+            <ClubCodeSection source="web_account" identified={Boolean(identity?.identified)} />
+          </div>
+        </section>
 
         {identity === null ? (
           <p className="mt-6 text-gray-300">Loading…</p>

@@ -1,27 +1,53 @@
-import { useEffect, useRef, useState } from 'react';
-import { X, Sparkles, ExternalLink, RefreshCw, Check } from 'lucide-react';
-import { waitForPro, refreshEntitlement, isPro as isProPlan } from '@toastmaster-timer/shared';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { X, Sparkles, ExternalLink, RefreshCw, Check, Users } from 'lucide-react';
+import {
+  waitForPro,
+  refreshEntitlement,
+  isPro as isProPlan,
+  loadClub,
+  activateClub,
+  leaveClub,
+  subscribeClub,
+} from '@toastmaster-timer/shared';
 import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
 import { getSessionToken, resolveZoomIdentity } from '../utils/zoomIdentity';
 import { useEntitlement } from '../hooks/useEntitlement';
 
 /**
- * Buying Pro from inside Zoom.
+ * Buying Pro from inside Zoom, and joining a club that already bought it.
  *
  * Checkout is a Stripe-hosted page and Zoom's webview does not run payment
  * forms, so the purchase happens in the system browser. This modal starts it,
  * then waits: the Zoom side never sees Stripe's redirect, so it asks the Worker
  * every few seconds whether the plan has changed.
  *
+ * The club code lives here rather than behind a surface of its own. There is no
+ * first-launch prompt and no banner: a timer who was told "tap Upgrade, then
+ * enter this code" finds the field where they were sent, and nothing stands
+ * between anyone and the START button at the start of a meeting.
+ *
  * Guests (not signed in to Zoom, or the app not added) have no identity to
- * attach a purchase to, so they are pointed at adding the app first.
+ * attach a purchase to, so they are pointed at adding the app first — but the
+ * code field works for them, which is the whole point of it.
  */
 
 const PRICE_COPY = {
   monthly: { label: 'Monthly', hint: 'Cancel any time' },
   yearly: { label: 'Yearly', hint: 'Two months free' },
 };
+
+/** Every rejection looks the same on the server, so there is one line to show. */
+const CLUB_ERRORS = {
+  network: 'Could not reach the server. Check your connection and try again.',
+  too_many_attempts: 'Too many tries. Wait a minute, then try again.',
+};
+const CLUB_ERROR_FALLBACK = "That code isn't active. Check with your club officer.";
+
+/** The cached club, as a React-readable store. */
+function useClub() {
+  return useSyncExternalStore(subscribeClub, loadClub, () => null);
+}
 
 async function startCheckout(interval) {
   const token = getSessionToken();
@@ -49,15 +75,21 @@ async function openPortal() {
 
 export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUpgraded }) {
   const { entitlement, isPro } = useEntitlement();
+  const club = useClub();
   const [identity, setIdentity] = useState(null);
   const [phase, setPhase] = useState('choose'); // choose | opening | waiting | done | error
   const [checkoutUrl, setCheckoutUrl] = useState(null);
   const [error, setError] = useState(null);
+  const [code, setCode] = useState('');
+  const [clubBusy, setClubBusy] = useState(false);
+  const [clubError, setClubError] = useState(null);
   const abortRef = useRef({ aborted: false });
 
   useEffect(() => {
     if (!isOpen) return undefined;
-    trackEvent('upgrade_prompt_shown', { source, plan: entitlement.plan });
+    // plan_source separates buyers from timers who activated a club code, which
+    // is what the upgrade-funnel read needs to mean anything.
+    trackEvent('upgrade_prompt_shown', { source, plan: entitlement.plan, plan_source: entitlement.source });
     resolveZoomIdentity().then(setIdentity);
     abortRef.current = { aborted: false };
     return () => {
@@ -121,6 +153,39 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     }
   };
 
+  const handleActivate = async (event) => {
+    event?.preventDefault?.();
+    if (clubBusy || !code.trim()) return;
+    setClubBusy(true);
+    setClubError(null);
+
+    const result = await activateClub(code, { getToken: getSessionToken });
+    setClubBusy(false);
+
+    if (!result.ok) {
+      setClubError(CLUB_ERRORS[result.error] || CLUB_ERROR_FALLBACK);
+      trackEvent('club_code_rejected', { surface: 'zoom', source, reason: result.error });
+      return;
+    }
+
+    setCode('');
+    trackEvent('club_code_activated', {
+      surface: 'zoom',
+      source,
+      club_id: result.club.club?.id ?? null,
+      is_guest: !identity?.identified,
+      via: 'typed',
+    });
+    onUpgraded?.();
+  };
+
+  const handleLeave = () => {
+    const clubId = club?.club?.id ?? null;
+    leaveClub();
+    setClubError(null);
+    trackEvent('club_left', { surface: 'zoom', source, club_id: clubId });
+  };
+
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(checkoutUrl);
@@ -130,7 +195,86 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     }
   };
 
+  const clubName = club?.club?.name || 'your club';
+  const clubActive = Boolean(club?.entitled);
+
+  /**
+   * The code field. Below the prices rather than above them: a buyer is the
+   * common case at this point, and a timer who was told where to type arrives
+   * knowing what they are looking for.
+   */
+  const renderCodeEntry = () => (
+    <form onSubmit={handleActivate} className="mt-4 pt-4 border-t border-gray-200">
+      <label htmlFor="club-code" className="block text-sm font-medium text-gray-700">
+        Already on Pro through your club?
+      </label>
+      <p className="text-xs text-gray-500 mt-0.5 mb-2">
+        Enter the code your club officer shared. No sign-in needed.
+      </p>
+      <div className="flex gap-2">
+        <input
+          id="club-code"
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder="DTSP-7K2QM9"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm uppercase tracking-wide"
+        />
+        <button
+          type="submit"
+          disabled={clubBusy || !code.trim()}
+          className="px-4 py-2 bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors text-sm"
+        >
+          {clubBusy ? 'Checking…' : 'Activate'}
+        </button>
+      </div>
+      {clubError && <p className="text-xs text-red-600 mt-2" role="alert">{clubError}</p>}
+    </form>
+  );
+
   const renderBody = () => {
+    // A club device sees its club, not a price list — whichever way it got here.
+    if (clubActive && phase !== 'done') {
+      return (
+        <>
+          <div className="flex items-start gap-2 mb-3">
+            <Users className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-gray-700">
+              This device is on <span className="font-semibold">Pro</span> through{' '}
+              <span className="font-semibold">{clubName}</span>.
+            </p>
+          </div>
+          <ul className="text-sm text-gray-600 space-y-1.5 mb-4">
+            <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Your club&apos;s shared timing presets</li>
+            <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Your club&apos;s branding on cards and reports</li>
+            {identity?.identified && (
+              <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Your own settings and artwork follow you between devices</li>
+            )}
+          </ul>
+          {entitlement.source === 'subscription' && (
+            <button
+              onClick={handleManage}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold rounded-lg transition-colors text-sm mb-2"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Manage billing
+            </button>
+          )}
+          {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+          {/* A deletion, not a restore: this device's own presets and artwork
+              were never written over, so leaving cannot take them away. */}
+          <button
+            onClick={handleLeave}
+            className="w-full px-4 py-2 text-gray-500 hover:text-gray-700 text-xs"
+          >
+            Leave this club on this device
+          </button>
+        </>
+      );
+    }
+
     if (isPro && phase !== 'done') {
       return (
         <>
@@ -203,12 +347,17 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
       );
     }
 
+    // A guest cannot buy — there is no identity to attach a purchase to — but a
+    // club code needs no identity at all, so the field stays.
     if (identity && !canBuy) {
       return (
-        <p className="text-sm text-gray-600">
-          To subscribe, sign in to Zoom and add Toastmasters Timer from the Zoom App Marketplace.
-          Pro needs to know it is you so your settings can follow you between devices.
-        </p>
+        <>
+          <p className="text-sm text-gray-600">
+            To subscribe, sign in to Zoom and add Toastmasters Timer from the Zoom App Marketplace.
+            Pro needs to know it is you so your settings can follow you between devices.
+          </p>
+          {renderCodeEntry()}
+        </>
       );
     }
 
@@ -236,6 +385,7 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
         <p className="text-xs text-gray-400 mt-3 text-center">
           Opens a secure Stripe page in your browser. Prices are shown there.
         </p>
+        {renderCodeEntry()}
       </>
     );
   };
@@ -246,6 +396,9 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
         <div className="flex justify-between items-start mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-500" />
+            {/* The reframed "One Pro account for your whole club" pitch lands
+                with the club-name field in Phase 7; the code field is what
+                Phase 1 owes a timer who was told where to type. */}
             {isPro || phase === 'done' ? 'Toastmasters Timer Pro' : 'Take your setup everywhere'}
           </h3>
           <button

@@ -23,6 +23,7 @@ export const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const KEY_ENTITLEMENT = (uid) => `entitlement:zoom:${uid}`;
 const KEY_GRANT = (uid) => `grant:zoom:${uid}`;
+const KEY_CLUB = (clubId) => `club:${clubId}`;
 
 /** @param {Object} env */
 export function entitlementStore(env) {
@@ -147,6 +148,118 @@ export async function resolveEntitlement(env, uid, now = Date.now()) {
   return unenforced({ ...FREE });
 }
 
+// ---------------------------------------------------------------------------
+// Clubs: the same question, asked of a club instead of a person
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a club record. Never throws, for the same reason resolveEntitlement
+ * doesn't: this runs on app load and a KV hiccup must degrade to "no club".
+ *
+ * @param {Object} env
+ * @param {string|null|undefined} clubId
+ * @returns {Promise<Object|null>}
+ */
+export async function readClubRecord(env, clubId) {
+  if (!clubId || typeof clubId !== 'string') return null;
+  const store = entitlementStore(env);
+  if (!store) return null;
+  return readJson(store, KEY_CLUB(clubId));
+}
+
+/**
+ * Turn an already-read club record into an entitlement.
+ *
+ * Deliberately the same `subscriptionGrantsAccess` rules that govern users, so
+ * grace and lapse behave identically whether the money is attached to a person
+ * or to a club: active/trialing always, past_due for the 7-day grace, canceled
+ * until the paid period ends.
+ */
+function clubEntitlement(env, club, now = Date.now()) {
+  const enforced = isEnforced(env);
+  const unenforced = (base) => (enforced ? base : { ...base, entitled: true, source: base.entitled ? base.source : 'unenforced' });
+
+  if (!club || typeof club !== 'object') return unenforced({ ...FREE });
+
+  if (subscriptionGrantsAccess(club, now)) {
+    return {
+      plan: PLAN_PRO,
+      status: club.status,
+      entitled: true,
+      currentPeriodEnd: club.currentPeriodEnd ?? null,
+      cancelAtPeriodEnd: Boolean(club.cancelAtPeriodEnd),
+      source: 'club',
+    };
+  }
+
+  // A lapsed club is still worth reporting: the device can say "Downtown
+  // Speakers' Pro has ended" rather than pretending it never joined one.
+  return unenforced({
+    plan: PLAN_FREE,
+    status: club.status ?? null,
+    entitled: false,
+    currentPeriodEnd: club.currentPeriodEnd ?? null,
+    cancelAtPeriodEnd: Boolean(club.cancelAtPeriodEnd),
+    source: 'none',
+  });
+}
+
+/**
+ * Resolve a club's entitlement, the way resolveEntitlement resolves a user's.
+ *
+ * @param {Object} env
+ * @param {string|null|undefined} clubId
+ * @param {number} [now]
+ */
+export async function resolveClubEntitlement(env, clubId, now = Date.now()) {
+  return clubEntitlement(env, await readClubRecord(env, clubId), now);
+}
+
+/**
+ * What the caller may use, given whichever credentials the request carried.
+ *
+ * Either one entitles. The club is read here, at request time, and never
+ * projected into `entitlement:zoom:<uid>` — writing it there would be the
+ * cheapest way to leave gating untouched, and is exactly why we don't: a device
+ * that leaves the club, or a club that lapses, would leave behind a record
+ * granting Pro indefinitely until something went back to reconcile it. Reading
+ * both every time means leaving or lapsing lands on the very next call.
+ *
+ * @param {Object} env
+ * @param {{uid?: string|null, clubId?: string|null, club?: Object|null}} claims
+ * @param {number} [now]
+ * @returns {Promise<Object>} an entitlement, plus `club: {id, name}|null`
+ */
+export async function resolveAccess(env, { uid = null, clubId = null, club = null } = {}, now = Date.now()) {
+  const record = club ?? (clubId ? await readClubRecord(env, clubId) : null);
+
+  const [userEnt, clubEnt] = await Promise.all([
+    resolveEntitlement(env, uid, now),
+    Promise.resolve(clubId ? clubEntitlement(env, record, now) : clubEntitlement(env, null, now)),
+  ]);
+
+  // Whichever credential actually grants Pro describes the plan. The user's own
+  // subscription wins ties: it is the one they can manage, and the one the
+  // billing portal belongs to.
+  const grantsPro = (e) => e.plan === PLAN_PRO && e.entitled;
+  const hasHistory = (e) => e.status !== null || e.currentPeriodEnd !== null;
+  const primary = grantsPro(userEnt)
+    ? userEnt
+    : grantsPro(clubEnt)
+      ? clubEnt
+      : hasHistory(userEnt)
+        ? userEnt
+        : hasHistory(clubEnt)
+          ? clubEnt
+          : userEnt;
+
+  return {
+    ...primary,
+    entitled: userEnt.entitled || clubEnt.entitled,
+    club: record && clubId ? { id: clubId, name: record.name ?? null } : null,
+  };
+}
+
 /**
  * Turn a Stripe subscription object into the record we store.
  *
@@ -189,3 +302,4 @@ export async function writeEntitlement(env, uid, record) {
 
 export const entitlementKey = KEY_ENTITLEMENT;
 export const grantKey = KEY_GRANT;
+export const clubKey = KEY_CLUB;

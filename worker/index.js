@@ -6,6 +6,7 @@ import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
 import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
 import { handleBilling } from './billing.js';
+import { handleClub } from './club.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
@@ -40,6 +41,11 @@ const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|
 // misses the asset lookup is a genuine 404 — serving index.html with HTTP 200
 // for unknown URLs creates soft 404s that waste crawl budget.
 const SPA_ROUTES = new Set(['/', '/app', '/oauth/redirect', '/billing/success', '/billing/cancel', '/account']);
+
+// Root SPA routes whose tail is data rather than a page: /pro/<code> is the
+// officer's shareable activation link, so the set of valid paths is the set of
+// club codes and cannot be enumerated here.
+const SPA_ROUTE_PREFIXES = ['/pro/'];
 
 /**
  * Zoom sends `x-zoom-app-context` on the document request when it opens an app
@@ -104,6 +110,13 @@ export default {
     // Custom card artwork. Same placement rationale as the two above.
     if (pathname.startsWith('/api/assets/')) {
       return handleAsset(request, url, env);
+    }
+
+    // Club activation and the daily club refresh. Ahead of the www redirect
+    // like every other POST, and ahead of host routing so the Zoom app can
+    // reach it from the zoom.<domain> host.
+    if (pathname === '/api/club' || pathname.startsWith('/api/club/')) {
+      return handleClub(request, url, env);
     }
 
     // Identity + entitlement re-check (polled after a purchase).
@@ -217,7 +230,8 @@ async function routeAssets(request, env, url) {
   // The root SPA only owns the routes declared in App.jsx. Serve the shell for
   // those; everything else is a real 404 so crawlers stop treating unknown
   // URLs as valid pages.
-  if (SPA_ROUTES.has(pathname.replace(/\/$/, '') || '/')) {
+  const spaPath = pathname.replace(/\/$/, '') || '/';
+  if (SPA_ROUTES.has(spaPath) || SPA_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return fetchAsset(env, url, '/index.html');
   }
 

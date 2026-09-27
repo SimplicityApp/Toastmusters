@@ -167,6 +167,22 @@ describe('404 handling', () => {
     }
   });
 
+  // The officer's shareable activation link. Its tail is a club code, so the
+  // set of valid paths cannot be enumerated the way SPA_ROUTES enumerates the
+  // rest — it has to match on the prefix.
+  it('serves the root SPA shell for /pro/<code>', async () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+
+    for (const path of ['/pro/DTSP-7K2QM9', '/pro/dtsp7k2qm9']) {
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`), env, ctx);
+      expect(res.status, `${path} should be 200`).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    }
+
+    // Bare /pro is not a route; only a code under it is.
+    expect((await worker.fetch(get('https://www.timer.simple-tech.app/pro'), env, ctx)).status).toBe(404);
+  });
+
   it('returns a real 404 for unknown paths instead of a soft 404', async () => {
     const env = makeEnv(['/index.html', '/404.html']);
     const res = await worker.fetch(

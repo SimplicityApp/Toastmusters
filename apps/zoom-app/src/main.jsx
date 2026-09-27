@@ -3,11 +3,18 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
-import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT } from '@toastmaster-timer/shared'
+import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, initClubFromCache, refreshClub } from '@toastmaster-timer/shared'
 import { initPostHog, identifyUser, setUserProperties, registerSessionProperties } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
 import { PostHogProvider } from '@posthog/react'
+
+// The one thing that runs before the first paint. A device that joined a club
+// is Pro, and reading that out of localStorage — synchronously, costing nothing
+// — is what stops the Footer flashing "Upgrade" at a club member while the
+// session response is still in flight. That flash is the exact thing the
+// entitlement store's `known` flag exists to prevent.
+initClubFromCache();
 
 // Render immediately — don't block on SDK init
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -33,6 +40,13 @@ try {
 } catch (error) {
   console.warn('Failed to initialize PostHog:', error);
 }
+
+// Re-check the club, at most once a day. A network failure leaves the cache in
+// place and the device stays Pro, so a lapse can only land on a successful
+// refresh at app start — never in the middle of a meeting.
+refreshClub({ getToken: getSessionToken }).catch((error) => {
+  console.warn('Failed to refresh the club:', error);
+});
 
 // Tie this session to the Zoom user, so a returning organizer is the same
 // person to us next week instead of a brand-new anonymous ID. Deliberately not
