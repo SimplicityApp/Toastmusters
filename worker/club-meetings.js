@@ -2,6 +2,7 @@ import { readClub } from './auth.js';
 import { json, methodNotAllowed, unauthorized } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
 import { verifiedClubId } from './club.js';
+import { shareMeeting } from './club-share.js';
 
 /**
  * The club's archive: every finished speech, as it happens.
@@ -416,5 +417,7 @@ export function handleClubMeetings(request, route, env) {
   if (extra.length) return json({ error: 'Not found' }, 404);
   if (!tail) return readMeeting(request, env, decodeURIComponent(meetingId));
   if (tail === 'speeches') return appendSpeech(request, env, decodeURIComponent(meetingId));
+  // "End meeting & share": closes the record and gives it a public address.
+  if (tail === 'share') return shareMeeting(request, env, decodeURIComponent(meetingId));
   return json({ error: 'Not found' }, 404);
 }

@@ -202,6 +202,27 @@ describe('404 handling', () => {
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
+  // A shared report is Worker-rendered HTML, not an SPA route: a link-preview
+  // crawler does not run JavaScript, so the OG tags have to be in the bytes the
+  // Worker returns. Falling through to the shell would hand every crawler the
+  // same generic card.
+  it('never serves the SPA shell for /r/<token>', async () => {
+    const env = { ...makeEnv(['/index.html', '/404.html']), PROFILES: undefined };
+
+    const res = await worker.fetch(
+      get('https://www.timer.simple-tech.app/r/ABCDEFGHJKMNPQRS'),
+      env,
+      ctx
+    );
+
+    // 404 because no KV is bound here — the point is that it reached the
+    // handler rather than the asset store.
+    expect(res.status).toBe(404);
+    expect(res.headers.get('x-asset-path')).toBeNull();
+    expect(res.headers.get('x-robots-tag')).toBe('noindex');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
   it('returns a real 404 for unknown paths instead of a soft 404', async () => {
     const env = makeEnv(['/index.html', '/404.html']);
     const res = await worker.fetch(

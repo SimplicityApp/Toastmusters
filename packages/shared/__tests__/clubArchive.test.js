@@ -5,6 +5,7 @@ import {
   clubDateString,
   deriveMeetingId,
   drainOutbox,
+  endMeetingAndShare,
   fetchHistory,
   fetchMeeting,
   meetingDate,
@@ -372,5 +373,133 @@ describe('the stored meeting sequence', () => {
     joinClub();
     localStorage.setItem(MEETING_SEQ_STORAGE_KEY, '{{{');
     expect(deriveMeetingId({ now: EVENING })).toBe('20260929');
+  });
+});
+
+describe('ending a meeting and sharing it', () => {
+  /** A canvas whose context does nothing but answer, so a PNG comes back. */
+  const createCanvas = (width, height) => ({
+    width,
+    height,
+    getContext: () => ({
+      fillRect: () => {},
+      fillText: () => {},
+      drawImage: () => {},
+      beginPath: () => {},
+      closePath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      quadraticCurveTo: () => {},
+      fill: () => {},
+      save: () => {},
+      restore: () => {},
+      measureText: (text) => ({ width: String(text).length * 8 }),
+    }),
+    toBlob: (cb) => cb(new Blob(['png'], { type: 'image/png' })),
+  });
+
+  const shared = (over = {}) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ token: 'ABCDEFGHJKMNPQRS', url: 'https://x/r/ABCDEFGHJKMNPQRS', ...over }),
+  });
+
+  const rows = [speech(), speech({ name: 'Bob', color: 'red' })];
+
+  it('drains the outbox before it asks the server to close the meeting', async () => {
+    joinClub();
+    const failing = vi.fn(async () => serverError());
+    recordSpeech(speech(), { fetchImpl: failing });
+    // Join the drain recordSpeech fired, so the 5xx has definitely landed and
+    // the entry is definitely still queued before the share starts.
+    await drainOutbox({ fetchImpl: failing });
+    expect(outboxCount()).toBe(1);
+
+    const calls = [];
+    const fetchImpl = vi.fn(async (url) => {
+      calls.push(String(url));
+      return String(url).endsWith('/share') ? shared() : ok();
+    });
+
+    await endMeetingAndShare({ speeches: rows, fetchImpl, createCanvas });
+
+    // The queued speech has to reach the club before compaction folds the
+    // meeting away, or the picture and the page disagree with the archive.
+    expect(calls[0]).toContain('/speeches');
+    expect(calls[calls.length - 1]).toContain('/share');
+    expect(outboxCount()).toBe(0);
+  });
+
+  it('sends both variants and the title as multipart', async () => {
+    joinClub();
+    const fetchImpl = vi.fn(async () => shared());
+
+    const result = await endMeetingAndShare({
+      title: '  Humorous Speech Contest  ',
+      speeches: rows,
+      fetchImpl,
+      createCanvas,
+    });
+
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('/api/club/meetings/20260929/share');
+    expect(init.method).toBe('POST');
+    // No Content-Type: the boundary is generated with the body.
+    expect(init.headers['Content-Type']).toBeUndefined();
+    expect(init.headers['X-Club']).toBe('club.tok');
+    expect(init.body.get('title')).toBe('Humorous Speech Contest');
+    expect(init.body.get('png')).toBeTruthy();
+    expect(init.body.get('previewPng')).toBeTruthy();
+    expect(result).toMatchObject({
+      meetingId: '20260929',
+      date: '2026-09-29',
+      title: 'Humorous Speech Contest',
+      speeches: 2,
+      overtime: 1,
+      url: 'https://x/r/ABCDEFGHJKMNPQRS',
+      error: null,
+    });
+    expect(result.filename).toBe('downtown-speakers-2026-09-29.png');
+  });
+
+  it('starts the next meeting only once the club has this one', async () => {
+    joinClub();
+
+    const failed = await endMeetingAndShare({
+      speeches: rows,
+      fetchImpl: vi.fn(async () => serverError()),
+      createCanvas,
+    });
+
+    // A failed share must not file the retry under a meeting that never closed.
+    expect(failed.error).toBe('unavailable');
+    expect(deriveMeetingId({ now: EVENING })).toBe('20260929');
+    // The picture is still in the timer's hands, which is what makes "Copy
+    // image" the destination that needs no network.
+    expect(failed.blob).toBeInstanceOf(Blob);
+
+    await endMeetingAndShare({ speeches: rows, fetchImpl: vi.fn(async () => shared()), createCanvas });
+    expect(deriveMeetingId({ now: EVENING })).toBe('20260929-2');
+  });
+
+  it('says so rather than throwing when the network is gone', async () => {
+    joinClub();
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    await expect(endMeetingAndShare({ speeches: rows, fetchImpl, createCanvas })).resolves.toMatchObject({
+      url: null,
+      error: 'network',
+    });
+  });
+
+  it('refuses to share at all without a club', async () => {
+    const fetchImpl = vi.fn();
+
+    const result = await endMeetingAndShare({ speeches: rows, fetchImpl, createCanvas });
+
+    expect(result.error).toBe('no_club');
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

@@ -21,6 +21,8 @@
     "./entitlement": "./entitlement.js",
     "./club": "./club.js",
     "./clubBadge": "./clubBadge.js",
-    "./clubPresets": "./clubPresets.js"
+    "./clubPresets": "./clubPresets.js",
+    "./clubArchive": "./clubArchive.js",
+    "./reportImage": "./reportImage.js"
   }
 }

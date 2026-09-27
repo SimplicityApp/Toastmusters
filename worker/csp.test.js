@@ -80,6 +80,18 @@ describe('the root policy the Worker serves', () => {
     expect(rootPolicy).toBeDefined();
   });
 
+  it('lets the shared report page style and illustrate itself', () => {
+    // GET /r/<token> is Worker-rendered HTML with an inline <style> block and
+    // an <img> of the club's logo from /api/club-assets/ — both same-origin,
+    // which is why this phase needed no CSP change at all. Naming it here is
+    // what stops a future tightening of style-src taking a page nobody has a
+    // dev-server view of down silently: the dev server sends no CSP.
+    const styleSrc = rootPolicy.match(/style-src ([^;]*)/)?.[1];
+    const imgSrc = rootPolicy.match(/img-src ([^;]*)/)?.[1];
+    expect(styleSrc).toContain("'unsafe-inline'");
+    expect(imgSrc).toContain("'self'");
+  });
+
   it('lets content pages load their Google Fonts', () => {
     // packages/ui/content-pages.css @imports Inter and Plus Jakarta Sans from
     // fonts.googleapis.com, which then serves the font files from

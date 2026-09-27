@@ -326,3 +326,97 @@ describe('ReportTab', () => {
     });
   });
 });
+
+/**
+ * The meeting leaves the device two ways, and both are one tap. On a free
+ * device none of this is here at all.
+ */
+describe('end meeting & share', () => {
+  function renderWithClubData() {
+    return render(
+      <MemoryRouter>
+        <ToastProvider>
+          <TimerProvider>
+            <ReportTabWithData />
+          </TimerProvider>
+        </ToastProvider>
+      </MemoryRouter>
+    );
+  }
+
+  it('is not offered on a device with no club', async () => {
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    expect(screen.queryByTestId('end-meeting-share')).not.toBeInTheDocument();
+  });
+
+  it('is not offered once the club has lapsed', async () => {
+    joinClub({ entitled: false, plan: 'free', status: 'canceled' });
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    expect(screen.queryByTestId('end-meeting-share')).not.toBeInTheDocument();
+  });
+
+  it('asks for a title, then offers the four destinations', async () => {
+    const user = userEvent.setup();
+    joinClub();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'ABCDEFGHJKMNPQRS', url: 'https://x/r/ABCDEFGHJKMNPQRS' }),
+    });
+
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    await user.click(screen.getByTestId('end-meeting-share'));
+
+    await user.type(screen.getByLabelText(/give this meeting a name/i), 'Contest night');
+    await user.click(screen.getByTestId('confirm-end-meeting'));
+
+    expect(await screen.findByTestId('share-step')).toBeInTheDocument();
+    // The message is written before it is sent, so a timer about to post into
+    // their club's group chat can read it first.
+    expect(screen.getByTestId('share-message')).toHaveTextContent('Downtown Speakers — Contest night');
+    expect(screen.getByTestId('share-message')).toHaveTextContent('https://x/r/ABCDEFGHJKMNPQRS');
+    expect(screen.getByRole('link', { name: 'WhatsApp' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Email' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy image/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledWith(
+      'meeting_ended',
+      expect.objectContaining({ speeches: 2, overtime: 1, titled: true, shared: true, surface: 'web' })
+    );
+  });
+
+  // Offline at the end of a meeting. The picture is the destination that needs
+  // no network, so it must not disappear with the link.
+  it('still offers the image when the link could not be created', async () => {
+    const user = userEvent.setup();
+    joinClub();
+    global.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    await user.click(screen.getByTestId('end-meeting-share'));
+    await user.click(screen.getByTestId('confirm-end-meeting'));
+
+    expect(await screen.findByTestId('share-error')).toHaveTextContent(/nothing is lost/i);
+    expect(screen.getByRole('button', { name: /copy link/i })).toBeDisabled();
+    expect(trackEvent).toHaveBeenCalledWith(
+      'meeting_ended',
+      expect.objectContaining({ shared: false, titled: false })
+    );
+  });
+
+  it('counts a copied-as-text report as a share too', async () => {
+    const user = userEvent.setup();
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /copy report to clipboard/i }));
+
+    expect(trackEvent).toHaveBeenCalledWith('report_shared', { channel: 'text', surface: 'web' });
+  });
+});

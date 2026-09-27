@@ -8,6 +8,7 @@ import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } 
 import { handleBilling } from './billing.js';
 import { handleClub } from './club.js';
 import { handleClubAsset } from './club-assets.js';
+import { handleSharedReport } from './club-share.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
@@ -177,6 +178,15 @@ export default {
       return new Response(ZOOM_ROBOTS_TXT, {
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
       });
+    }
+
+    // 3b. A shared meeting report. Worker-rendered HTML rather than an SPA
+    //     route, because a link-preview crawler does not run JavaScript: the
+    //     OG tags have to be in the bytes this returns. Placed after the apex
+    //     redirect so a pasted link canonicalizes to www first, and before the
+    //     asset lookup so /r/<token> never falls through to the shell.
+    if (pathname.startsWith('/r/')) {
+      return withSecurityHeaders(await handleSharedReport(request, url, env), request, url);
     }
 
     // 4. Redirect (was `redirects` in vercel.json): /web -> /app (302).

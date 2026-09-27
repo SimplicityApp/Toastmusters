@@ -1,4 +1,5 @@
-import { loadClub, clubHeaders } from './club.js';
+import { loadClub, clubHeaders, clubKit, getClubLogoImage } from './club.js';
+import { renderReportPng, reportImageFilename, isOvertime } from './reportImage.js';
 
 /**
  * Every finished speech, on its way to the club's archive.
@@ -396,6 +397,161 @@ export async function fetchMeeting(meetingId, { getToken, fetchImpl } = {}) {
   const result = await getJson(`${MEETINGS_ENDPOINT}/${encodeURIComponent(meetingId)}`, { getToken, fetchImpl });
   if (!result.ok) return result;
   return { ok: true, meeting: result.body?.meeting ?? null };
+}
+
+/**
+ * End the meeting and give it a public address.
+ *
+ * The device sends the two PNGs it just rendered rather than asking the Worker
+ * to draw them, which is what guarantees the chat preview can never drift from
+ * what the timer saw when they tapped Copy image — there is only ever one
+ * renderer.
+ *
+ * Multipart rather than JSON: these are image bytes, and base64ing them into a
+ * JSON string would inflate them by a third for nothing.
+ *
+ * @param {string} meetingId
+ * @param {{title?: string|null, png?: Blob|null, previewPng?: Blob|null,
+ *   getToken?: () => string|null, fetchImpl?: typeof fetch}} [options]
+ * @returns {Promise<{ok: true, url: string, token: string, imageUrl: string}
+ *   |{ok: false, error: string}>} never rejects
+ */
+export async function shareMeeting(meetingId, { title, png, previewPng, getToken, fetchImpl } = {}) {
+  const club = loadClub();
+  if (!club?.clubToken) return { ok: false, error: 'no_club' };
+  if (!meetingId) return { ok: false, error: 'not_found' };
+
+  const form = new FormData();
+  if (typeof title === 'string' && title.trim()) form.append('title', title.trim());
+  // A device with no PNG encoder shares the link without the picture rather
+  // than failing: the page the link opens renders the table as HTML anyway.
+  const attach = (field, blob, filename) => {
+    if (blob && typeof blob.arrayBuffer === 'function') form.append(field, blob, filename);
+  };
+  attach('png', png, 'report.png');
+  attach('previewPng', previewPng, 'preview.png');
+
+  let response;
+  try {
+    const token = getToken?.();
+    response = await (fetchImpl ?? fetch)(`${MEETINGS_ENDPOINT}/${encodeURIComponent(meetingId)}/share`, {
+      method: 'POST',
+      headers: {
+        // Deliberately no Content-Type: the boundary is generated with the body.
+        ...clubHeaders(),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: form,
+    });
+  } catch {
+    // Offline at the end of a meeting. The PNG is still in the timer's hands,
+    // so "Copy image" keeps working and only the link is missing.
+    return { ok: false, error: 'network' };
+  }
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  if (!response.ok || !body?.url) return { ok: false, error: body?.error || 'unavailable' };
+  return { ok: true, url: body.url, token: body.token ?? null, imageUrl: body.imageUrl ?? null };
+}
+
+/**
+ * "End meeting & share", end to end.
+ *
+ * One function rather than two copies in two ReportTabs, because the ordering
+ * is the part that has to be right and it is not obvious: the outbox is drained
+ * *first*, so that compaction on the server folds in every speech this device
+ * is still holding; then both PNGs are rendered from what the timer is looking
+ * at; then the upload; and only then does the day's sequence advance, so that a
+ * failed share does not silently start a second meeting.
+ *
+ * Never rejects. A share that could not reach the club still comes back with
+ * the image in hand, because "Copy image" is the destination that needs no
+ * network at all.
+ *
+ * @param {{title?: string|null, speeches?: Array<Object>, meetingId?: string,
+ *   getToken?: () => string|null, fetchImpl?: typeof fetch, now?: number,
+ *   createCanvas?: Function}} [options]
+ * @returns {Promise<{meetingId: string, date: string|null, title: string|null,
+ *   speeches: number, overtime: number, blob: Blob|null, filename: string,
+ *   url: string|null, token: string|null, error: string|null}>}
+ */
+export async function endMeetingAndShare({
+  title = null,
+  speeches = [],
+  meetingId,
+  getToken,
+  fetchImpl,
+  now = Date.now(),
+  createCanvas,
+} = {}) {
+  const club = loadClub();
+  const kit = clubKit();
+  const rows = Array.isArray(speeches) ? speeches : [];
+  const id = meetingId || deriveMeetingId({ now, timezone: club?.timezone ?? null });
+  const date = meetingDate(id);
+  const clubName = kit?.name || club?.club?.name || 'Timing report';
+  const cleanTitle = typeof title === 'string' && title.trim() ? title.trim() : null;
+
+  const result = {
+    meetingId: id,
+    date,
+    title: cleanTitle,
+    speeches: rows.length,
+    overtime: rows.filter(isOvertime).length,
+    blob: null,
+    filename: reportImageFilename({ clubName, date }),
+    url: null,
+    token: null,
+    error: null,
+  };
+
+  // Anything still queued belongs in this meeting, and compaction is about to
+  // close it. Failing to drain is not fatal — a late speech is merged into the
+  // already-compacted header on the next compaction.
+  try {
+    await drainOutbox({ getToken, fetchImpl });
+  } catch {
+    // drainOutbox never rejects; belt and braces on the FINISH-adjacent path.
+  }
+
+  const report = { club, kit, meeting: { meetingId: id, date, title: cleanTitle }, speeches: rows };
+  const draw = { logo: getClubLogoImage(), ...(createCanvas ? { createCanvas } : {}) };
+  let previewPng = null;
+  try {
+    [result.blob, previewPng] = await Promise.all([
+      renderReportPng(report, { ...draw, variant: 'full' }),
+      renderReportPng(report, { ...draw, variant: 'preview' }),
+    ]);
+  } catch {
+    // No canvas, or no PNG encoder. The link still works; only the picture is
+    // missing, and the page the link opens renders the table as HTML anyway.
+  }
+
+  const shared = await shareMeeting(id, {
+    title: cleanTitle,
+    png: result.blob,
+    previewPng,
+    getToken,
+    fetchImpl,
+  });
+  if (shared.ok) {
+    result.url = shared.url;
+    result.token = shared.token;
+    // Only once the club has the meeting: advancing the day's sequence after a
+    // failed share would file the retry under a meeting that does not exist.
+    startNewMeeting({ now, timezone: club?.timezone ?? null });
+  } else {
+    result.error = shared.error;
+  }
+
+  return result;
 }
 
 /** Test seam: drop the in-flight drain and every subscriber. */

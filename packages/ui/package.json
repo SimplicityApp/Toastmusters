@@ -9,6 +9,7 @@
     "./BrandedReportHeader": "./BrandedReportHeader.jsx",
     "./ClubBadge": "./ClubBadge.jsx",
     "./ReportHistoryList": "./ReportHistoryList.jsx",
+    "./ShareStep": "./ShareStep.jsx",
     "./content-pages.css": "./content-pages.css"
   },
   "peerDependencies": {

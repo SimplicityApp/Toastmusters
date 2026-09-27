@@ -1,11 +1,12 @@
 import { memo } from 'react';
 import { useTimer } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { Copy, Check, Trash2, X, History, CloudOff, ChevronLeft } from 'lucide-react';
+import { Copy, Check, Trash2, X, History, CloudOff, ChevronLeft, Share2 } from 'lucide-react';
 import { useState } from 'react';
 import BrandedReportHeader from '@toastmaster-timer/ui/BrandedReportHeader';
 import ReportHistoryList from '@toastmaster-timer/ui/ReportHistoryList';
-import { fetchHistory, fetchMeeting } from '@toastmaster-timer/shared';
+import ShareStep from '@toastmaster-timer/ui/ShareStep';
+import { fetchHistory, fetchMeeting, endMeetingAndShare, copyReportImage } from '@toastmaster-timer/shared';
 import ConfirmModal from './ConfirmModal';
 import { useClub, useOutboxPending } from '../hooks/useClub';
 import { getSessionToken } from '../utils/zoomIdentity';
@@ -41,11 +42,53 @@ export default memo(function ReportTab() {
   const [clipboardText, setClipboardText] = useState('');
   const [history, setHistory] = useState(null);
   const [openMeeting, setOpenMeeting] = useState(null);
+  // null | { phase: 'title'|'working'|'done', title, result }
+  const [share, setShare] = useState(null);
 
   // A lapsed club keeps its cached record (the device still knows which club to
   // re-check) but stops archiving, so the strip and History go with it.
   const archiving = Boolean(club?.entitled);
   const archiveName = clubName || club?.club?.name || 'your club';
+
+  const endMeeting = async () => {
+    const title = share?.title ?? '';
+    setShare({ phase: 'working', title, result: null });
+    const result = await endMeetingAndShare({ title, speeches: reports, getToken: getSessionToken });
+    setShare({ phase: 'done', title, result });
+    trackEvent('meeting_ended', {
+      speeches: result.speeches,
+      overtime: result.overtime,
+      titled: Boolean(result.title),
+      shared: Boolean(result.url),
+      surface: 'zoom',
+    });
+  };
+
+  // Every destination reports itself, so the "artifacts that travel" thesis has
+  // a number behind it rather than an intuition.
+  const onShareChannel = async (channel) => {
+    const result = share?.result;
+    trackEvent('report_shared', { channel, surface: 'zoom' });
+    if (channel === 'image') {
+      const copied = await copyReportImage(result?.blob, { filename: result?.filename });
+      if (!copied.ok) {
+        showToast('That image could not be copied on this device', 'warning');
+        return false;
+      }
+      if (copied.method === 'download') showToast('Image downloaded', 'success');
+      return true;
+    }
+    if (channel === 'link') {
+      try {
+        await navigator.clipboard.writeText(result.url);
+        return true;
+      } catch {
+        showToast('Could not copy the link', 'warning');
+        return false;
+      }
+    }
+    return true;
+  };
 
   const openHistory = async () => {
     setOpenMeeting(null);
@@ -104,6 +147,10 @@ export default memo(function ReportTab() {
       `${r.name}\t${r.role}\t${r.duration}\t${r.color}\t${r.disqualified ? 'Yes' : ''}\t${r.comments || ''}`
     ).join('\n');
     const text = header + rows;
+
+    // The secondary destination, and the oldest one. Counted alongside the
+    // others so "reports that travel" is one funnel rather than two.
+    trackEvent('report_shared', { channel: 'text', surface: 'zoom' });
 
     try {
       // Check if clipboard API is available
@@ -241,6 +288,20 @@ export default memo(function ReportTab() {
             </div>
           </div>
 
+          {/* The club's meeting leaves the device as a picture or a link. On a
+              free device this is simply not here, and the tab below is exactly
+              what it always was. */}
+          {archiving && (
+            <button
+              onClick={() => setShare({ phase: 'title', title: '', result: null })}
+              data-testid="end-meeting-share"
+              className="w-full bg-gray-900 hover:bg-black text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Share2 className="h-5 w-5" />
+              End meeting &amp; share
+            </button>
+          )}
+
           <div className="flex gap-2">
             <button
               onClick={copyToClipboard}
@@ -279,6 +340,72 @@ export default memo(function ReportTab() {
         onConfirm={handleConfirmClear}
         onCancel={() => setShowClearConfirm(false)}
       />
+
+      {/* End meeting & share: a title, then the four destinations */}
+      {share && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" data-testid="share-modal">
+            <div className="flex justify-between items-center mb-4 gap-2">
+              <h3 className="text-lg font-semibold truncate">
+                {share.phase === 'done' ? 'Meeting saved' : 'End this meeting'}
+              </h3>
+              <button onClick={() => setShare(null)} className="text-gray-400 hover:text-gray-600" aria-label="Close share">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {share.phase === 'title' && (
+              <div className="space-y-3">
+                <label className="block text-sm text-gray-600" htmlFor="meeting-title">
+                  Give this meeting a name (optional)
+                </label>
+                <input
+                  id="meeting-title"
+                  type="text"
+                  value={share.title}
+                  maxLength={120}
+                  placeholder="Humorous Speech Contest"
+                  onChange={(e) => setShare((prev) => ({ ...prev, title: e.target.value }))}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500">
+                  This closes {archiveName}&rsquo;s record of the evening. Nothing on this device is cleared.
+                </p>
+                <button
+                  onClick={endMeeting}
+                  data-testid="confirm-end-meeting"
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg"
+                >
+                  End meeting &amp; share
+                </button>
+              </div>
+            )}
+
+            {share.phase === 'working' && (
+              <p className="text-center text-sm text-gray-500 py-8">Saving the meeting…</p>
+            )}
+
+            {share.phase === 'done' && (
+              <ShareStep
+                clubName={archiveName}
+                date={share.result?.date}
+                title={share.result?.title}
+                speeches={share.result?.speeches ?? 0}
+                overtime={share.result?.overtime ?? 0}
+                url={share.result?.url ?? null}
+                primaryColor={kit?.primaryColor}
+                imageReady={Boolean(share.result?.blob)}
+                error={
+                  share.result?.url
+                    ? null
+                    : 'The link could not be created just now — the image below still works, and nothing is lost.'
+                }
+                onShare={onShareChannel}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* The club's archive: every meeting this club has banked, newest first */}
       {history && (
