@@ -107,6 +107,36 @@ describe('handleAuthStart', () => {
     expect(handleAuthStart(new Request(url), url, { ...env, ZOOM_CLIENT_ID: undefined }).status).toBe(503);
     expect(handleAuthStart(new Request(url), url, { ...env, WEB_ORIGIN: undefined }).status).toBe(503);
   });
+
+  // The nonce cookie is host-only and the callback always lands on WEB_ORIGIN,
+  // so starting anywhere else used to come back as a state mismatch.
+  it('hands a start on a non-canonical host to WEB_ORIGIN, without a cookie', () => {
+    for (const host of ['timer.example.test', 'www.other.test']) {
+      const url = new URL(`https://${host}/api/auth/zoom/start?returnTo=%2Fclub%2Fadmin`);
+      const res = handleAuthStart(new Request(url), url, env, { now: NOW });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(
+        'https://www.example.test/api/auth/zoom/start?returnTo=%2Fclub%2Fadmin'
+      );
+      expect(setCookies(res)).toEqual([]);
+    }
+  });
+
+  it('carries a rejected returnTo to the canonical host as the safe default', () => {
+    const url = new URL('https://timer.example.test/api/auth/zoom/start?returnTo=https%3A%2F%2Fevil.test');
+    const res = handleAuthStart(new Request(url), url, env, { now: NOW });
+    expect(res.headers.get('location')).toBe('https://www.example.test/api/auth/zoom/start?returnTo=%2Fapp');
+  });
+
+  // `wrangler dev` rewrites the Host header to the first configured route, so a
+  // host check that ignored this would bounce every local request at production.
+  it('leaves http starts alone so local development still works', () => {
+    const url = new URL('http://localhost:8787/api/auth/zoom/start?returnTo=%2Fapp');
+    const res = handleAuthStart(new Request(url), url, env, { now: NOW });
+    expect(new URL(res.headers.get('location')).origin).toBe('https://zoom.us');
+    expect(cookieValue(res, 'tt_oauth')).toBeTruthy();
+  });
 });
 
 describe('handleOAuthCallback', () => {

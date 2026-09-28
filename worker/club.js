@@ -3,7 +3,10 @@ import { readSession, readClub } from './auth.js';
 import { json, methodNotAllowed, notConfigured, unauthorized } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
 import { mintClubToken } from './club-token.js';
-import { normalizeCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
+import { normalizeCode, formatCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
+import { createClubForSubscriber } from './club-create.js';
+import { readClubName } from './billing.js';
+import { createStripeClient } from './stripe.js';
 import { handleClubPresets, readClubPresets } from './club-presets.js';
 import { handleClubMeetings } from './club-meetings.js';
 import { handleClubAdminRoutes } from './club-admin-routes.js';
@@ -134,6 +137,22 @@ export function buildBadge(presets) {
 }
 
 /**
+ * The officer's shareable activation link for a code.
+ *
+ * Built here rather than in each client because only the Worker knows the
+ * canonical web host. Nothing in the product produced this link before, which
+ * left the one documented way to discover the code field with no producer.
+ */
+export function shareUrlFor(env, code) {
+  if (!env?.WEB_ORIGIN || !code) return null;
+  try {
+    return new URL(`/pro/${formatCode(code)}`, env.WEB_ORIGIN).toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The whole club, as a device needs to see it.
  *
  * The split down the middle of this document is the point. Content — the
@@ -175,6 +194,12 @@ export async function buildClubState(env, clubId, club, access, { uid = null } =
     // Not versioned: a guest device sees null and a promotion takes effect on
     // the next refresh without anything being republished.
     role,
+    // The code is the club's password, so only an admin is told it — but an
+    // admin is told it *here*, on the refresh every surface already makes,
+    // rather than only by the web console. Without this the one person who
+    // needs to share the code cannot read it anywhere inside the Zoom app.
+    code: role === 'admin' && club?.code ? formatCode(club.code) : null,
+    shareUrl: role === 'admin' && club?.code ? shareUrlFor(env, club.code) : null,
     plan: access.plan,
     entitled: access.entitled,
     status: access.status,
@@ -249,6 +274,24 @@ export async function handleClubActivate(request, env) {
   const session = readSession(request, env);
   const uid = session?.uid ?? null;
   const now = Date.now();
+
+  const clubToken = await attachDevice(env, request, { clubId, club, uid, now });
+  if (!clubToken) return notConfigured('Club activation');
+
+  return json({ clubToken, ...(await buildClubState(env, clubId, club, access, { uid })) });
+}
+
+/**
+ * Put this device on a club's roll and hand it a token.
+ *
+ * Shared by activation and by creation: an officer who just minted their club
+ * must end up exactly where a timer who typed the code ends up, rather than
+ * being told to go and type a code they were shown two lines above.
+ *
+ * @returns {Promise<string|null>} the club token, or null when unsignable
+ */
+async function attachDevice(env, request, { clubId, club, uid, now }) {
+  const store = entitlementStore(env);
   const deviceId = crypto.randomUUID();
 
   await store.put(
@@ -259,6 +302,9 @@ export async function handleClubActivate(request, env) {
   // Access attaches to a device; authorization attaches to a person. A guest
   // gets a device row and nothing else, which is what makes "you cannot grant
   // editing rights to an anonymous device" true by construction.
+  //
+  // The existence check is also what keeps a club's creator an admin: their
+  // member row was written by createClubFromPending moments earlier.
   if (uid) {
     const existing = await store.get(clubMemberKey(clubId, uid), 'json');
     if (!existing) {
@@ -269,10 +315,68 @@ export async function handleClubActivate(request, env) {
     }
   }
 
-  const clubToken = mintClubToken({ clubId, deviceId, uid, ver: club.ver ?? 1 }, env.SESSION_SIGNING_KEY, now);
-  if (!clubToken) return notConfigured('Club activation');
+  return mintClubToken({ clubId, deviceId, uid, ver: club.ver ?? 1 }, env.SESSION_SIGNING_KEY, now);
+}
 
-  return json({ clubToken, ...(await buildClubState(env, clubId, club, access, { uid })) });
+/** Why a create was refused, in the words the officer reads. */
+const CREATE_ERRORS = {
+  not_a_subscriber: 403,
+  no_billing_account: 409,
+  creation_in_progress: 409,
+  club_storage_unavailable: 503,
+};
+
+/**
+ * POST /api/club/create — a subscriber mints the club their plan pays for.
+ *
+ * The club is the unit of Pro, but until this existed the only way to get one
+ * was to name it at checkout and then wait for an operator to run the CLI. That
+ * left every subscriber from before the club bundle — and everyone who skipped
+ * the optional name field — paying for features they could not reach.
+ *
+ * Requires a session, because a club belongs to the person who pays for it and
+ * a guest device has nobody to make an admin. Comp grants are deliberately not
+ * accepted: those stay operator-minted.
+ */
+export async function handleClubCreate(request, env) {
+  if (request.method !== 'POST') return methodNotAllowed();
+  if (!env.SESSION_SIGNING_KEY) return notConfigured('Club creation');
+
+  const session = readSession(request, env);
+  if (!session) return unauthorized();
+
+  const body = await readJsonBody(request);
+  const result = await createClubForSubscriber(env, {
+    uid: session.uid,
+    clubName: readClubName(body?.clubName),
+    timezone: typeof body?.timezone === 'string' ? body.timezone.slice(0, 64) : null,
+    stripe: createStripeClient(env),
+  });
+
+  if (!result.ok) return json({ error: result.error }, CREATE_ERRORS[result.error] ?? 500);
+
+  const { clubId, club, code } = result;
+  const access = await resolveAccess(env, { uid: session.uid, clubId, club });
+  const clubToken = await attachDevice(env, request, {
+    clubId,
+    club,
+    uid: session.uid,
+    now: Date.now(),
+  });
+  if (!clubToken) return notConfigured('Club creation');
+
+  return json({
+    clubToken,
+    created: result.created,
+    ...(await buildClubState(env, clubId, club, access, { uid: session.uid })),
+    // Last, so these win over the role-gated pair above. The member row making
+    // this caller an admin was written moments ago and KV is eventually
+    // consistent, so the role lookup inside buildClubState can still read null
+    // — and the one request that must never fail to return the code is the one
+    // that just minted it.
+    code: formatCode(code),
+    shareUrl: shareUrlFor(env, code),
+  });
 }
 
 /**
@@ -330,6 +434,7 @@ export function handleClub(request, url, env) {
   const route = url.pathname.slice('/api/club'.length).replace(/^\/+|\/+$/g, '');
   if (route === '') return handleClubState(request, env);
   if (route === 'activate') return handleClubActivate(request, env);
+  if (route === 'create') return handleClubCreate(request, env);
   if (route === 'presets') return handleClubPresets(request, env);
   if (route === 'meetings' || route.startsWith('meetings/')) return handleClubMeetings(request, route, env);
 

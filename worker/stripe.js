@@ -99,6 +99,11 @@ export function createStripeClient(env, { fetchImpl } = {}) {
       return request('POST', '/customers', params);
     },
 
+    /** The buyer's address, for a club minted after the checkout session is gone. */
+    retrieveCustomer(id) {
+      return request('GET', `/customers/${encodeURIComponent(id)}`);
+    },
+
     createCheckoutSession(params) {
       return request('POST', '/checkout/sessions', params);
     },

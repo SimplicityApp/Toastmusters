@@ -20,6 +20,7 @@ function makeKv(seed = {}) {
       return type === 'json' ? JSON.parse(raw) : raw;
     },
     put: async (key, value, options) => { store.set(key, value); puts.push({ key, options }); },
+    delete: async (key) => { store.delete(key); },
   };
 }
 
@@ -151,24 +152,60 @@ describe('the club a payment leaves behind', () => {
     ...over,
   });
 
-  it('parks the club name and the billing address the moment they exist', async () => {
+  const createdClub = () => {
+    const clubId = kv.store.get(clubByCustomerKey('cus_1'));
+    return clubId ? JSON.parse(kv.store.get(`club:${clubId}`)) : null;
+  };
+
+  // Payment is the one moment the club's name and an address both exist, and
+  // the one moment the buyer is paying attention. The club is theirs before
+  // they go looking for it, with no operator in the loop.
+  it('creates the club, carrying the name and the billing address into it', async () => {
     await deliver(event('checkout.session.completed', checkout()));
 
-    expect(JSON.parse(kv.store.get(clubPendingKey('cus_1')))).toEqual({
-      uid: 'u1',
-      clubName: 'Downtown Speakers',
-      email: 'treasurer@downtown.example',
+    expect(createdClub()).toMatchObject({
+      name: 'Downtown Speakers',
+      billingEmail: 'treasurer@downtown.example',
       stripeCustomerId: 'cus_1',
-      checkoutSessionId: 'cs_1',
-      paidAt: NOW,
+      plan: 'pro',
+      status: 'active',
+    });
+    // The operator path is the exception now, so nothing is queued.
+    expect(kv.store.has(clubPendingKey('cus_1'))).toBe(false);
+  });
+
+  it('makes the buyer the admin of the club they paid for', async () => {
+    await deliver(event('checkout.session.completed', checkout()));
+    const clubId = kv.store.get(clubByCustomerKey('cus_1'));
+    expect(JSON.parse(kv.store.get(`club-member:${clubId}:zoom:u1`))).toMatchObject({ role: 'admin' });
+  });
+
+  // An empty field never blocks checkout; the club is named after its code.
+  it('creates a club with a placeholder name when the buyer skipped the field', async () => {
+    await deliver(event('checkout.session.completed', checkout({ metadata: { uid: 'u1' } })));
+    expect(createdClub().name).toMatch(/^Club [0-9A-Z]{4}$/);
+  });
+
+  // Not 'active' by assumption: the club must lapse on the date the buyer was
+  // actually told, which only the subscription knows.
+  it('copies the plan off the subscription rather than assuming it is active', async () => {
+    stripe.retrieveSubscription = vi.fn(async () =>
+      activeSub({ status: 'past_due', cancel_at_period_end: true })
+    );
+    await deliver(event('checkout.session.completed', checkout()));
+
+    expect(createdClub()).toMatchObject({
+      status: 'past_due',
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: 1_900_000_000_000,
     });
   });
 
-  // An empty field never blocks checkout; the CLI mints a placeholder name.
-  it('parks a record with no name when the buyer skipped the field', async () => {
-    await deliver(event('checkout.session.completed', checkout({ metadata: { uid: 'u1' } })));
-
-    expect(JSON.parse(kv.store.get(clubPendingKey('cus_1')))).toMatchObject({ uid: 'u1', clubName: null });
+  // The sale must never fail because the club could not be minted.
+  it('falls back to the pending record when creation cannot happen', async () => {
+    // No customer id: nothing to key a club on, and nothing to look one up by.
+    await deliver(event('checkout.session.completed', checkout({ customer: null })));
+    expect(createdClub()).toBeNull();
   });
 
   it('does not queue a second club for a customer who already has one', async () => {

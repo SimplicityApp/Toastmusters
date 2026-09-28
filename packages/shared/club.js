@@ -49,6 +49,7 @@ export const CLUB_GRACE_DISMISSED_STORAGE_KEY = 'toastmaster_club_grace_dismisse
 
 const ACTIVATE_ENDPOINT = '/api/club/activate';
 const CLUB_ENDPOINT = '/api/club';
+const CREATE_ENDPOINT = '/api/club/create';
 
 /** Once a day. A Tuesday publish reaches every device by the next meeting. */
 export const CLUB_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -531,6 +532,10 @@ function toCacheEntry(state, { clubToken, lastRefreshAt }) {
     // Recomputed by the server on every request, never versioned: a promotion
     // takes effect on the next refresh with nothing republished.
     role: state?.role ?? null,
+    // Null for everyone but an admin — the server decides, not the client. A
+    // demoted officer loses both on their next refresh.
+    code: state?.code ?? null,
+    shareUrl: state?.shareUrl ?? null,
     plan: state?.plan ?? 'free',
     entitled: Boolean(state?.entitled),
     status: state?.status ?? null,
@@ -637,6 +642,81 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
   applyPlan(clubEntitlementOf(entry));
   warmLogoQuietly();
   return { ok: true, club: entry };
+}
+
+/**
+ * Mint the club this subscription pays for, and join it on this device.
+ *
+ * The other half of `activateClub`: that one is for a timer who was given a
+ * code, this one is for the person who paid and has none. A subscriber used to
+ * have no way to reach any club feature unless they had both named a club at
+ * checkout and waited for an operator to run the CLI.
+ *
+ * Idempotent on the server, so pressing the button twice returns the same club
+ * rather than minting a second — `created` says which happened.
+ *
+ * @param {{clubName?: string, timezone?: string}} [details]
+ * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch}} [options]
+ * @returns {Promise<{ok: true, club: Object, code: string, shareUrl: string|null,
+ *   created: boolean}|{ok: false, error: string}>} never rejects
+ */
+export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
+  const timezone = details.timezone ?? guessTimezone();
+
+  let response;
+  try {
+    const token = getToken?.();
+    response = await (fetchImpl ?? fetch)(CREATE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({
+        ...(details.clubName?.trim() ? { clubName: details.clubName.trim() } : {}),
+        ...(timezone ? { timezone } : {}),
+      }),
+    });
+  } catch {
+    return { ok: false, error: 'network' };
+  }
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok || !body?.clubToken) {
+    return { ok: false, error: body?.error || 'create_failed' };
+  }
+
+  // Same landing as activation: the creator's device is on the club before this
+  // resolves, so nobody is ever shown a code and asked to type it back in.
+  saveClubPresets(body.presets ?? null);
+  const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
+  applyPlan(clubEntitlementOf(entry));
+  warmLogoQuietly();
+
+  return {
+    ok: true,
+    club: entry,
+    code: body.code ?? null,
+    shareUrl: body.shareUrl ?? null,
+    created: Boolean(body.created),
+  };
+}
+
+/** The device's own zone, when the platform will say. Never fatal. */
+function guessTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
 }
 
 /**

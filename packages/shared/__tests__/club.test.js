@@ -15,6 +15,7 @@ import {
   CLUB_GRACE_DISMISSED_STORAGE_KEY,
   initClubFromCache,
   activateClub,
+  createClub,
   refreshClub,
   leaveClub,
   subscribeClub,
@@ -151,6 +152,68 @@ describe('activateClub', () => {
     const fetchImpl = vi.fn();
     expect(await activateClub('   ', { fetchImpl })).toEqual({ ok: false, error: 'invalid_code' });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('createClub', () => {
+  const created = (over = {}) => ({
+    clubToken: 'fresh.sig',
+    created: true,
+    code: 'DTSP-7K2QM9',
+    shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
+    ...clubState({ role: 'admin' }),
+    ...over,
+  });
+
+  // The creator must land exactly where a timer who typed the code lands, or
+  // they would be shown a code and asked to type it back into their own app.
+  it('caches the club and puts this device on it', async () => {
+    const fetchImpl = respondWith(created());
+
+    const result = await createClub({ clubName: 'Downtown Speakers' }, { fetchImpl, getToken: () => 'bearer-token' });
+
+    expect(result).toMatchObject({ ok: true, created: true, code: 'DTSP-7K2QM9' });
+    expect(JSON.parse(localStorage.getItem(CLUB_STORAGE_KEY))).toMatchObject({
+      clubToken: 'fresh.sig',
+      club: { name: 'Downtown Speakers' },
+      role: 'admin',
+    });
+    expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true });
+
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('/api/club/create');
+    expect(init.headers.Authorization).toBe('Bearer bearer-token');
+  });
+
+  it('sends the club name only when there is one, and the device timezone', async () => {
+    const fetchImpl = respondWith(created());
+    await createClub({ timezone: 'America/Toronto' }, { fetchImpl });
+
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ timezone: 'America/Toronto' });
+  });
+
+  it('keeps the code and the link an admin has to share', async () => {
+    const fetchImpl = respondWith(created());
+    const result = await createClub({}, { fetchImpl });
+    expect(result.shareUrl).toBe('https://www.example.test/pro/DTSP-7K2QM9');
+    expect(loadClub()).toMatchObject({ code: 'DTSP-7K2QM9' });
+  });
+
+  // Pressing twice is a double-click, not a second club.
+  it('reports a club that already existed without claiming to have made it', async () => {
+    const fetchImpl = respondWith(created({ created: false }));
+    expect(await createClub({}, { fetchImpl })).toMatchObject({ ok: true, created: false });
+  });
+
+  it('passes the server refusal through for the caller to phrase', async () => {
+    const fetchImpl = respondWith({ error: 'not_a_subscriber' }, { ok: false, status: 403 });
+    expect(await createClub({}, { fetchImpl })).toEqual({ ok: false, error: 'not_a_subscriber' });
+    expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
+  });
+
+  it('blames the network when offline', async () => {
+    const fetchImpl = vi.fn(async () => { throw new Error('offline'); });
+    expect(await createClub({}, { fetchImpl })).toEqual({ ok: false, error: 'network' });
   });
 });
 
