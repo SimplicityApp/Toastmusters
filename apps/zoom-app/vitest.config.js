@@ -13,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@toastmaster-timer/shared': path.resolve(__dirname, '../../packages/shared'),
+      '@toastmaster-timer/ui': path.resolve(__dirname, '../../packages/ui'),
     },
   },
 });

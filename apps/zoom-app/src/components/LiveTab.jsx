@@ -11,7 +11,8 @@ const CardImagesModal = lazy(() => import('./CardImagesModal'));
 const OwnBackgroundModal = lazy(() => import('./OwnBackgroundModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
 import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, BREAK_ROLE, BREAK_QUICK_PICKS, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages } from '@toastmaster-timer/shared';
-import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE } from '../utils/zoomSdk';
+import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE } from '../utils/zoomSdk';
+import { useClub } from '../hooks/useClub';
 import { formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle } from '@toastmaster-timer/shared';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { trackEvent } from '../utils/posthog';
@@ -118,6 +119,46 @@ export default memo(function LiveTab() {
   const [readoutPosition, setReadoutPosition] = useState(getOverlayTimePosition);
   const [readoutScale, setReadoutScale] = useState(getOverlayTimeScale);
   const [readoutVisible, setReadoutVisible] = useState(isOverlayTimeVisible);
+
+  // The club's badge: its kit comes from the club cache, its placement from
+  // this device. Mirrored into state for the same reason the readout is — the
+  // drag handle has to follow the pointer without a bridge push per move.
+  const { kit: clubKit } = useClub();
+  const [badgePlacement, setBadgePlacement] = useState(getClubBadgePlacement);
+  const badgeOnCards = Boolean(clubKit?.showOnCards);
+
+  /** Follow the drag live; hand the move to Zoom only on release. */
+  const handleBadgePlacementChange = (position, { commit } = {}) => {
+    setBadgePlacement((current) => ({ ...current, ...position }));
+    if (commit) {
+      const applied = setClubBadgePlacement(position);
+      setBadgePlacement(applied);
+      (window.requestIdleCallback || setTimeout)(() => trackEvent('brand_badge_moved', {
+        x: Math.round(applied.x * 100) / 100,
+        y: Math.round(applied.y * 100) / 100,
+        scale: Math.round(applied.scale * 100) / 100,
+        was_reset: false,
+        overlay_mode: overlayMode,
+      }));
+    }
+  };
+
+  const handleAdjustBadgeScale = (direction) => {
+    setBadgePlacement(setClubBadgePlacement({ scale: badgePlacement.scale + direction * 0.02 }));
+  };
+
+  const handleToggleBadgeVisible = () => {
+    setBadgePlacement(setClubBadgePlacement({ visible: !badgePlacement.visible }));
+  };
+
+  /** Back to wherever the club's admin put it; this device's move is dropped. */
+  const handleResetBadgePlacement = () => {
+    setBadgePlacement(resetClubBadgePlacement());
+    (window.requestIdleCallback || setTimeout)(() => trackEvent('brand_badge_moved', {
+      was_reset: true,
+      overlay_mode: overlayMode,
+    }));
+  };
 
   /** Follow the drag live; hand the position to Zoom only on release. */
   const handleReadoutPositionChange = (position, { commit } = {}) => {
@@ -888,6 +929,8 @@ export default memo(function LiveTab() {
           onSelectSpeaker={loadSpeakerFromAgenda}
           onAddSpeaker={handleAddSpeaker}
           onRenameSpeaker={handleRenameSpeaker}
+          clubKit={clubKit}
+          badgePlacement={badgePlacement}
         />
       )}
 
@@ -1173,6 +1216,13 @@ export default memo(function LiveTab() {
         readoutVisible={readoutVisible}
         onToggleReadoutVisible={handleToggleReadoutVisible}
         onAdjustReadoutScale={handleAdjustReadoutScale}
+        clubKit={badgeOnCards ? clubKit : null}
+        badgePlacement={badgePlacement}
+        badgeMoved={isClubBadgeMoved()}
+        onBadgePlacementChange={handleBadgePlacementChange}
+        onAdjustBadgeScale={handleAdjustBadgeScale}
+        onToggleBadgeVisible={handleToggleBadgeVisible}
+        onResetBadgePlacement={handleResetBadgePlacement}
       />
 
       {!isRunning && (

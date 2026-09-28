@@ -8,6 +8,9 @@ const OAuthRedirect = lazy(() => import('./pages/OAuthRedirect'))
 const BillingSuccess = lazy(() => import('./pages/BillingSuccess'))
 const BillingCancel = lazy(() => import('./pages/BillingCancel'))
 const Account = lazy(() => import('./pages/Account'))
+const ProActivate = lazy(() => import('./pages/ProActivate'))
+const ClubAdmin = lazy(() => import('./pages/ClubAdmin'))
+const ClubMagicLink = lazy(() => import('./pages/ClubMagicLink'))
 
 const deferPreload = window.requestIdleCallback || ((cb) => setTimeout(cb, 2000));
 deferPreload(() => import('./pages/TimerApp'));
@@ -27,6 +30,15 @@ function App() {
         <Route path="/billing/success" element={<BillingSuccess />} />
         <Route path="/billing/cancel" element={<BillingCancel />} />
         <Route path="/account" element={<Account />} />
+        {/* The officer's shareable link. It can only ever land in a browser:
+            links open the system browser, never the Zoom sidebar. */}
+        <Route path="/pro/:code" element={<ProActivate />} />
+        {/* The officer's console, and the page a mailed admin link lands on.
+            Browser-only for the same reason: a magic link cannot open inside
+            the Zoom sidebar, and an officer reading their roster is not in a
+            meeting. */}
+        <Route path="/club/admin" element={<ClubAdmin />} />
+        <Route path="/club/manage" element={<ClubMagicLink />} />
       </Routes>
     </Suspense>
   )

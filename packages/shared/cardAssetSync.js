@@ -6,6 +6,7 @@ import {
   storeCardBlobs,
 } from './cardImages.js';
 import { notifyLocalWrite } from './storageEvents.js';
+import { clubHeaders } from './club.js';
 
 /**
  * Carrying a user's uploaded card artwork to their other devices.
@@ -99,7 +100,7 @@ async function authorizedFetch(config, path, init = {}) {
   const response = await (config.fetchImpl ?? fetch)(`${ASSET_ENDPOINT}/${path}`, {
     ...init,
     credentials: 'same-origin',
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...clubHeaders(), ...(init.headers ?? {}) },
   });
   return response;
 }

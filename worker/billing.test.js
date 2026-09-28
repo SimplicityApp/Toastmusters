@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { handleBilling, customerByUidKey, uidByCustomerKey } from './billing.js';
+import { handleBilling, customerByUidKey, uidByCustomerKey, readClubName, MAX_CLUB_NAME_LENGTH } from './billing.js';
 import { mintSessionToken } from './session-token.js';
 
 const SIGNING_KEY = 'test-session-signing-key';
@@ -111,6 +111,38 @@ describe('POST /api/billing/checkout', () => {
   it('answers 503 when the price for the plan does not exist yet', async () => {
     stripe.findPriceByLookupKey.mockResolvedValue(null);
     expect((await call('/api/billing/checkout', { uid: 'u1', body: { interval: 'monthly' } })).status).toBe(503);
+  });
+
+  // Payment is the one moment the club's name naturally exists, so it travels
+  // with it — into both metadata bags, which are read at different times.
+  it('carries the club name into both metadata bags', async () => {
+    await call('/api/billing/checkout', { uid: 'u1', body: { interval: 'monthly', clubName: '  Downtown   Speakers ' } });
+
+    const params = stripe.createCheckoutSession.mock.calls[0][0];
+    expect(params.metadata).toEqual({ uid: 'u1', club_name: 'Downtown Speakers' });
+    expect(params.subscription_data.metadata).toEqual({ uid: 'u1', club_name: 'Downtown Speakers' });
+  });
+
+  // An empty field must never block a purchase, and must not send an empty key
+  // either: a blank club_name in the dashboard reads as "they typed nothing
+  // deliberately" rather than "they skipped it".
+  it('omits the key cleanly when the buyer skipped the field', async () => {
+    for (const clubName of [undefined, '', '   ', 42, null]) {
+      stripe.createCheckoutSession.mockClear();
+      const res = await call('/api/billing/checkout', { uid: 'u1', body: { interval: 'monthly', clubName } });
+      expect(res.status).toBe(200);
+      const params = stripe.createCheckoutSession.mock.calls[0][0];
+      expect(params.metadata).toEqual({ uid: 'u1' });
+      expect(params.subscription_data.metadata).toEqual({ uid: 'u1' });
+    }
+  });
+
+  // Stripe rejects the whole session over a metadata value past 500 characters,
+  // so a pasted paragraph must not be able to cost someone their purchase.
+  it('truncates a pasted essay rather than letting Stripe refuse the session', async () => {
+    await call('/api/billing/checkout', { uid: 'u1', body: { interval: 'monthly', clubName: 'D'.repeat(400) } });
+    expect(stripe.createCheckoutSession.mock.calls[0][0].metadata.club_name).toHaveLength(MAX_CLUB_NAME_LENGTH);
+    expect(readClubName('D'.repeat(400))).toHaveLength(MAX_CLUB_NAME_LENGTH);
   });
 });
 

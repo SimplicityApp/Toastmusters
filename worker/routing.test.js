@@ -156,7 +156,7 @@ describe('404 handling', () => {
   it('serves the SPA shell with 200 for real app routes', async () => {
     const env = makeEnv(['/index.html']);
 
-    for (const path of ['/', '/app', '/oauth/redirect']) {
+    for (const path of ['/', '/app', '/oauth/redirect', '/club/admin', '/club/manage']) {
       const res = await worker.fetch(
         get(`https://www.timer.simple-tech.app${path}`),
         env,
@@ -165,6 +165,62 @@ describe('404 handling', () => {
       expect(res.status, `${path} should be 200`).toBe(200);
       expect(res.headers.get('x-asset-path')).toBe('/index.html');
     }
+  });
+
+  // The officer's shareable activation link. Its tail is a club code, so the
+  // set of valid paths cannot be enumerated the way SPA_ROUTES enumerates the
+  // rest — it has to match on the prefix.
+  it('serves the root SPA shell for /pro/<code>', async () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+
+    for (const path of ['/pro/DTSP-7K2QM9', '/pro/dtsp7k2qm9']) {
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`), env, ctx);
+      expect(res.status, `${path} should be 200`).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    }
+
+    // Bare /pro is not a route; only a code under it is.
+    expect((await worker.fetch(get('https://www.timer.simple-tech.app/pro'), env, ctx)).status).toBe(404);
+  });
+
+  // The club logo is an API route, not an asset the SPA owns: it must never
+  // fall through to the shell, or the badge compositor would be handed HTML to
+  // decode as an image.
+  it('never serves the SPA shell for /api/club-assets/*', async () => {
+    const env = { ...makeEnv(['/index.html', '/404.html']), CARD_ASSETS: undefined };
+
+    const res = await worker.fetch(
+      get('https://www.timer.simple-tech.app/api/club-assets/club-1/abc.png'),
+      env,
+      ctx
+    );
+
+    // 503 because no bucket is bound here — the point is that it reached the
+    // handler rather than the asset store.
+    expect(res.status).toBe(503);
+    expect(res.headers.get('x-asset-path')).toBeNull();
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  // A shared report is Worker-rendered HTML, not an SPA route: a link-preview
+  // crawler does not run JavaScript, so the OG tags have to be in the bytes the
+  // Worker returns. Falling through to the shell would hand every crawler the
+  // same generic card.
+  it('never serves the SPA shell for /r/<token>', async () => {
+    const env = { ...makeEnv(['/index.html', '/404.html']), PROFILES: undefined };
+
+    const res = await worker.fetch(
+      get('https://www.timer.simple-tech.app/r/ABCDEFGHJKMNPQRS'),
+      env,
+      ctx
+    );
+
+    // 404 because no KV is bound here — the point is that it reached the
+    // handler rather than the asset store.
+    expect(res.status).toBe(404);
+    expect(res.headers.get('x-asset-path')).toBeNull();
+    expect(res.headers.get('x-robots-tag')).toBe('noindex');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
   it('returns a real 404 for unknown paths instead of a soft 404', async () => {

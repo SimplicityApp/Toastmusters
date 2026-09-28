@@ -3,6 +3,7 @@ import { handleStripeWebhook } from './stripe-webhook.js';
 import { signStripePayload } from './stripe.js';
 import { entitlementKey, resolveEntitlement } from './entitlements.js';
 import { uidByCustomerKey, customerByUidKey } from './billing.js';
+import { clubPendingKey, clubByCustomerKey } from './club-admin.js';
 
 const WEBHOOK_SECRET = 'whsec_test';
 const NOW = 1_800_000_000_000;
@@ -136,6 +137,56 @@ describe('subscription lifecycle', () => {
       { now: NOW }
     );
     expect(await res.json()).toMatchObject({ applied: true, uid: 'u1' });
+  });
+});
+
+describe('the club a payment leaves behind', () => {
+  const checkout = (over = {}) => ({
+    id: 'cs_1',
+    client_reference_id: 'u1',
+    customer: 'cus_1',
+    subscription: 'sub_1',
+    metadata: { uid: 'u1', club_name: 'Downtown Speakers' },
+    customer_details: { email: 'treasurer@downtown.example' },
+    ...over,
+  });
+
+  it('parks the club name and the billing address the moment they exist', async () => {
+    await deliver(event('checkout.session.completed', checkout()));
+
+    expect(JSON.parse(kv.store.get(clubPendingKey('cus_1')))).toEqual({
+      uid: 'u1',
+      clubName: 'Downtown Speakers',
+      email: 'treasurer@downtown.example',
+      stripeCustomerId: 'cus_1',
+      checkoutSessionId: 'cs_1',
+      paidAt: NOW,
+    });
+  });
+
+  // An empty field never blocks checkout; the CLI mints a placeholder name.
+  it('parks a record with no name when the buyer skipped the field', async () => {
+    await deliver(event('checkout.session.completed', checkout({ metadata: { uid: 'u1' } })));
+
+    expect(JSON.parse(kv.store.get(clubPendingKey('cus_1')))).toMatchObject({ uid: 'u1', clubName: null });
+  });
+
+  it('does not queue a second club for a customer who already has one', async () => {
+    kv.store.set(clubByCustomerKey('cus_1'), 'club-1');
+    await deliver(event('checkout.session.completed', checkout()));
+    expect(kv.store.has(clubPendingKey('cus_1'))).toBe(false);
+  });
+
+  // The pending record rides the same idempotency marker as everything else:
+  // a redelivered event short-circuits before any of this runs.
+  it('writes once, because a duplicate event never reaches it', async () => {
+    await deliver(event('checkout.session.completed', checkout(), 'evt_dup'));
+    kv.store.delete(clubPendingKey('cus_1'));
+
+    const again = await deliver(event('checkout.session.completed', checkout(), 'evt_dup'));
+
+    expect(await again.json()).toEqual({ received: true, duplicate: true });
+    expect(kv.store.has(clubPendingKey('cus_1'))).toBe(false);
   });
 });
 

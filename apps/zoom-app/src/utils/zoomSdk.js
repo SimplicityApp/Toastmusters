@@ -1,5 +1,5 @@
 import zoomSdk from '@zoom/appssdk';
-import { loadOverlayMode, loadOverlayTimeReadout, saveOverlayTimeReadout, resolveCardImage, CARD_ASSET_VERSION, hasOwnBackground, getOwnBackgroundUrl } from '@toastmaster-timer/shared';
+import { loadOverlayMode, loadOverlayTimeReadout, saveOverlayTimeReadout, resolveCardImage, CARD_ASSET_VERSION, hasOwnBackground, getOwnBackgroundUrl, clubBadgeState, clubBadgePlacement, saveClubBadgeOverride, clearClubBadgeOverride, hasClubBadgeOverride, clubKit, drawClubBadge, badgeUnchanged, clampBadgeScale } from '@toastmaster-timer/shared';
 
 // Production base URL for background images
 const PRODUCTION_BASE_URL = 'https://www.timer.simple-tech.app';
@@ -434,6 +434,58 @@ export function setOverlayTimeVisible(visible) {
   if (overlayTimeLabel) repaintOverlayFrame();
 }
 
+/* ---------------------------------------------------------------------------
+ * The club's badge.
+ *
+ * Placement mirrors the readout's model in a key of its own, so the drag handle
+ * on the preview tile is a second instance of the readout's control rather than
+ * a new one. Two differences, both deliberate: the badge's default comes from
+ * the club rather than from a constant, and it is shown and hidden
+ * independently of the clock — an organizer who hides the count-up has not
+ * asked to take their club's name off the card.
+ * ------------------------------------------------------------------------- */
+
+/** Whether this club has a badge that could be drawn at all. */
+export function hasClubBadge() {
+  return Boolean(clubKit()?.showOnCards);
+}
+
+/** @returns {{x: number, y: number, scale: number, visible: boolean}} */
+export function getClubBadgePlacement() {
+  return clubBadgePlacement();
+}
+
+/** Whether this device has moved the badge away from the club's placement. */
+export function isClubBadgeMoved() {
+  return hasClubBadgeOverride();
+}
+
+/**
+ * Move, resize or hide the badge on this device, and repaint the frame
+ * participants are watching.
+ *
+ * Unconditional repaint, unlike the readout's: the badge is up whenever a card
+ * is, including between speeches, so there is no "is there a label" question to
+ * ask first.
+ *
+ * @param {{x?: number, y?: number, scale?: number, visible?: boolean}} patch
+ * @returns {{x: number, y: number, scale: number, visible: boolean}}
+ */
+export function setClubBadgePlacement(patch) {
+  const next = { ...patch };
+  if (next.scale !== undefined) next.scale = clampBadgeScale(next.scale);
+  const placement = saveClubBadgeOverride(next);
+  repaintOverlayFrame();
+  return placement;
+}
+
+/** Put the badge back where the club's admin placed it. */
+export function resetClubBadgePlacement() {
+  const placement = clearClubBadgeOverride();
+  repaintOverlayFrame();
+  return placement;
+}
+
 /**
  * Set the elapsed-time readout and repaint what other participants see.
  *
@@ -464,18 +516,23 @@ export function setOverlayTimeLabel(label) {
  * visible around the face.
  *
  * @param {ImageData} base - Decoded background (not mutated; it is cached)
- * @param {string} label - Formatted elapsed time
+ * @param {string|null} label - Formatted elapsed time, or null for no readout
  * @param {{x: number, y: number}} [position] - Normalized center of the text
  * @param {number} [scale] - Text height as a fraction of the frame
+ * @param {{kit: Object, placement: Object}|null} [badge] - The club's badge
  * @returns {ImageData} A new frame with the readout drawn on
  */
-export function renderTimeOnFrame(base, label, position = overlayTimePosition, scale = overlayTimeScale) {
+export function renderTimeOnFrame(base, label, position = overlayTimePosition, scale = overlayTimeScale, badge = null) {
   const canvas = document.createElement('canvas');
   canvas.width = base.width;
   canvas.height = base.height;
   const ctx = canvas.getContext('2d');
   ctx.putImageData(base, 0, 0);
-  drawTimeReadout(ctx, base.width, base.height, label, position, scale);
+  // The badge first, so the readout wins any overlap for free. The time is
+  // always the signal, and this is the whole of "the badge yields" — a
+  // sequence, not a layering negotiation.
+  if (badge) drawClubBadge(ctx, base.width, base.height, badge.kit, badge.placement);
+  if (label) drawTimeReadout(ctx, base.width, base.height, label, position, scale);
   return ctx.getImageData(0, 0, base.width, base.height);
 }
 
@@ -545,6 +602,7 @@ const CAMERA_BAND_THICKNESS = 0.075;
  * @param {{width: number, height: number}} [budget] - Frame size
  * @param {{x: number, y: number}} [position] - Normalized center of the text
  * @param {number} [scale] - Text height as a fraction of the frame
+ * @param {{kit: Object, placement: Object}|null} [badge] - The club's badge
  * @returns {ImageData} A transparent frame carrying the band and the readout
  */
 export function renderTimeForeground(
@@ -552,7 +610,8 @@ export function renderTimeForeground(
   label,
   budget = getForegroundBudget(),
   position = overlayTimePosition,
-  scale = overlayTimeScale
+  scale = overlayTimeScale,
+  badge = null
 ) {
   const canvas = document.createElement('canvas');
   canvas.width = budget.width;
@@ -572,6 +631,9 @@ export function renderTimeForeground(
     ctx.fillRect(0, thickness, thickness, budget.height - 2 * thickness);
     ctx.fillRect(budget.width - thickness, thickness, thickness, budget.height - 2 * thickness);
   }
+  // Badge before readout, so the time wins any overlap. Same order as the
+  // baked card path, for the same reason.
+  if (badge) drawClubBadge(ctx, budget.width, budget.height, badge.kit, badge.placement);
   if (label) drawTimeReadout(ctx, budget.width, budget.height, label, position, scale);
   return ctx.getImageData(0, 0, budget.width, budget.height);
 }
@@ -769,8 +831,12 @@ async function syncForegroundReadout() {
   // it must stay up for the entire speech — including the stretches where the
   // organizer has hidden the clock.
   const color = live ? cameraBandColor : null;
+  // A third element with the same independence: the club's badge must stay up
+  // through the stretches where the organizer has hidden the clock, so it is
+  // read here rather than folded into the label.
+  const badge = live ? clubBadgeState() : null;
 
-  if (!label && !color) {
+  if (!label && !color && !badge) {
     await removeForegroundReadout();
     return;
   }
@@ -783,6 +849,11 @@ async function syncForegroundReadout() {
     activeForeground &&
     activeForeground.color === color &&
     activeForeground.label === label &&
+    // Without this the badge would be the one thing a drag could not move: the
+    // check exists to skip redundant pushes, and a badge that moved while the
+    // label and band stayed put would compare equal and never repaint — right
+    // on the preview tile, and nothing at all in the meeting.
+    badgeUnchanged(activeForeground.badge, badge) &&
     activeForeground.position.x === overlayTimePosition.x &&
     activeForeground.position.y === overlayTimePosition.y &&
     activeForeground.scale === overlayTimeScale &&
@@ -805,7 +876,7 @@ async function syncForegroundReadout() {
   }
 
   try {
-    const frame = renderTimeForeground(color, label, budget);
+    const frame = renderTimeForeground(color, label, budget, overlayTimePosition, overlayTimeScale, badge);
     // "meeting" persistence: the client takes the layer down itself when the
     // meeting ends, so a closed panel or a crashed app strands nothing.
     await zoomSdk.setVirtualForeground({ imageData: frame, persistence: 'meeting' });
@@ -813,6 +884,7 @@ async function syncForegroundReadout() {
     activeForeground = {
       color,
       label,
+      badge,
       position: { ...overlayTimePosition },
       scale: overlayTimeScale,
       width: budget.width,
@@ -3395,6 +3467,10 @@ function isAlreadyShowing(imageUrl) {
   ) {
     return false;
   }
+  // Card mode bakes the badge into the filter frame, so a badge that moved is
+  // as much a different frame as a readout that moved. Same reasoning as the
+  // foreground dirty-check; different pipeline.
+  if (!badgeUnchanged(activeOverlay.badge ?? null, clubBadgeState())) return false;
   // A fileUrl push is size-independent, so it is never stale.
   if (!activeOverlay.budget) return true;
   const budget = getOverlayBudget();
@@ -3544,19 +3620,24 @@ async function applyOverlayInternal(imageUrl) {
           // Bake the count-up into the frame while a speech is running, so the
           // participants watching the card see the time too, not just the color.
           const label = effectiveTimeLabel();
+          // The club's badge rides the same baked frame here, because card mode
+          // has no foreground layer to put it on. A card with no club, or with
+          // "Show on cards" off, composites nothing and stays byte-identical to
+          // what this pipeline has always pushed.
+          const badge = clubBadgeState();
           let frame = imageData;
-          if (label) {
+          if (label || badge) {
             try {
-              frame = renderTimeOnFrame(imageData, label);
+              frame = renderTimeOnFrame(imageData, label, overlayTimePosition, overlayTimeScale, badge);
             } catch (error) {
-              // The readout is a bonus; the color is the signal. Push the
-              // plain card rather than nothing.
+              // The readout and the badge are both bonuses; the color is the
+              // signal. Push the plain card rather than nothing.
               log(`Could not render the time onto the card: ${error.message || error.name}`, 'warn');
             }
           }
           const result = await zoomSdk.setVideoFilter({ imageData: frame });
           log(`Successfully applied video filter overlay. Result: ${JSON.stringify(result)}`, 'info');
-          activeOverlay = { url: imageUrl, mode: currentOverlayMode, budget, pipeline: 'filter', label, position: overlayTimePosition, scale: overlayTimeScale };
+          activeOverlay = { url: imageUrl, mode: currentOverlayMode, budget, pipeline: 'filter', label, badge, position: overlayTimePosition, scale: overlayTimeScale };
           markVideoFilterApplied(true);
           lastError = null;
           if (result && result.status) {

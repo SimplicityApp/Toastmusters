@@ -1,6 +1,7 @@
 import { createStripeClient, verifyStripeSignature } from './stripe.js';
 import { entitlementStore, projectSubscription, writeEntitlement } from './entitlements.js';
 import { rememberCustomer, lookupUidByCustomer } from './billing.js';
+import { clubByCustomerKey, clubPendingKey } from './club-admin.js';
 import { json, methodNotAllowed, notConfigured } from './http.js';
 
 /**
@@ -39,6 +40,46 @@ async function resolveUid(env, { metadata, customerId }) {
   const fromMeta = metadata?.uid;
   if (typeof fromMeta === 'string' && fromMeta) return fromMeta;
   return lookupUidByCustomer(env, customerId);
+}
+
+/**
+ * Park what only checkout knows: what the buyer called their club, and an
+ * address to reach them at.
+ *
+ * This is the first time the product stores an email address, and it is stored
+ * here because this is the one moment it exists — leaving it in Stripe means
+ * someone digs it out by hand later, from a dashboard the person minting clubs
+ * may not even have access to.
+ *
+ * A human then runs `scripts/club-cli.mjs pending` over this prefix and calls
+ * `createClubFromPending()`. Automating that is a one-line change: call the
+ * same function from here.
+ *
+ * Skipped once the customer already owns a club, so a buyer who re-subscribes
+ * after a lapse does not queue a second club for an operator to mistakenly mint.
+ *
+ * @returns {Promise<boolean>} whether a pending record was written
+ */
+async function rememberPendingClub(env, store, session, customerId, uid, now) {
+  if (!customerId) return false;
+  try {
+    if (await store.get(clubByCustomerKey(customerId))) return false;
+  } catch {
+    // A read that failed must not cost us the record: fall through and write.
+  }
+  await store.put(
+    clubPendingKey(customerId),
+    JSON.stringify({
+      uid: uid ?? null,
+      clubName: session.metadata?.club_name ?? null,
+      // Stripe collects this on its own page; we never ask for it ourselves.
+      email: session.customer_details?.email ?? null,
+      stripeCustomerId: customerId,
+      checkoutSessionId: session.id ?? null,
+      paidAt: now,
+    })
+  );
+  return true;
 }
 
 async function applySubscription(env, stripe, subscriptionId, hintUid, now) {
@@ -94,6 +135,7 @@ export async function handleStripeWebhook(request, env, deps = {}) {
       const uid = object.client_reference_id || object.metadata?.uid || null;
       const customerId = idOf(object.customer);
       if (uid && customerId) await rememberCustomer(env, uid, customerId);
+      await rememberPendingClub(env, store, object, customerId, uid, now);
       const subscriptionId = idOf(object.subscription);
       if (subscriptionId && stripe) {
         outcome = await applySubscription(env, stripe, subscriptionId, uid, now);

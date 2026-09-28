@@ -17,6 +17,12 @@
     "./storageEvents": "./storageEvents.js",
     "./profileMerge": "./profileMerge.js",
     "./profileSync": "./profileSync.js",
-    "./cardAssetSync": "./cardAssetSync.js"
+    "./cardAssetSync": "./cardAssetSync.js",
+    "./entitlement": "./entitlement.js",
+    "./club": "./club.js",
+    "./clubBadge": "./clubBadge.js",
+    "./clubPresets": "./clubPresets.js",
+    "./clubArchive": "./clubArchive.js",
+    "./reportImage": "./reportImage.js"
   }
 }

@@ -12,6 +12,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { formatTime, getPhaseInfo, formatPhaseTextFor, getDisplaySeconds } from '@toastmaster-timer/shared';
+import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge';
 import { getBackgroundUrl } from '../utils/zoomSdk';
 import StageSpeakerPicker from './StageSpeakerPicker';
 
@@ -76,6 +77,8 @@ export default memo(function TimerStage({
   onSelectSpeaker,
   onAddSpeaker,
   onRenameSpeaker,
+  clubKit,
+  badgePlacement,
 }) {
   const phaseInfo = rules ? getPhaseInfo(elapsedTime, rules, status) : null;
   const phaseText = phaseInfo ? formatPhaseTextFor(phaseInfo, rules) : '';
@@ -117,6 +120,22 @@ export default memo(function TimerStage({
           the fallback for an image that never loads. */}
       <div aria-hidden className="absolute inset-0 pointer-events-none" style={backdropLayer} />
       <div aria-hidden className="absolute inset-0 pointer-events-none" style={artworkLayer} />
+
+      {/* The club's badge, on the same {x, y, scale} the video modes composite
+          it at, so it lands in the same relative spot whichever mode a club
+          settles on. DOM rather than canvas here because the stage *is* the
+          shared surface — nothing is pushed through the video pipeline — and
+          above the artwork for the same reason the readout is. */}
+      {clubKit?.showOnCards && (
+        <ClubBadgeLayer>
+          <ClubBadge
+            name={clubKit.name}
+            primaryColor={clubKit.primaryColor}
+            logoUrl={clubKit.logoUrl}
+            placement={badgePlacement}
+          />
+        </ClubBadgeLayer>
+      )}
 
       <div className="relative p-4 space-y-2">
         <div className="flex items-start gap-2">

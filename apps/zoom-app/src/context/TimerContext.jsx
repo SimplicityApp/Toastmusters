@@ -1,10 +1,13 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { DEFAULT_ROLE_RULES, detectRoleFromText, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules } from '@toastmaster-timer/shared';
 import { calculateStatus, formatTime, getDisplaySeconds } from '@toastmaster-timer/shared';
-import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, loadRoleRules, saveRoleOrder, loadRoleOrder, loadHiddenBuiltinRoles, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
+import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
 import { parseEasySpeakText } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
+import { recordSpeech } from '@toastmaster-timer/shared';
+import { getSessionToken } from '../utils/zoomIdentity';
+import { resolveActiveRules, resolveActiveHiddenBuiltins, resolveActiveRoleOrder } from '@toastmaster-timer/shared';
 import { useToast } from './ToastContext';
 import { trackEvent } from '../utils/posthog';
 
@@ -108,16 +111,14 @@ export function TimerProvider({ children }) {
     return saved && saved.length > 0 ? saved : [];
   });
 
-  const [hiddenBuiltinRoles, setHiddenBuiltinRoles] = useState(() => {
-    const saved = loadHiddenBuiltinRoles();
-    return saved && saved.length > 0 ? saved : [];
-  });
+  // The three seeds below come from the club's published list when this device
+  // is running it, and from the device's own keys otherwise. That decision
+  // lives entirely in clubPresets.js; everything downstream — roleOptions, the
+  // rules editor, the speaker picker — is unchanged either way.
+  const [hiddenBuiltinRoles, setHiddenBuiltinRoles] = useState(() => resolveActiveHiddenBuiltins());
 
   const [roleRules, setRoleRules] = useState(() => {
-    const savedRules = loadRoleRules();
-    const savedHidden = loadHiddenBuiltinRoles();
-    const merged = savedRules ? { ...DEFAULT_ROLE_RULES, ...savedRules } : { ...DEFAULT_ROLE_RULES };
-    (savedHidden || []).forEach((r) => delete merged[r]);
+    const merged = resolveActiveRules();
     // An interim build briefly shipped the break role under the name 'Break';
     // drop any saved copy so it does not linger as a stray custom role.
     delete merged['Break'];
@@ -128,10 +129,7 @@ export function TimerProvider({ children }) {
     return merged;
   });
 
-  const [customRoleOrder, setCustomRoleOrder] = useState(() => {
-    const saved = loadRoleOrder();
-    return saved && saved.length > 0 ? saved : [];
-  });
+  const [customRoleOrder, setCustomRoleOrder] = useState(() => resolveActiveRoleOrder());
 
   // --- refs ---
   const rafRef = useRef(null);
@@ -491,15 +489,24 @@ export function TimerProvider({ children }) {
     return `Finished ${seconds} second${seconds > 1 ? 's' : ''} before green`;
   }, []);
 
+  // The record grows an id and a finish time. Both are for the club archive:
+  // the id is what makes the upload an append to a key that has never existed,
+  // so a retry rewrites the same bytes, and the timestamp is what orders a
+  // meeting two laptops timed together. They stay out of SYNCED_KEYS all the
+  // same — see the note on `toastmaster_reports` in profileMerge.js.
   const addReport = useCallback((entry) => {
-    setReports(prev => [...prev, {
+    const record = {
+      speechId: (globalThis.crypto?.randomUUID?.() ?? `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`),
       name: entry.name,
       role: entry.role,
       duration: formatTime(entry.duration),
       color: entry.color,
       comments: entry.comments || '',
-      disqualified: entry.disqualified === true
-    }]);
+      disqualified: entry.disqualified === true,
+      finishedAt: Date.now(),
+    };
+    setReports(prev => [...prev, record]);
+    return record;
   }, []);
 
   const clearAllReports = useCallback(() => {
@@ -523,7 +530,11 @@ export function TimerProvider({ children }) {
           comment = formatBeforeGreenComment(elapsedTime, rules.green);
         }
       }
-      addReport({ name: currentSpeaker.name, role: currentSpeaker.role, duration: elapsedTime, color: currentStatus, comments: comment, disqualified });
+      const record = addReport({ name: currentSpeaker.name, role: currentSpeaker.role, duration: elapsedTime, color: currentStatus, comments: comment, disqualified });
+      // Queued, not awaited: FINISH hands the timer back to the organizer at
+      // once, and a club that cannot be reached right now is a retry rather
+      // than anything anybody has to see. A device with no club queues nothing.
+      recordSpeech(record, { getToken: getSessionToken });
       trackEvent('speech_finished', { speaker_name: currentSpeaker.name || 'Unnamed', role: currentSpeaker.role, duration: elapsedTime, final_status: currentStatus });
       // Drives the periodic prompt cadence (see PeriodicPrompts).
       recordSpeechFinished();
@@ -592,6 +603,24 @@ export function TimerProvider({ children }) {
     });
   }, []);
 
+  /**
+   * Re-read whichever timing list is now live.
+   *
+   * The seeds above run once, at mount. Moving the club/personal switch, or
+   * taking a freshly published list, changes the answer they were seeded from,
+   * so the editor calls this instead of asking the timer to be reloaded.
+   */
+  const reloadRoleRules = useCallback(() => {
+    setHiddenBuiltinRoles(resolveActiveHiddenBuiltins());
+    setCustomRoleOrder(resolveActiveRoleOrder());
+    setRoleRules(() => {
+      const merged = resolveActiveRules();
+      delete merged['Break'];
+      merged[BREAK_ROLE] = deriveBreakRules(DEFAULT_BREAK_SECONDS);
+      return merged;
+    });
+  }, []);
+
   // --- memoized context values (1b) ---
   const tickValue = useMemo(() => ({
     elapsedTime,
@@ -629,6 +658,7 @@ export function TimerProvider({ children }) {
     addRoleRules,
     removeRoleRules,
     resetAllRoleRulesToDefaults,
+    reloadRoleRules,
   }), [
     currentSpeaker,
     agenda,
@@ -659,6 +689,7 @@ export function TimerProvider({ children }) {
     addRoleRules,
     removeRoleRules,
     resetAllRoleRulesToDefaults,
+    reloadRoleRules,
   ]);
 
   return (

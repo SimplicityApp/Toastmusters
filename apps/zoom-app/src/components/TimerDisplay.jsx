@@ -1,6 +1,7 @@
 import { memo, useRef, useState } from 'react';
-import { Move, Plus, Minus, Eye, EyeOff } from 'lucide-react';
+import { Move, Plus, Minus, Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { formatTime, getPhaseInfo, formatPhaseTextFor, getDisplaySeconds } from '@toastmaster-timer/shared';
+import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge';
 
 export default memo(function TimerDisplay({
   elapsedTime,
@@ -11,6 +12,13 @@ export default memo(function TimerDisplay({
   readoutVisible,
   onToggleReadoutVisible,
   onAdjustReadoutScale,
+  clubKit,
+  badgePlacement,
+  badgeMoved,
+  onBadgePlacementChange,
+  onAdjustBadgeScale,
+  onToggleBadgeVisible,
+  onResetBadgePlacement,
 }) {
   const phaseInfo = rules ? getPhaseInfo(elapsedTime, rules, status) : null;
   const phaseText = phaseInfo ? formatPhaseTextFor(phaseInfo, rules) : '';
@@ -20,6 +28,7 @@ export default memo(function TimerDisplay({
 
   const containerRef = useRef(null);
   const [dragging, setDragging] = useState(false);
+  const [draggingBadge, setDraggingBadge] = useState(false);
 
   // Background color based on status
   const statusColors = {
@@ -75,6 +84,25 @@ export default memo(function TimerDisplay({
     onReadoutPositionChange?.(positionFromEvent(event), { commit: true });
   };
 
+  // The badge is the same gesture on the same preview, so it is the same three
+  // handlers against a second piece of state rather than a second control.
+  const handleBadgePointerDown = (event) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingBadge(true);
+  };
+
+  const handleBadgePointerMove = (event) => {
+    if (!draggingBadge) return;
+    onBadgePlacementChange?.(positionFromEvent(event), { commit: false });
+  };
+
+  const handleBadgePointerEnd = (event) => {
+    if (!draggingBadge) return;
+    setDraggingBadge(false);
+    onBadgePlacementChange?.(positionFromEvent(event), { commit: true });
+  };
+
   return (
     <div
       ref={containerRef}
@@ -94,6 +122,96 @@ export default memo(function TimerDisplay({
         >
           {phaseText}
         </div>
+      )}
+
+      {/* The club's badge, where it will land on the video. Dragged and scaled
+          with the same gesture as the count-up, and hidden independently of it:
+          an organizer who switched the clock off has not asked to take their
+          club's name off the card.
+
+          The move stays on this device — the club's placement is the club's
+          default, and where a badge sits relative to someone's own face is not
+          something to push onto every other timer. "Reset to club position"
+          puts it back. */}
+      {clubKit && badgePlacement && (
+        <ClubBadgeLayer>
+          <div
+            style={{
+              position: 'absolute',
+              left: `${badgePlacement.x * 100}%`,
+              top: `${badgePlacement.y * 100}%`,
+              transform: 'translate(-50%, -50%)',
+              maxWidth: '44%',
+            }}
+            className="pointer-events-auto"
+          >
+            <button
+              type="button"
+              onPointerDown={handleBadgePointerDown}
+              onPointerMove={handleBadgePointerMove}
+              onPointerUp={handleBadgePointerEnd}
+              onPointerCancel={handleBadgePointerEnd}
+              className={`block w-full touch-none select-none rounded-lg ${
+                draggingBadge ? 'cursor-grabbing' : 'cursor-grab'
+              } ${badgePlacement.visible ? '' : 'opacity-40'}`}
+              aria-label="Drag to place your club's badge on your video"
+            >
+              <ClubBadge
+                name={clubKit.name}
+                primaryColor={clubKit.primaryColor}
+                logoUrl={clubKit.logoUrl}
+                placement={{ ...badgePlacement, visible: true }}
+                positioned={false}
+              />
+            </button>
+            {!draggingBadge && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex items-center gap-0.5">
+                {badgePlacement.visible && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onAdjustBadgeScale?.(-1)}
+                      className="flex items-center justify-center h-6 w-6 rounded bg-black/35 border border-white/50 text-white hover:bg-black/50"
+                      aria-label="Make the club badge smaller"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAdjustBadgeScale?.(1)}
+                      className="flex items-center justify-center h-6 w-6 rounded bg-black/35 border border-white/50 text-white hover:bg-black/50"
+                      aria-label="Make the club badge larger"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onToggleBadgeVisible?.()}
+                  className="flex items-center justify-center h-6 w-6 rounded bg-black/35 border border-white/50 text-white hover:bg-black/50"
+                  aria-label={
+                    badgePlacement.visible
+                      ? "Hide your club's badge on your video"
+                      : "Show your club's badge on your video"
+                  }
+                >
+                  {badgePlacement.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                </button>
+                {badgeMoved && (
+                  <button
+                    type="button"
+                    onClick={() => onResetBadgePlacement?.()}
+                    className="flex items-center justify-center h-6 w-6 rounded bg-black/35 border border-white/50 text-white hover:bg-black/50"
+                    aria-label="Reset to club position"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </ClubBadgeLayer>
       )}
 
       {/* Where the count-up sits on the video other participants see. Only the

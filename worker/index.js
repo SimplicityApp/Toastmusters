@@ -6,6 +6,9 @@ import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
 import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
 import { handleBilling } from './billing.js';
+import { handleClub } from './club.js';
+import { handleClubAsset } from './club-assets.js';
+import { handleSharedReport } from './club-share.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
@@ -39,7 +42,24 @@ const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|
 // Paths the root SPA (apps/web) owns via react-router. Anything else that
 // misses the asset lookup is a genuine 404 — serving index.html with HTTP 200
 // for unknown URLs creates soft 404s that waste crawl budget.
-const SPA_ROUTES = new Set(['/', '/app', '/oauth/redirect', '/billing/success', '/billing/cancel', '/account']);
+const SPA_ROUTES = new Set([
+  '/',
+  '/app',
+  '/oauth/redirect',
+  '/billing/success',
+  '/billing/cancel',
+  '/account',
+  // The officer's console and the page that spends a mailed admin link. Both
+  // are browser-only: an officer reviewing their roster is not in a meeting,
+  // and a magic link cannot open inside the Zoom sidebar.
+  '/club/admin',
+  '/club/manage',
+]);
+
+// Root SPA routes whose tail is data rather than a page: /pro/<code> is the
+// officer's shareable activation link, so the set of valid paths is the set of
+// club codes and cannot be enumerated here.
+const SPA_ROUTE_PREFIXES = ['/pro/'];
 
 /**
  * Zoom sends `x-zoom-app-context` on the document request when it opens an app
@@ -106,6 +126,22 @@ export default {
       return handleAsset(request, url, env);
     }
 
+    // The club's logo, served to anyone. Ahead of host routing so the Zoom app
+    // can reach it from the zoom.<domain> host, and ahead of the www redirect
+    // so the badge compositor is never asked to follow a 301 mid-frame. This is
+    // the one asset route with no session at all: its readers are a guest's
+    // compositor and a crawler fetching a shared report's preview.
+    if (pathname.startsWith('/api/club-assets/')) {
+      return handleClubAsset(request, url, env);
+    }
+
+    // Club activation and the daily club refresh. Ahead of the www redirect
+    // like every other POST, and ahead of host routing so the Zoom app can
+    // reach it from the zoom.<domain> host.
+    if (pathname === '/api/club' || pathname.startsWith('/api/club/')) {
+      return handleClub(request, url, env);
+    }
+
     // Identity + entitlement re-check (polled after a purchase).
     if (pathname === '/api/me') {
       return handleMe(request, env);
@@ -154,6 +190,15 @@ export default {
       return new Response(ZOOM_ROBOTS_TXT, {
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
       });
+    }
+
+    // 3b. A shared meeting report. Worker-rendered HTML rather than an SPA
+    //     route, because a link-preview crawler does not run JavaScript: the
+    //     OG tags have to be in the bytes this returns. Placed after the apex
+    //     redirect so a pasted link canonicalizes to www first, and before the
+    //     asset lookup so /r/<token> never falls through to the shell.
+    if (pathname.startsWith('/r/')) {
+      return withSecurityHeaders(await handleSharedReport(request, url, env), request, url);
     }
 
     // 4. Redirect (was `redirects` in vercel.json): /web -> /app (302).
@@ -217,7 +262,8 @@ async function routeAssets(request, env, url) {
   // The root SPA only owns the routes declared in App.jsx. Serve the shell for
   // those; everything else is a real 404 so crawlers stop treating unknown
   // URLs as valid pages.
-  if (SPA_ROUTES.has(pathname.replace(/\/$/, '') || '/')) {
+  const spaPath = pathname.replace(/\/$/, '') || '/';
+  if (SPA_ROUTES.has(spaPath) || SPA_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return fetchAsset(env, url, '/index.html');
   }
 

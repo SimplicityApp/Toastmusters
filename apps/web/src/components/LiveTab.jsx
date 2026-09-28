@@ -12,6 +12,8 @@ import { setPageBackgroundFromStatus } from '../utils/pageBackground';
 import { parseSpeakerFromSearch, stripSpeakerParams } from '../utils/speakerDeepLink';
 import { getCardImageUrl, preloadCardImages } from '../utils/cardArtwork';
 import { trackEvent } from '../utils/posthog';
+import { useClub } from '../hooks/useClub';
+import { clubBadgePlacement } from '@toastmaster-timer/shared';
 
 const PREVIEW_COLORS = [
   { color: 'blue', hex: '#1e3a5f' },
@@ -37,6 +39,9 @@ export default memo(function LiveTab({ onTimerStart }) {
     loadSpeakerFromAgenda,
   } = useTimer();
   const { showToast } = useToast();
+  // The club's brand kit, so the card carries the club's identity here the same
+  // way it does in the meeting.
+  const { kit: clubKit } = useClub();
 
   const [speakerName, setSpeakerName] = useState(currentSpeaker?.name || '');
   const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || 'Standard Speech');
@@ -247,6 +252,8 @@ export default memo(function LiveTab({ onTimerStart }) {
         status={previewColor || currentStatus}
         rules={currentSpeaker?.rules}
         backgroundImage={getCardImageUrl(previewColor || currentStatus)}
+        clubKit={clubKit}
+        badgePlacement={clubKit ? clubBadgePlacement() : null}
       />
 
       {!isRunning && (

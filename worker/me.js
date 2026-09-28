@@ -1,6 +1,6 @@
-import { readSession, sessionCookie, REISSUE_AFTER_MS, WEB_SESSION_TTL_MS } from './auth.js';
+import { readSession, readClub, sessionCookie, REISSUE_AFTER_MS, WEB_SESSION_TTL_MS } from './auth.js';
 import { mintSessionToken } from './session-token.js';
-import { resolveEntitlement } from './entitlements.js';
+import { resolveAccess } from './entitlements.js';
 import { json, unauthorized, methodNotAllowed } from './http.js';
 
 /**
@@ -26,7 +26,9 @@ export async function handleMe(request, env) {
   return json(
     {
       uid: session.uid,
-      entitlement: await resolveEntitlement(env, session.uid),
+      // Combined: a club member's plan is simply correct at the source, so
+      // every client that already reads this keeps working unchanged.
+      entitlement: await resolveAccess(env, { uid: session.uid, clubId: readClub(request, env)?.clubId ?? null }),
     },
     200,
     headers

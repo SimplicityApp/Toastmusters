@@ -3,6 +3,10 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
+    // Shared components live outside this app's src tree; without this glob
+    // every Tailwind class in them is purged from this build and they render
+    // unstyled with no error. See packages/ui/README.md.
+    "../../packages/ui/**/*.{js,jsx}",
   ],
   theme: {
     extend: {

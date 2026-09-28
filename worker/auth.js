@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { verifySessionToken, readBearerToken, mintSessionToken } from './session-token.js';
+import { verifyClubToken, readClubHeader } from './club-token.js';
 import { json, notConfigured, methodNotAllowed } from './http.js';
 import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
 
@@ -103,6 +104,25 @@ export function readSession(request, env) {
   if (!passesCsrf(request)) return null;
   const session = verifySessionToken(token, env.SESSION_SIGNING_KEY);
   return session ? { ...session, via: 'cookie' } : null;
+}
+
+/**
+ * Which club, if any, this request claims to belong to.
+ *
+ * Sits beside readSession rather than inside it: the two credentials are
+ * independent, and a request may carry either, both, or neither. No CSRF check
+ * is needed — the club token travels in a custom header a cross-site form
+ * cannot set, and it is never attached by the browser on its own.
+ *
+ * @param {Request} request
+ * @param {Object} env - SESSION_SIGNING_KEY
+ * @returns {{clubId: string, deviceId: string, uid: string|null, ver: number,
+ *   iat: number|null, exp: number}|null}
+ */
+export function readClub(request, env) {
+  const token = readClubHeader(request);
+  if (!token) return null;
+  return verifyClubToken(token, env.SESSION_SIGNING_KEY);
 }
 
 // ---------------------------------------------------------------------------
