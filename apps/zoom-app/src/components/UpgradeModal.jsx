@@ -6,10 +6,12 @@ import {
   isPro as isProPlan,
   loadClub,
   activateClub,
+  createClub,
   leaveClub,
   subscribeClub,
   lapsedClubName,
 } from '@toastmaster-timer/shared';
+import ClubSetupCard from '@toastmaster-timer/ui/ClubSetupCard';
 import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
 import { getSessionToken, resolveZoomIdentity } from '../utils/zoomIdentity';
@@ -44,6 +46,16 @@ const CLUB_ERRORS = {
   too_many_attempts: 'Too many tries. Wait a minute, then try again.',
 };
 const CLUB_ERROR_FALLBACK = "That code isn't active. Check with your club officer.";
+
+/** Setting up a club fails for reasons an officer can act on, so it names them. */
+const CLUB_CREATE_ERRORS = {
+  not_a_subscriber: 'Only the person who pays for the plan can set up the club.',
+  no_billing_account:
+    'We cannot find your payment yet. If you have just subscribed, give it a minute and try again.',
+  creation_in_progress: 'Your club is already being set up. Give it a moment, then reopen this.',
+  network: 'Could not reach the server. Check your connection and try again.',
+};
+const CLUB_CREATE_FALLBACK = 'Could not set up your club. Please try again.';
 
 /** The cached club, as a React-readable store. */
 function useClub() {
@@ -87,6 +99,11 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   const [code, setCode] = useState('');
   const [clubBusy, setClubBusy] = useState(false);
   const [clubError, setClubError] = useState(null);
+  // Setting up the club has its own busy/error pair: it sits in the same modal
+  // as joining one, and a failure in either must not mislabel the other.
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupError, setSetupError] = useState(null);
+  const [minted, setMinted] = useState(null);
   // What the buyer calls their club. Optional, and never a gate on checkout.
   const [clubNameInput, setClubNameInput] = useState('');
   const abortRef = useRef({ aborted: false });
@@ -196,6 +213,37 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     trackEvent('club_left', { surface: 'zoom', source, club_id: clubId });
   };
 
+  const handleCreateClub = async (name) => {
+    setSetupBusy(true);
+    setSetupError(null);
+    const result = await createClub({ clubName: name }, { getToken: getSessionToken });
+    setSetupBusy(false);
+
+    if (!result.ok) {
+      setSetupError(CLUB_CREATE_ERRORS[result.error] || CLUB_CREATE_FALLBACK);
+      trackEvent('club_create_failed', { surface: 'zoom', source, reason: result.error });
+      return;
+    }
+
+    setMinted({ code: result.code, shareUrl: result.shareUrl });
+    trackEvent('club_created', {
+      surface: 'zoom',
+      source: 'self_serve',
+      club_id: result.club.club?.id ?? null,
+      created: result.created,
+    });
+    onUpgraded?.();
+  };
+
+  // The console is a web page — an officer reading a roster is not in a meeting
+  // — so from here it opens in the system browser, the same way Checkout does.
+  const handleManageClub = async (adminUrl) => {
+    trackEvent('club_admin_opened', { surface: 'zoom', via: 'upgrade_modal' });
+    if (!(await openExternalUrl(adminUrl))) {
+      setSetupError('Could not open your browser. Open the timer’s web site and go to Manage your club.');
+    }
+  };
+
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(checkoutUrl);
@@ -208,6 +256,37 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   const clubName = club?.club?.name || 'your club';
   const clubActive = Boolean(club?.entitled);
   const clubId = club?.club?.id ?? null;
+
+  // The gap this closes: a buyer inside Zoom had no way to learn their club
+  // code, and no way to reach the console — both lived on one browser-only
+  // page. Admin-of-a-club rather than device-has-a-club, so a subscriber who
+  // joined someone else's club can still set up their own.
+  const isClubAdmin = club?.role === 'admin';
+  const canCreateClub = isPro && entitlement.source === 'subscription' && !isClubAdmin;
+  const shareCode = minted?.code ?? (isClubAdmin ? club?.code ?? null : null);
+  const shareUrl = minted?.shareUrl ?? (isClubAdmin ? club?.shareUrl ?? null : null);
+  // Built off the share link rather than window.location: inside Zoom this app
+  // is served from zoom.<domain>, and that host routes every path back to this
+  // app. The share link carries the Worker's WEB_ORIGIN, which is the web app.
+  const adminUrl = shareUrl ? new URL('/club/admin', shareUrl).toString() : null;
+
+  const renderClubSetup = () => {
+    if (!shareCode && !canCreateClub) return null;
+    return (
+      <div className="mt-4 pt-4 border-t border-gray-200">
+        <ClubSetupCard
+          tone="light"
+          code={shareCode}
+          shareUrl={shareUrl}
+          busy={setupBusy}
+          error={setupError}
+          onCreate={handleCreateClub}
+          onCopied={(what) => trackEvent('club_invite_copied', { surface: 'zoom', what })}
+          onManageClub={adminUrl ? () => handleManageClub(adminUrl) : undefined}
+        />
+      </div>
+    );
+  };
   // A club that lapsed is not a club that was never joined: the device still
   // knows which one to check, so the modal names it rather than pretending the
   // last six months did not happen.
@@ -286,6 +365,8 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
           >
             Leave this club on this device
           </button>
+          {/* An admin's code and invite link, on the surface they already use. */}
+          {renderClubSetup()}
         </>
       );
     }
@@ -307,6 +388,9 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
             <ExternalLink className="w-4 h-4" />
             Manage billing
           </button>
+          {/* The subscriber who has never set up a club: the reason a paying
+              user could reach none of the features they are paying for. */}
+          {renderClubSetup()}
         </>
       );
     }
@@ -319,6 +403,10 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
           </div>
           <p className="text-sm text-gray-700 font-medium">You&apos;re on Pro. Thank you!</p>
           <p className="text-xs text-gray-500 mt-1">Your settings will start syncing right away.</p>
+          {/* The moment the buyer is most willing to finish setting up. The
+              webhook has usually minted the club already, and the endpoint is
+              idempotent — so this puts this device on it and shows the code. */}
+          <div className="text-left">{renderClubSetup()}</div>
         </div>
       );
     }

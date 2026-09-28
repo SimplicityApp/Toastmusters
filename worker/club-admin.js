@@ -200,7 +200,7 @@ async function freeCode(store, name, randomInt, attempts = 8) {
  * @param {Object} env - PROFILES (or ENTITLEMENTS) KV
  * @param {{uid?: string|null, clubName?: string|null, email?: string|null,
  *   stripeCustomerId?: string|null, status?: string, currentPeriodEnd?: number|null,
- *   timezone?: string|null}} pending
+ *   cancelAtPeriodEnd?: boolean, timezone?: string|null}} pending
  * @param {{now?: number, clubId?: string, code?: string, prefix?: string,
  *   randomInt?: () => number}} [options] - `prefix` overrides the name-derived
  *   one, which is cosmetic and carries no entropy
@@ -232,7 +232,10 @@ export async function createClubFromPending(env, pending = {}, options = {}) {
     plan: 'pro',
     status: pending.status ?? 'active',
     currentPeriodEnd: typeof pending.currentPeriodEnd === 'number' ? pending.currentPeriodEnd : null,
-    cancelAtPeriodEnd: false,
+    // Carried rather than assumed false: a club minted from a subscription that
+    // is already winding down must lapse on the date the buyer was told, not
+    // renew itself into existence.
+    cancelAtPeriodEnd: Boolean(pending.cancelAtPeriodEnd),
     timezone: pending.timezone ?? null,
     createdAt: now,
   };

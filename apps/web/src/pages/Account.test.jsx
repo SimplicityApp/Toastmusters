@@ -102,3 +102,115 @@ describe('Account', () => {
       .toEqual({ interval: 'monthly', clubName: 'Downtown Speakers' });
   });
 });
+
+/**
+ * Setting up the club a subscription pays for.
+ *
+ * The state that made this necessary: a subscriber from before the club bundle
+ * has Pro and no club, so the page showed them their plan and a code field for
+ * a club they do not belong to — and no way to make one.
+ */
+describe('Account: setting up a club', () => {
+  const SUBSCRIBER = { plan: 'pro', entitled: true, status: 'active', source: 'subscription' };
+
+  /**
+   * A signed-in subscriber, plus whatever this test wants to answer.
+   *
+   * /api/me has to keep answering: the page re-asks it on mount, and an answer
+   * without an entitlement drops the store back to free — which renders the
+   * upsell instead of the card under test.
+   */
+  const asSubscriber = async (routes = {}) => {
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        const path = String(url);
+        if (routes[path]) return routes[path];
+        if (path === '/api/me') return { ok: true, status: 200, json: async () => ({ uid: 'u1', entitlement: SUBSCRIBER }) };
+        return { ok: true, status: 200, json: async () => ({}) };
+      })
+    );
+    setEntitlement(SUBSCRIBER);
+  };
+
+  const renderAccount = () =>
+    render(
+      <MemoryRouter initialEntries={['/account']}>
+        <Account />
+      </MemoryRouter>
+    );
+
+  beforeEach(async () => {
+    const { resetClubForTests } = await import('@toastmaster-timer/shared');
+    resetClubForTests();
+    localStorage.clear();
+  });
+
+  it('offers the card to a subscriber with no club', async () => {
+    await asSubscriber();
+    renderAccount();
+    expect(await screen.findByRole('button', { name: /set up my club/i })).toBeInTheDocument();
+  });
+
+  it('stays hidden from a free user', async () => {
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
+    setEntitlement({ plan: 'free', entitled: false });
+    renderAccount();
+
+    await waitFor(() => expect(screen.getByText('Monthly')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /set up my club/i })).toBeNull();
+  });
+
+  // A comp grant is operator-minted, and so is the club that goes with it.
+  it('stays hidden from a comp grant', async () => {
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    const entitlement = { plan: 'pro', entitled: true, status: 'granted', source: 'grant' };
+    stubMe({ uid: 'u1', entitlement });
+    setEntitlement(entitlement);
+    renderAccount();
+
+    await waitFor(() => expect(screen.getByText(/Complimentary access/)).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /set up my club/i })).toBeNull();
+  });
+
+  it('creates the club and hands over the code and the invite link', async () => {
+    const user = userEvent.setup();
+    await asSubscriber({
+      '/api/club/create': {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          clubToken: 'tok.sig',
+          created: true,
+          code: 'DTSP-7K2QM9',
+          shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
+          ver: 1,
+          club: { id: 'club-1', name: 'Downtown Speakers' },
+          role: 'admin',
+          plan: 'pro',
+          entitled: true,
+          source: 'subscription',
+        }),
+      },
+    });
+    renderAccount();
+
+    await user.click(await screen.findByRole('button', { name: /set up my club/i }));
+
+    expect(await screen.findByDisplayValue('DTSP-7K2QM9')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://www.example.test/pro/DTSP-7K2QM9')).toBeInTheDocument();
+  });
+
+  it('names a refusal rather than failing quietly', async () => {
+    const user = userEvent.setup();
+    await asSubscriber({
+      '/api/club/create': { ok: false, status: 403, json: async () => ({ error: 'not_a_subscriber' }) },
+    });
+    renderAccount();
+
+    await user.click(await screen.findByRole('button', { name: /set up my club/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/person who pays for the plan/i);
+  });
+});

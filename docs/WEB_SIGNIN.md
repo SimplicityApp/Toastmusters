@@ -50,6 +50,16 @@ A session is never set without a valid state and matching nonce cookie.
 
 The cookie is host-only and the redirect URI is fixed, so sign-in always lands
 on `WEB_ORIGIN` (the canonical web host) whichever host the user started from.
+
+That is also why **`/api/auth/zoom/start` redirects to `WEB_ORIGIN` when it is
+reached on any other host**. The Worker serves several (the apex of each domain,
+and `timer-dev.toastmusters.com` alongside `timer-dev.simple-tech.app`), and the
+start route runs ahead of the apex→www redirect in `worker/index.js`. Without the
+hand-off, a sign-in begun anywhere else set its `tt_oauth` nonce cookie on *that*
+host, the callback on `WEB_ORIGIN` never received it, and the flow failed with
+`reason=state_mismatch` — silently, on any page but `/account`. Local http is
+exempt, because `wrangler dev` rewrites the Host header to the first configured
+route.
 When the domain migration makes `timer.toastmusters.com` canonical, change
 `WEB_ORIGIN` in `wrangler.jsonc` and add that redirect URL in the Marketplace.
 
@@ -75,4 +85,8 @@ When the domain migration makes `timer.toastmusters.com` canonical, change
    (200 if Pro or unenforced, 402 otherwise). Open the Zoom app on dev: the rule
    is there.
 4. `/account`: plan, Manage billing, Sign out. `?signin=failed&reason=…` is
-   shown when the callback could not finish.
+   shown there, and by `SignInFailureNotice` above every other route — the
+   header's sign-in link carries whatever page it was clicked from as
+   `returnTo`, so a failure can come back anywhere.
+5. Start a sign-in from a non-canonical host (the apex, or the toastmusters.com
+   dev host). It should hand off to `WEB_ORIGIN` and complete.

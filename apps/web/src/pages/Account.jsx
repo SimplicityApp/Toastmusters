@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Sparkles, Check, ExternalLink, LogOut } from 'lucide-react'
-import { refreshEntitlement } from '@toastmaster-timer/shared'
+import { refreshEntitlement, createClub } from '@toastmaster-timer/shared'
+import ClubSetupCard from '@toastmaster-timer/ui/ClubSetupCard'
 import { useEntitlement, useWebIdentity } from '../hooks/useEntitlement'
+import { useClub } from '../hooks/useClub'
 import { signInUrl, signOut } from '../utils/webIdentity'
+import { signinFailureMessage } from '../utils/signinFailure'
 import { trackEvent } from '../utils/posthog'
 import ClubCodeSection from '../components/ClubCodeSection'
 
@@ -13,6 +16,16 @@ import ClubCodeSection from '../components/ClubCodeSection'
  * On the web Checkout can simply navigate: Stripe sends the browser back to
  * /billing/success, and the next load of this page asks the Worker again.
  */
+
+/** Why setting up a club was refused, in the officer's words. */
+const CLUB_CREATE_ERRORS = {
+  not_a_subscriber: 'Only the person who pays for the plan can set up the club.',
+  no_billing_account:
+    'We cannot find your payment yet. If you have just subscribed, give it a minute and try again.',
+  creation_in_progress: 'Your club is already being set up. Give it a moment, then reload.',
+  network: 'Could not reach the server. Check your connection and try again.',
+}
+const CLUB_CREATE_FALLBACK = 'Could not set up your club. Please try again.'
 
 async function postJson(path, body) {
   const response = await fetch(path, {
@@ -25,25 +38,54 @@ async function postJson(path, body) {
   return { ok: response.ok, status: response.status, body: json }
 }
 
-const SIGNIN_ERRORS = {
-  denied: 'You closed the Zoom sign-in without allowing it.',
-  state_mismatch: 'The sign-in link had expired. Please try again.',
-  exchange: 'Zoom did not accept the sign-in. Please try again.',
-  profile: 'Zoom did not share your account id. Please try again later.',
-  failed: 'Sign-in did not finish. Please try again.',
-}
-
 export default function Account() {
   const identity = useWebIdentity()
   const { entitlement, isPro, known } = useEntitlement()
+  const { club } = useClub()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
   // What the buyer calls their club. Optional, and never a gate on checkout.
   const [clubName, setClubName] = useState('')
+  const [clubBusy, setClubBusy] = useState(false)
+  const [clubError, setClubError] = useState(null)
+  // What the create call just handed back. Held separately from the cache so
+  // the code is on screen the instant it exists, not one refresh later.
+  const [minted, setMinted] = useState(null)
 
-  const signinFailure = searchParams.get('signin') === 'failed' ? SIGNIN_ERRORS[searchParams.get('reason')] || SIGNIN_ERRORS.failed : null
+  // Gated on admin-of-a-club rather than on this-device-has-a-club: a
+  // subscriber who joined someone else's club with a code is still someone who
+  // may want their own, and the server would let them.
+  const isClubAdmin = club?.role === 'admin'
+  const canCreateClub = isPro && entitlement.source === 'subscription' && !isClubAdmin
+  const shareCode = minted?.code ?? (isClubAdmin ? club?.code ?? null : null)
+  const shareUrl = minted?.shareUrl ?? (isClubAdmin ? club?.shareUrl ?? null : null)
+
+  const handleCreateClub = async (name) => {
+    setClubBusy(true)
+    setClubError(null)
+    const result = await createClub({ clubName: name })
+    setClubBusy(false)
+
+    if (!result.ok) {
+      setClubError(CLUB_CREATE_ERRORS[result.error] || CLUB_CREATE_FALLBACK)
+      trackEvent('club_create_failed', { surface: 'web', source: 'self_serve', reason: result.error })
+      return
+    }
+
+    setMinted({ code: result.code, shareUrl: result.shareUrl })
+    trackEvent('club_created', {
+      surface: 'web',
+      source: 'self_serve',
+      club_id: result.club.club?.id ?? null,
+      // False means the button was pressed twice, or the webhook got there
+      // first — worth telling apart from a club this click actually made.
+      created: result.created,
+    })
+  }
+
+  const signinFailure = signinFailureMessage(searchParams)
 
   useEffect(() => {
     trackEvent('account_page_viewed', { signed_in: Boolean(identity?.identified) })
@@ -202,7 +244,23 @@ export default function Account() {
 
         <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
           <h3 className="text-sm uppercase tracking-wide text-gray-400">Your club</h3>
-          <div className="mt-2">
+          {/* Ahead of the code field: a subscriber with no club has nothing to
+              type, and the code field alone was the whole dead end. */}
+          {(shareCode || canCreateClub) && (
+            <div className="mt-3 border-b border-white/10 pb-6">
+              <ClubSetupCard
+                tone="dark"
+                code={shareCode}
+                shareUrl={shareUrl}
+                busy={clubBusy}
+                error={clubError}
+                onCreate={handleCreateClub}
+                onCopied={(what) => trackEvent('club_invite_copied', { surface: 'web', what })}
+                onManageClub={() => navigate('/club/admin')}
+              />
+            </div>
+          )}
+          <div className="mt-4">
             <ClubCodeSection source="web_account" identified={Boolean(identity?.identified)} />
           </div>
         </section>

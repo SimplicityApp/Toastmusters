@@ -231,3 +231,99 @@ describe('an already-activated device', () => {
     expect(trackEvent).toHaveBeenCalledWith('club_left', { surface: 'zoom', source: 'footer', club_id: 'club-1' });
   });
 });
+
+/**
+ * Setting up the club from inside Zoom.
+ *
+ * Zoom is the main distribution channel, so an officer who never visits the web
+ * site has to be able to do this. Before it, a buyer here had no way to learn
+ * their own club code: the code was rendered on one browser-only page.
+ */
+describe('setting up a club', () => {
+  const createdResponse = (over = {}) => ({
+    clubToken: 'tok.sig',
+    created: true,
+    code: 'DTSP-7K2QM9',
+    shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
+    ...clubState({ role: 'admin', source: 'subscription' }),
+    ...over,
+  });
+
+  it('offers the card to a subscriber who has no club', async () => {
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement({ plan: 'pro', entitled: true, status: 'active', source: 'subscription' });
+    renderModal();
+
+    expect(await screen.findByRole('button', { name: /set up my club/i })).toBeInTheDocument();
+  });
+
+  it('stays hidden from a device that is Pro through somebody else’s club', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ clubToken: 'tok.sig', lastRefreshAt: Date.now(), ...clubState({ role: 'member' }) }));
+    initClubFromCache();
+    renderModal();
+
+    await screen.findByText(/Downtown Speakers/);
+    expect(screen.queryByRole('button', { name: /set up my club/i })).not.toBeInTheDocument();
+  });
+
+  it('creates the club and shows the code and the invite link', async () => {
+    const user = userEvent.setup();
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement({ plan: 'pro', entitled: true, status: 'active', source: 'subscription' });
+    global.fetch.mockResolvedValue({ ok: true, status: 200, json: async () => createdResponse() });
+    renderModal();
+
+    await user.type(await screen.findByLabelText(/your club's name/i), 'Downtown Speakers');
+    await user.click(screen.getByRole('button', { name: /set up my club/i }));
+
+    expect(await screen.findByDisplayValue('DTSP-7K2QM9')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://www.example.test/pro/DTSP-7K2QM9')).toBeInTheDocument();
+
+    const [path, init] = global.fetch.mock.calls.find(([p]) => p === '/api/club/create');
+    expect(path).toBe('/api/club/create');
+    expect(JSON.parse(init.body)).toMatchObject({ clubName: 'Downtown Speakers' });
+    expect(trackEvent).toHaveBeenCalledWith('club_created', {
+      surface: 'zoom',
+      source: 'self_serve',
+      club_id: 'club-1',
+      created: true,
+    });
+  });
+
+  it('names a refusal the officer can act on', async () => {
+    const user = userEvent.setup();
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement({ plan: 'pro', entitled: true, status: 'active', source: 'subscription' });
+    global.fetch.mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: 'no_billing_account' }) });
+    renderModal();
+
+    await user.click(await screen.findByRole('button', { name: /set up my club/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/cannot find your payment yet/i);
+    expect(trackEvent).toHaveBeenCalledWith('club_create_failed', {
+      surface: 'zoom',
+      source: 'footer',
+      reason: 'no_billing_account',
+    });
+  });
+
+  // The console is a web page, and inside Zoom this app is served from
+  // zoom.<domain> — a host that routes every path back to this app.
+  it('opens the console on the web host, never the Zoom one', async () => {
+    const user = userEvent.setup();
+    const { openExternalUrl } = await import('../utils/zoomSdk');
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify({
+        clubToken: 'tok.sig',
+        lastRefreshAt: Date.now(),
+        ...clubState({ role: 'admin', code: 'DTSP-7K2QM9', shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9' }),
+      })
+    );
+    initClubFromCache();
+    renderModal();
+
+    await user.click(await screen.findByRole('button', { name: /manage your club/i }));
+    expect(openExternalUrl).toHaveBeenCalledWith('https://www.example.test/club/admin');
+  });
+});

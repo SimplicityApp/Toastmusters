@@ -120,10 +120,20 @@ POST /api/billing/checkout  { interval, clubName? }
   subscription_data.metadata:  { uid, club_name? }
 
 on checkout.session.completed
-  rememberCustomer(uid, cus);  writeEntitlement(uid, …)          ← as before
-  put club-pending:<cus_id> { uid, clubName, email: customer_details.email,
+  rememberCustomer(uid, cus)
+  applySubscription(...)   → writeEntitlement(uid, …)
+                           → syncClubToSubscription(cus, …)
+  createClubForSubscriber(uid, clubName, email)                  ← the club
+  on failure only: put club-pending:<cus_id> { uid, clubName, email,
                               stripeCustomerId, checkoutSessionId, paidAt }
 ```
+
+Creation runs **after** `applySubscription`, because the club copies its plan
+fields off the buyer's entitlement record and that record has to exist first.
+
+It is also wrapped: a failure to mint the club must never fail the sale, so the
+pending record and `scripts/club-cli.mjs` remain as a fallback. An operator now
+handles exceptions rather than every sale.
 
 `clubName` is **optional and never blocks checkout**: an empty field mints a club
 called `Club 7K2QM9`, which an officer renames from the console. The field is
@@ -134,7 +144,12 @@ Nothing is queued for a customer who already owns a club (`club-by-customer:` is
 checked first), so a buyer re-subscribing after a lapse does not create a second
 club for an operator to mint by mistake.
 
-A human then turns each pending payment into a club:
+A subscriber who has no club — anyone who paid before this existed, anyone whose
+creation failed — can mint their own from **Set up my club** on `/account` or in
+the Zoom app's Pro panel (`POST /api/club/create`). See
+[CLUBS.md](./CLUBS.md#creating-a-club) for who may and what the club inherits.
+
+For the exceptions, a human turns a pending payment into a club:
 
 ```bash
 # what is waiting
@@ -150,9 +165,34 @@ then clears the pending key. It prints the code and the `/pro/<code>` link to
 mail to the buyer. Flags override the record, so a typo in the buyer's club name
 is `--name "Correct Name"` rather than a KV edit.
 
-The CLI calls a plain `createClubFromPending()` (`worker/club-admin.js`).
-Automating creation later means calling that same function from the webhook —
-one line, no logic to re-derive.
+The CLI calls a plain `createClubFromPending()` (`worker/club-admin.js`); the
+webhook and the self-serve endpoint both reach it through
+`createClubForSubscriber()` (`worker/club-create.js`), which adds the
+entitlement gate, the customer lookup and the idempotency the CLI does not need.
+
+## Keeping the club in step with the subscription
+
+A club is the unit of Pro, so the buyer's entitlement record is only half the
+answer. `applySubscription` therefore writes both: the user's record, and — via
+`syncClubToSubscription` — the club's `status`, `currentPeriodEnd` and
+`cancelAtPeriodEnd`.
+
+`ver` is deliberately untouched: it tracks content, and moving it here would make
+every device in the club re-fetch presets nothing changed.
+
+Nothing else is needed for lapse to work. `clubEntitlement` already runs a club
+record through the same `subscriptionGrantsAccess` as a user record, so these
+three fields are enough for:
+
+| Subscription | Club |
+|---|---|
+| `canceled` | Pro until `currentPeriodEnd`, then free |
+| `past_due` | Pro for `currentPeriodEnd` + 7 days, behind the grace banner |
+| renewed | Pro again, with nothing re-entered — no club data is ever deleted |
+
+Before this, only `createClubFromPending` ever wrote those fields, so a club
+stayed entitled forever no matter what happened to the subscription paying for
+it. The device-side lapse handling had nothing to react to.
 
 ## Zoom Marketplace listing
 

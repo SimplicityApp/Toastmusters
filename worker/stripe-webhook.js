@@ -2,6 +2,7 @@ import { createStripeClient, verifyStripeSignature } from './stripe.js';
 import { entitlementStore, projectSubscription, writeEntitlement } from './entitlements.js';
 import { rememberCustomer, lookupUidByCustomer } from './billing.js';
 import { clubByCustomerKey, clubPendingKey } from './club-admin.js';
+import { createClubForSubscriber, syncClubToSubscription } from './club-create.js';
 import { json, methodNotAllowed, notConfigured } from './http.js';
 
 /**
@@ -82,6 +83,39 @@ async function rememberPendingClub(env, store, session, customerId, uid, now) {
   return true;
 }
 
+/**
+ * Create the buyer's club as part of the sale.
+ *
+ * Checkout is the one moment the club's name and an address to reach the buyer
+ * both exist, and it is also the moment the buyer is paying attention — so the
+ * club exists before they go looking for it, and nobody has to wait on an
+ * operator. A failure here is never fatal to the sale: the caller falls back to
+ * the pending record and the CLI, which is what that path is now for.
+ *
+ * @returns {Promise<boolean>} whether the club exists after this
+ */
+async function mintClubAtCheckout(env, stripe, session, customerId, uid, now) {
+  if (!uid || !customerId) return false;
+  try {
+    const result = await createClubForSubscriber(env, {
+      uid,
+      clubName: session.metadata?.club_name ?? null,
+      // Stripe collects this on its own page; we never ask for it ourselves.
+      email: session.customer_details?.email ?? null,
+      stripe,
+      now,
+    });
+    if (!result.ok) {
+      console.error(`Club creation at checkout refused for ${customerId}: ${result.error}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(`Club creation at checkout failed for ${customerId}:`, error?.message || error);
+    return false;
+  }
+}
+
 async function applySubscription(env, stripe, subscriptionId, hintUid, now) {
   const fresh = await stripe.retrieveSubscription(subscriptionId);
   const customerId = idOf(fresh.customer);
@@ -90,8 +124,13 @@ async function applySubscription(env, stripe, subscriptionId, hintUid, now) {
     console.error(`Stripe subscription ${subscriptionId} has no uid; cannot project`);
     return { applied: false, reason: 'no_uid' };
   }
+  const projected = projectSubscription(fresh, now);
   await rememberCustomer(env, uid, customerId);
-  await writeEntitlement(env, uid, projectSubscription(fresh, now));
+  await writeEntitlement(env, uid, projected);
+  // The club is the unit of Pro, so the buyer's record is only half the answer:
+  // without this a club stays entitled long after the subscription paying for
+  // it has gone, and every device in it keeps its presets, branding and archive.
+  await syncClubToSubscription(env, customerId, projected);
   return { applied: true, uid };
 }
 
@@ -135,11 +174,19 @@ export async function handleStripeWebhook(request, env, deps = {}) {
       const uid = object.client_reference_id || object.metadata?.uid || null;
       const customerId = idOf(object.customer);
       if (uid && customerId) await rememberCustomer(env, uid, customerId);
-      await rememberPendingClub(env, store, object, customerId, uid, now);
+
+      // Ahead of the club: creation copies the plan off the buyer's entitlement
+      // record, so that record has to exist first.
       const subscriptionId = idOf(object.subscription);
       if (subscriptionId && stripe) {
         outcome = await applySubscription(env, stripe, subscriptionId, uid, now);
       }
+
+      const minted = await mintClubAtCheckout(env, stripe, object, customerId, uid, now);
+      // The operator path is now the exception rather than the rule: the
+      // pending record is written only when creation could not happen, so
+      // `scripts/club-cli.mjs pending` lists real failures instead of every sale.
+      if (!minted) await rememberPendingClub(env, store, object, customerId, uid, now);
     } else if (SUBSCRIPTION_EVENTS.has(event.type)) {
       if (stripe && object.id) {
         outcome = await applySubscription(env, stripe, object.id, null, now);

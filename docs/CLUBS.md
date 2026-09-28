@@ -190,8 +190,41 @@ open inside the Zoom sidebar, which is why the Zoom app does not know they exist
 
 ## Creating a club
 
-Payment parks the raw material; a human mints the record. See
-[BILLING.md](./BILLING.md#turning-a-payment-into-a-club) for the full flow.
+A club is minted by `createClubForSubscriber()` in `worker/club-create.js`, which
+has exactly two callers so that "create a club" cannot mean two different things:
+
+| Caller | When |
+|---|---|
+| `worker/stripe-webhook.js` | `checkout.session.completed` — the club exists before the buyer goes looking for it |
+| `POST /api/club/create` | a subscriber who has no club presses **Set up my club**, on either surface |
+
+Both are **idempotent on the Stripe customer**. `club-by-customer:<cus>` is the
+guard; `club-creating:<cus>` is a 60-second advisory lock that closes the common
+window (a double-click, or the webhook and the button racing). KV has no
+compare-and-set, so after writing, the customer index is re-read: a club that
+lost the race is deleted and the winner is returned.
+
+Who may mint one:
+
+- `source === 'subscription'` — the person who pays. Yes.
+- `source === 'unenforced'` — a deployment with `ENTITLEMENT_ENFORCE=0` (dev).
+  Yes, and still only with a Stripe customer id, so a dev club has real billing
+  behind it. Without this the endpoint would be untestable on dev, which is the
+  only place it can safely be tested.
+- `source === 'grant'` — a comp. **No.** Grants are hand-written by an operator
+  and so are the clubs that go with them, through the CLI.
+- A club member riding someone else's code — **no**. The gate reads the user's
+  own entitlement record, not the combined `resolveAccess`.
+
+The club inherits `status`, `currentPeriodEnd` and `cancelAtPeriodEnd` from the
+buyer's entitlement record rather than assuming `active`, so a club minted during
+a grace period lapses on the date the buyer was actually told.
+
+### The CLI, now a fallback
+
+The operator path still exists for the exception: creation is wrapped so that a
+failure never costs the sale, and only then is `club-pending:<cus>` written. A
+row in `pending` is now a real failure rather than every sale.
 
 ```bash
 node scripts/club-cli.mjs pending --env dev
@@ -199,8 +232,16 @@ node scripts/club-cli.mjs create  --env dev --pending cus_123 --tz America/Toron
 node scripts/club-cli.mjs show    --env dev --code DTSP-7K2QM9
 ```
 
-Automating creation means calling the same `createClubFromPending()` from
-`worker/stripe-webhook.js`. That is deliberately a one-line change.
+## Reading the code
+
+`club.code` is the club's password, so `buildClubState` returns it — with the
+`/pro/<code>` share link — **only when the caller's role is `admin`**. Everyone
+else, including editors and guest devices, gets `null`, and a demoted officer
+loses both on their next refresh.
+
+It is returned on the ordinary club refresh rather than only from the web
+console, because the officer who has to share the code is often working inside
+Zoom and the console is a browser-only page.
 
 ## Rotating a code
 
