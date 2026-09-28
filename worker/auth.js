@@ -199,13 +199,44 @@ export function zoomAuthorizeUrl(env) {
 }
 
 /**
+ * Where a sign-in must be started from, when it was not started there.
+ *
+ * The nonce cookie below is host-only, and the callback always lands on
+ * WEB_ORIGIN — so a sign-in begun on any other host this Worker serves (the
+ * apex, or the other domain) sets its cookie somewhere the callback will never
+ * read it, and comes back as a state mismatch. Handing the start to the
+ * canonical host first mints the cookie where it is spent.
+ *
+ * Skipped on http, for the reason the apex redirect in index.js skips it:
+ * `wrangler dev` rewrites the Host header to the first configured route, so a
+ * host comparison would bounce every local request at production.
+ *
+ * @returns {string|null} the canonical start URL, or null when already there
+ */
+function canonicalStartUrl(url, env, returnTo) {
+  if (url.protocol !== 'https:') return null;
+  let canonicalHost;
+  try {
+    canonicalHost = new URL(env.WEB_ORIGIN).host;
+  } catch {
+    return null;
+  }
+  if (url.host === canonicalHost) return null;
+
+  const target = new URL('/api/auth/zoom/start', env.WEB_ORIGIN);
+  target.searchParams.set('returnTo', returnTo);
+  return target.toString();
+}
+
+/**
  * GET /api/auth/zoom/start?returnTo=/app — send the browser to Zoom.
  *
  * The state is signed and carries a nonce that is also set as a short-lived
  * cookie, so the callback can prove the browser that comes back is the one
  * that left. The redirect URI is always WEB_ORIGIN: that is the one registered
  * with Zoom, so sign-in always lands (and sets its cookie) on the canonical
- * web host, whichever host the user started from.
+ * web host, whichever host the user started from — which is exactly why the
+ * start has to happen there too.
  */
 export function handleAuthStart(request, url, env, { now = Date.now() } = {}) {
   if (request.method !== 'GET') return methodNotAllowed();
@@ -213,6 +244,11 @@ export function handleAuthStart(request, url, env, { now = Date.now() } = {}) {
   if (!env.SESSION_SIGNING_KEY) return notConfigured('Sign in with Zoom (signing key)');
 
   const returnTo = sanitizeReturnTo(url.searchParams.get('returnTo'));
+
+  // No cookie is set here: this host is not the one that will read it.
+  const canonical = canonicalStartUrl(url, env, returnTo);
+  if (canonical) return redirect(canonical);
+
   const nonce = b64url(crypto.randomBytes(16));
   const state = signState({ nonce, purpose: 'signin', returnTo, iat: now, exp: now + STATE_TTL_MS }, env.SESSION_SIGNING_KEY);
 

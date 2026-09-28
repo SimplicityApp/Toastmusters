@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
+import SignInFailureNotice from './components/SignInFailureNotice'
 import './App.css'
 
 const Landing = lazy(() => import('./pages/Landing'))
@@ -17,6 +18,10 @@ deferPreload(() => import('./pages/TimerApp'));
 
 function App() {
   return (
+    <>
+    {/* Above the router: the sign-in link carries whatever page it was clicked
+        from as `returnTo`, so a failure can come back to any route. */}
+    <SignInFailureNotice />
     <Suspense fallback={
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh'}}>
         <div style={{width:32,height:32,border:'3px solid #e5e7eb',borderTopColor:'#3b82f6',borderRadius:'50%',animation:'spin 0.6s linear infinite'}} />
@@ -41,6 +46,7 @@ function App() {
         <Route path="/club/manage" element={<ClubMagicLink />} />
       </Routes>
     </Suspense>
+    </>
   )
 }
 
