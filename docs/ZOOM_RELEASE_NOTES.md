@@ -8,7 +8,7 @@ Reauthorizing grants the app the two new permissions this needs (set/remove virt
 
 If earlier versions already left timer backgrounds on your machine, remove them in Zoom under Settings → Background & effects (the app has no API to delete saved backgrounds on your behalf).
 
-Test plan: https://github.com/SimplicityApp/Toastmasters-Timer/blob/main/docs/ZOOM_TEST_PLAN.md
+Test plan: https://github.com/SimplicityApp/Toastmusters/blob/master/docs/ZOOM_TEST_PLAN.md
 
 ## Marketplace checklist for this submission
 
