@@ -8,7 +8,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.test.{js,jsx}'],
-    setupFiles: ['./src/test/setup.js'],
+    setupFiles: ['../../test/jsdom-webstorage.js', './src/test/setup.js'],
     css: false,
   },
   resolve: {
