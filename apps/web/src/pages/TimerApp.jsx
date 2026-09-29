@@ -1,9 +1,12 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import { PanelLeftClose, PanelRightOpen, Square } from 'lucide-react'
+import { clubBadgePlacement } from '@toastmaster-timer/shared'
+import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge'
 import { TimerProvider, useTimer, useTimerTick } from '../context/TimerContext'
 import { resetPageBackground, setPageBackgroundFromStatus } from '../utils/pageBackground'
 import { ToastProvider } from '../context/ToastContext'
+import { useClub } from '../hooks/useClub'
 import NavTabs from '../components/NavTabs'
 import LiveTab from '../components/LiveTab'
 const AgendaTab = lazy(() => import('../components/AgendaTab'))
@@ -13,6 +16,35 @@ import PeriodicPrompts from '../components/PeriodicPrompts'
 import AccountMenu from '../components/AccountMenu'
 import ClubStatusBanner from '../components/ClubStatusBanner'
 import '../App.css'
+
+/**
+ * The club's badge on the full-screen card.
+ *
+ * Minimising the panel is how the browser app becomes the shared surface: the
+ * card fills the window and the window is what the meeting sees. Until now
+ * nothing drew the badge there — the background is set on `document.body` by
+ * `pageBackground.js`, and no component owns that surface — so a club that had
+ * branded every timer card lost its badge at the exact moment the card was
+ * being shown to everybody.
+ */
+function FullScreenClubBadge() {
+  const { kit } = useClub()
+  if (!kit?.showOnCards) return null
+  const placement = clubBadgePlacement()
+  if (!placement.visible) return null
+  return (
+    <div className="fixed inset-0 z-40 pointer-events-none">
+      <ClubBadgeLayer>
+        <ClubBadge
+          name={kit.name}
+          primaryColor={kit.primaryColor}
+          logoUrl={kit.logoUrl}
+          placement={placement}
+        />
+      </ClubBadgeLayer>
+    </div>
+  )
+}
 
 function MinimizedFloatingButtons({ onRestore }) {
   const { isRunning } = useTimerTick()
@@ -50,7 +82,12 @@ function TimerAppContent() {
   const [panelMinimized, setPanelMinimized] = useState(false)
 
   if (panelMinimized) {
-    return <MinimizedFloatingButtons onRestore={() => setPanelMinimized(false)} />
+    return (
+      <>
+        <FullScreenClubBadge />
+        <MinimizedFloatingButtons onRestore={() => setPanelMinimized(false)} />
+      </>
+    )
   }
 
   return (

@@ -14,6 +14,7 @@ import {
   PAST_DUE_GRACE_MS,
   CLUB_GRACE_DISMISSED_STORAGE_KEY,
   initClubFromCache,
+  clubDeviceId,
   activateClub,
   createClub,
   refreshClub,
@@ -118,7 +119,9 @@ describe('activateClub', () => {
     expect(seen).toHaveLength(1);
 
     const [, init] = fetchImpl.mock.calls[0];
-    expect(JSON.parse(init.body)).toEqual({ code: 'dtsp-7k2qm9' });
+    // The device id rides along so leaving and rejoining reuses one roster row
+    // rather than adding another.
+    expect(JSON.parse(init.body)).toEqual({ code: 'dtsp-7k2qm9', deviceId: clubDeviceId() });
     expect(init.headers.Authorization).toBe('Bearer bearer-token');
   });
 
@@ -189,7 +192,10 @@ describe('createClub', () => {
     const fetchImpl = respondWith(created());
     await createClub({ timezone: 'America/Toronto' }, { fetchImpl });
 
-    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ timezone: 'America/Toronto' });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      timezone: 'America/Toronto',
+      deviceId: clubDeviceId(),
+    });
   });
 
   it('keeps the code and the link an admin has to share', async () => {
