@@ -41,7 +41,64 @@ const MEETINGS_ENDPOINT = '/api/club/meetings';
  */
 const MAX_OUTBOX_ENTRIES = 500;
 
+/**
+ * A request that has not answered in ten seconds is not going to.
+ *
+ * The one thing the queue could not survive was a request that neither resolved
+ * nor rejected — a connection that died while the laptop slept, most often.
+ * `fetch` will wait on that for ever, the in-flight `draining` promise never
+ * settles, and every later drain returns that same stuck promise: the outbox
+ * reads "1 speech waiting to upload" on a device that is demonstrably online.
+ */
+const UPLOAD_TIMEOUT_MS = 10_000;
+
+/**
+ * 15s, 30s, 60s, then every 5 minutes.
+ *
+ * Before this the only two things that ever re-tried were app start and the
+ * next FINISH, so a single failed upload sat in the queue until somebody timed
+ * another speech — or until the meeting was over and the app was closed.
+ */
+const RETRY_BACKOFF_MS = [15_000, 30_000, 60_000, 300_000];
+
+/**
+ * How long "End meeting & share" will wait for the queue before going ahead.
+ *
+ * The drain is what folds this device's speeches into the meeting the share is
+ * about, so it is worth waiting for — but not worth freezing the button for. A
+ * speech that misses the deadline is merged into the already-compacted header
+ * on the next compaction, which is the case this module was built around.
+ */
+const DRAIN_DEADLINE_MS = 8_000;
+
+/** The meeting this device shared last, so sharing it twice is not two meetings. */
+export const LAST_SHARE_STORAGE_KEY = 'toastmaster_club_last_share';
+
 const listeners = new Set();
+
+/**
+ * Where an upload failure goes.
+ *
+ * An injected function rather than an import, because this module is shared by
+ * two apps with two PostHog instances and no analytics of its own. Both wire it
+ * up at start; a surface that does not is simply not counted.
+ *
+ * @type {((event: string, properties: Object) => void)|null}
+ */
+let reporter = null;
+
+/** @param {((event: string, properties: Object) => void)|null} fn */
+export function setArchiveReporter(fn) {
+  reporter = typeof fn === 'function' ? fn : null;
+}
+
+function reportFailure(reason) {
+  try {
+    reporter?.('club_upload_failed', { reason, pending: outboxCount() });
+  } catch {
+    // Analytics must never be the reason a speech is not retried.
+  }
+}
 
 function notify() {
   for (const listener of listeners) {
@@ -256,9 +313,43 @@ export function recordSpeech(speech, { getToken, fetchImpl, now = Date.now() } =
 // the profile push already use. Concurrent callers share the running drain.
 let draining = null;
 
+/** What a request that never answered throws, so the drain can name the reason. */
+class UploadTimeout extends Error {
+  constructor() {
+    super('The club did not answer in time');
+    this.name = 'UploadTimeout';
+  }
+}
+
+/**
+ * Give a promise a deadline it cannot talk its way out of.
+ *
+ * The `AbortController` is the polite half and is what a real `fetch` honours;
+ * the race is the half that holds when it does not — an implementation that
+ * ignores the signal, or a webview that has simply stopped answering.
+ */
+function withDeadline(promise, ms, controller) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      try {
+        controller?.abort();
+      } catch {
+        // Already aborted, or no AbortController on this platform.
+      }
+      reject(new UploadTimeout());
+    }, ms);
+    const settle = (fn) => (value) => {
+      clearTimeout(timer);
+      fn(value);
+    };
+    promise.then(settle(resolve), settle(reject));
+  });
+}
+
 async function uploadOne(entry, { getToken, fetchImpl }) {
   const token = getToken?.();
-  return (fetchImpl ?? fetch)(`${MEETINGS_ENDPOINT}/${encodeURIComponent(entry.meetingId)}/speeches`, {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const request = (fetchImpl ?? fetch)(`${MEETINGS_ENDPOINT}/${encodeURIComponent(entry.meetingId)}/speeches`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -267,6 +358,7 @@ async function uploadOne(entry, { getToken, fetchImpl }) {
     },
     credentials: 'same-origin',
     cache: 'no-store',
+    ...(controller ? { signal: controller.signal } : {}),
     body: JSON.stringify({
       speechId: entry.speechId,
       name: entry.name,
@@ -278,6 +370,79 @@ async function uploadOne(entry, { getToken, fetchImpl }) {
       finishedAt: entry.finishedAt,
     }),
   });
+  return withDeadline(Promise.resolve(request), UPLOAD_TIMEOUT_MS, controller);
+}
+
+// ---------------------------------------------------------------------------
+// Coming back to a queue that did not go out
+// ---------------------------------------------------------------------------
+
+let retryTimer = null;
+let retryAttempt = 0;
+let retryOptions = null;
+let wakeListening = false;
+
+function clearRetryTimer() {
+  if (retryTimer !== null) clearTimeout(retryTimer);
+  retryTimer = null;
+}
+
+/** The queue is empty: forget the backoff so the next failure starts at 15s. */
+function stopRetrying() {
+  clearRetryTimer();
+  retryAttempt = 0;
+}
+
+/**
+ * Come back to a queue that did not go out, without waiting for a FINISH.
+ *
+ * Backoff rather than a fixed interval because the commonest reason a drain
+ * fails is that the club — or the hall's wifi — is having a bad few minutes,
+ * and a device that retried every 15 seconds for an hour would be part of it.
+ */
+function scheduleRetry(options) {
+  retryOptions = options;
+  listenForWake();
+  if (retryTimer !== null) return;
+  const delay = RETRY_BACKOFF_MS[Math.min(retryAttempt, RETRY_BACKOFF_MS.length - 1)];
+  retryAttempt += 1;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    drainOutbox(retryOptions ?? {}).catch(() => {});
+  }, delay);
+  // Node only, and only in tests: a pending retry must not hold the process up.
+  retryTimer?.unref?.();
+}
+
+/**
+ * The two moments worth more than any timer: the network came back, and the
+ * person came back. Both mean "try now" rather than "try in four minutes".
+ */
+function onWake() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (!outboxPending()) return;
+  // An explicit signal resets the backoff: this is a new situation, not the
+  // next tick of the old one.
+  stopRetrying();
+  drainOutbox(retryOptions ?? {}).catch(() => {});
+}
+
+function listenForWake() {
+  if (wakeListening || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  wakeListening = true;
+  window.addEventListener('online', onWake);
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', onWake);
+  }
+}
+
+function stopListeningForWake() {
+  if (!wakeListening) return;
+  wakeListening = false;
+  window.removeEventListener('online', onWake);
+  if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+    document.removeEventListener('visibilitychange', onWake);
+  }
 }
 
 /**
@@ -291,7 +456,9 @@ async function uploadOne(entry, { getToken, fetchImpl }) {
  * order the speeches were timed in, and keeps an offline device from making one
  * doomed request per queued speech.
  *
- * Called on app start, from `recordSpeech`, and again after each success.
+ * Whatever is left over schedules its own next attempt, which is the difference
+ * between a queue that drains and a queue that waits: app start and the next
+ * FINISH used to be the only two triggers in the product.
  *
  * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch}} [options]
  * @returns {Promise<{sent: number, pending: number}>} never rejects
@@ -316,13 +483,18 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
         try {
           // eslint-disable-next-line no-await-in-loop
           response = await uploadOne(entry, { getToken, fetchImpl });
-        } catch {
-          // Offline. Everything stays queued.
+        } catch (error) {
+          // Offline, or a connection that died while the laptop slept.
+          // Everything stays queued.
+          reportFailure(error instanceof UploadTimeout || error?.name === 'AbortError' ? 'timeout' : 'network');
           break;
         }
 
         // A 5xx is the club's problem, not this entry's: keep it and stop.
-        if (response.status >= 500) break;
+        if (response.status >= 500) {
+          reportFailure('http_5xx');
+          break;
+        }
         // Anything else — accepted, or refused in a way a retry cannot fix —
         // means this entry is done travelling.
         const remaining = readOutbox().filter((queued) => queued.speechId !== entry.speechId);
@@ -333,7 +505,10 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
     } finally {
       draining = null;
     }
-    return { sent, pending: outboxCount() };
+    const pending = outboxCount();
+    if (pending) scheduleRetry({ getToken, fetchImpl });
+    else stopRetrying();
+    return { sent, pending };
   })();
 
   return draining;
@@ -461,15 +636,76 @@ export async function shareMeeting(meetingId, { title, png, previewPng, getToken
   return { ok: true, url: body.url, token: body.token ?? null, imageUrl: body.imageUrl ?? null };
 }
 
+// ---------------------------------------------------------------------------
+// Sharing the same meeting twice
+// ---------------------------------------------------------------------------
+
+/**
+ * The meeting this device shared last, and what was in it.
+ *
+ * `startNewMeeting()` runs on a successful share, so the id this device derives
+ * moves on immediately — while the Report tab still shows the meeting that just
+ * ended, because clearing it is the timer's decision and not ours. Sharing a
+ * second time therefore used to derive the *next* meeting, which has no
+ * speeches in it, and the server answered 404 with the title and the link gone.
+ *
+ * @returns {{meetingId: string, url: string|null, token: string|null,
+ *   title: string|null, speechIds: string[]}|null}
+ */
+function readLastShare() {
+  try {
+    const raw = localStorage.getItem(LAST_SHARE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.meetingId !== 'string' || !parsed.meetingId) return null;
+    return {
+      meetingId: parsed.meetingId,
+      url: typeof parsed.url === 'string' ? parsed.url : null,
+      token: typeof parsed.token === 'string' ? parsed.token : null,
+      title: typeof parsed.title === 'string' ? parsed.title : null,
+      speechIds: Array.isArray(parsed.speechIds) ? parsed.speechIds.filter((id) => typeof id === 'string') : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeLastShare(value) {
+  try {
+    localStorage.setItem(LAST_SHARE_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // Private mode, or storage full. A second share derives the next meeting
+    // again, which is where this started.
+  }
+}
+
+/**
+ * Whether the timer has finished anything since the last share.
+ *
+ * "Nothing new" is the whole test: the same rows, shared again, is one meeting
+ * being shared twice — a typo in the title, a link that never reached the
+ * group chat — and it has to reuse the meeting the server already has.
+ */
+function isRepeatShare(localIds, last) {
+  if (!last?.meetingId || !localIds.length) return false;
+  return localIds.every((speechId) => last.speechIds.includes(speechId));
+}
+
 /**
  * "End meeting & share", end to end.
  *
  * One function rather than two copies in two ReportTabs, because the ordering
  * is the part that has to be right and it is not obvious: the outbox is drained
  * *first*, so that compaction on the server folds in every speech this device
- * is still holding; then both PNGs are rendered from what the timer is looking
- * at; then the upload; and only then does the day's sequence advance, so that a
- * failed share does not silently start a second meeting.
+ * is still holding; then the club's own copy of the meeting is read back, so
+ * the counts and both PNGs describe the whole evening rather than this laptop's
+ * half of it; then the upload; and only then does the day's sequence advance,
+ * so that a failed share does not silently start a second meeting.
+ *
+ * Reading the meeting back is what fixes a two-device evening reporting itself
+ * as "2 speeches, 1 over time" when three were timed: the caller can only pass
+ * the rows on its own Report tab, and the archive is where the other laptop's
+ * speeches are.
  *
  * Never rejects. A share that could not reach the club still comes back with
  * the image in hand, because "Copy image" is the destination that needs no
@@ -494,10 +730,20 @@ export async function endMeetingAndShare({
   const club = loadClub();
   const kit = clubKit();
   const rows = Array.isArray(speeches) ? speeches : [];
-  const id = meetingId || deriveMeetingId({ now, timezone: club?.timezone ?? null });
+  const localIds = rows.map((speech) => speech?.speechId).filter(Boolean);
+
+  // Nothing timed since the last share means this is the same meeting being
+  // shared again, not an empty new one.
+  const last = readLastShare();
+  const repeat = !meetingId && isRepeatShare(localIds, last);
+
+  const id = meetingId || (repeat ? last.meetingId : deriveMeetingId({ now, timezone: club?.timezone ?? null }));
   const date = meetingDate(id);
   const clubName = kit?.name || club?.club?.name || 'Timing report';
-  const cleanTitle = typeof title === 'string' && title.trim() ? title.trim() : null;
+  // A repeat share with no title typed keeps the one the meeting already has,
+  // rather than quietly clearing it.
+  const cleanTitle =
+    typeof title === 'string' && title.trim() ? title.trim() : repeat ? (last.title ?? null) : null;
 
   const result = {
     meetingId: id,
@@ -514,14 +760,22 @@ export async function endMeetingAndShare({
 
   // Anything still queued belongs in this meeting, and compaction is about to
   // close it. Failing to drain is not fatal — a late speech is merged into the
-  // already-compacted header on the next compaction.
+  // already-compacted header on the next compaction — and neither is failing to
+  // drain *in time*: a hung request must not freeze the share button.
+  const deadline = countdown(DRAIN_DEADLINE_MS);
   try {
-    await drainOutbox({ getToken, fetchImpl });
+    await Promise.race([drainOutbox({ getToken, fetchImpl }), deadline.reached]);
   } catch {
     // drainOutbox never rejects; belt and braces on the FINISH-adjacent path.
+  } finally {
+    deadline.cancel();
   }
 
-  const report = { club, kit, meeting: { meetingId: id, date, title: cleanTitle }, speeches: rows };
+  const shown = await wholeMeeting(id, rows, { getToken, fetchImpl });
+  result.speeches = shown.length;
+  result.overtime = shown.filter(isOvertime).length;
+
+  const report = { club, kit, meeting: { meetingId: id, date, title: cleanTitle }, speeches: shown };
   const draw = { logo: getClubLogoImage(), ...(createCanvas ? { createCanvas } : {}) };
   let previewPng = null;
   try {
@@ -544,9 +798,18 @@ export async function endMeetingAndShare({
   if (shared.ok) {
     result.url = shared.url;
     result.token = shared.token;
-    // Only once the club has the meeting: advancing the day's sequence after a
-    // failed share would file the retry under a meeting that does not exist.
-    startNewMeeting({ now, timezone: club?.timezone ?? null });
+    writeLastShare({
+      meetingId: id,
+      url: shared.url,
+      token: shared.token,
+      title: cleanTitle,
+      speechIds: localIds,
+    });
+    // Only once the club has the meeting, and never on a repeat: advancing the
+    // day's sequence after a failed share would file the retry under a meeting
+    // that does not exist, and advancing it twice for one meeting would leave a
+    // gap in the day nobody ever meets in.
+    if (!repeat) startNewMeeting({ now, timezone: club?.timezone ?? null });
   } else {
     result.error = shared.error;
   }
@@ -554,8 +817,47 @@ export async function endMeetingAndShare({
   return result;
 }
 
-/** Test seam: drop the in-flight drain and every subscriber. */
+/** A deadline that can be called off once whatever it was racing has landed. */
+function countdown(ms) {
+  let timer = null;
+  const reached = new Promise((resolve) => {
+    timer = setTimeout(resolve, ms);
+    // Node only, and only in tests: a deadline nobody is waiting on any more
+    // must not hold the process up.
+    timer?.unref?.();
+  });
+  return { reached, cancel: () => clearTimeout(timer) };
+}
+
+/**
+ * Every speech in the meeting, not just this device's.
+ *
+ * The club's copy is the authority — it is what the /r/ page and every other
+ * device read — so it leads. The local rows are folded in behind it rather than
+ * dropped, because a speech whose upload is still queued is a speech that
+ * happened, and a share that silently left it out would be the same under-count
+ * from the other direction.
+ */
+async function wholeMeeting(meetingId, rows, { getToken, fetchImpl }) {
+  const archived = await fetchMeeting(meetingId, { getToken, fetchImpl });
+  const server = archived.ok && Array.isArray(archived.meeting?.speeches) ? archived.meeting.speeches : null;
+  // Offline, or a meeting the club has never heard of: the device's own rows
+  // are what "Copy image" has always promised to work from.
+  if (!server?.length) return rows;
+
+  const merged = new Map(server.map((speech) => [speech.speechId, speech]));
+  for (const speech of rows) {
+    if (speech?.speechId && !merged.has(speech.speechId)) merged.set(speech.speechId, speech);
+  }
+  return [...merged.values()];
+}
+
+/** Test seam: drop the in-flight drain, the retry backoff and every subscriber. */
 export function resetClubArchiveForTests() {
   draining = null;
+  stopRetrying();
+  stopListeningForWake();
+  retryOptions = null;
+  reporter = null;
   listeners.clear();
 }

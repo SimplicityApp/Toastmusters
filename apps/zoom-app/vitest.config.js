@@ -9,6 +9,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.test.{js,jsx}'],
+    setupFiles: ['../../test/jsdom-webstorage.js'],
   },
   resolve: {
     alias: {

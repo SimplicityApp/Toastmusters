@@ -27,7 +27,7 @@
     "analyze:web": "ANALYZE=true npm run build --prefix apps/web",
     "analyze:zoom": "ANALYZE=true npm run build --prefix apps/zoom-app",
     "cf:dev": "npm run build && wrangler dev",
-    "cf:deploy:dev": "npm run build && wrangler deploy --env dev",
+    "cf:deploy:dev": "VITE_ZOOM_OAUTH_REDIRECT='https://zoom.us/oauth/authorize?response_type=code&client_id=kgpoX2A6TY2BvdctzK9iw&redirect_uri=https://www.timer-dev.simple-tech.app/oauth/redirect' npm run build && wrangler deploy --env dev",
     "cf:deploy:prod": "npm run build && wrangler deploy",
     "install:tabletopics": "npm install --prefix apps/table-topics",
     "validate:tabletopics": "node apps/table-topics/scripts/validate-questions.mjs",

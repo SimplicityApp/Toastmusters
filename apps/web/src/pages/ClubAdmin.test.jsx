@@ -134,6 +134,41 @@ describe('ClubAdmin — the roster', () => {
     expect(within(guests).getByText('Firefox · Windows')).toBeInTheDocument();
   });
 
+  // The roster used to label anyone without a `displayName` — which was
+  // everyone, because nothing ever wrote one — with their raw Zoom uid.
+  it('calls the signed-in officer "You", and names nobody else for them', async () => {
+    const nameless = {
+      ...ROSTER,
+      members: ROSTER.members.map((member) => ({ ...member, displayName: null })),
+    };
+    stubApi({ '/api/club/roster': { status: 200, body: nameless } });
+    renderConsole();
+
+    expect(await screen.findByText('You')).toBeInTheDocument();
+    expect(screen.getByText('james')).toBeInTheDocument();
+  });
+
+  it('lets an admin give a member a name', async () => {
+    const calls = stubApi({
+      '/api/club/roster': { status: 200, body: ROSTER },
+      '/api/club/members/james/name': { status: 200, body: { uid: 'james', member: { displayName: 'Jim' } } },
+    });
+    renderConsole();
+
+    await screen.findByText('James Okoro');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Rename' })[1]);
+    const field = screen.getByLabelText('Name for this person');
+    await userEvent.clear(field);
+    await userEvent.type(field, 'Jim')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      const call = calls.find((c) => c.path === '/api/club/members/james/name');
+      expect(call).toBeTruthy();
+      expect(JSON.parse(call.body)).toEqual({ name: 'Jim' });
+    });
+  });
+
   it('promotes a member and reloads the roster', async () => {
     const calls = stubApi({
       '/api/club/roster': { status: 200, body: ROSTER },

@@ -3,12 +3,15 @@ import { readSession, readClub } from './auth.js';
 import { json, methodNotAllowed } from './http.js';
 import { entitlementStore, clubKey, readClubRecord, resolveAccess } from './entitlements.js';
 import {
+  clubAdminOfKey,
   clubDeviceKey,
   clubMemberKey,
   clubByEmailKey,
+  clearAdminIndex,
   formatCode,
   normalizeEmail,
   readMemberRole,
+  writeAdminIndex,
 } from './club-admin.js';
 import { buildKit, DEFAULT_PRIMARY_COLOR } from './club.js';
 import { readAdminSession } from './club-magic.js';
@@ -26,6 +29,7 @@ import { readAdminSession } from './club-magic.js';
  *
  *   GET  /api/club/roster                  devices grouped under their person
  *   POST /api/club/members/<uid>/role      grant, demote, revoke, restore
+ *   POST /api/club/members/<uid>/name      what the roster calls them
  *   POST /api/club/devices/<id>/revoke     the only handle a guest device has
  *   PUT  /api/club/kit                     name, colour, toggles, logo
  *
@@ -79,6 +83,11 @@ const logoKey = (clubId, hash) => `club/${clubId}/${hash}`;
  * KV read away in `readMemberRole` — while revoking a device is about what that
  * laptop may do with the club's content, not about who may run the club.
  *
+ * Nor does it require a club token. *Manage your club* opens the system
+ * browser, which carries the officer's session and nothing else; the club it
+ * names comes from `club-admin-of:zoom:<uid>` in that case, and the member row
+ * it points at still decides.
+ *
  * @returns {Promise<{clubId: string, actor: Object, role: string}|null>}
  */
 export async function readAdminContext(request, env) {
@@ -94,6 +103,19 @@ export async function readAdminContext(request, env) {
       // (403, and the console can say why) from "not signed in at all" (401).
       role: await readMemberRole(env, claims.clubId, session.uid),
     };
+  } else if (session?.uid) {
+    // Signed in, no club token. The index names a club; the member row under it
+    // is re-read rather than trusted, so a stale pointer left by a failed
+    // demotion reads as "not an admin" (403) instead of as access.
+    const store = entitlementStore(env);
+    const clubId = store ? await store.get(clubAdminOfKey(session.uid)).catch(() => null) : null;
+    if (clubId) {
+      zoom = {
+        clubId,
+        actor: { type: 'zoom', uid: session.uid },
+        role: await readMemberRole(env, clubId, session.uid),
+      };
+    }
   }
   // A named person is the better actor whenever there is one: the audit trail
   // reads better, and the Stripe portal is only reachable under a uid.
@@ -324,6 +346,12 @@ export async function handleMemberRole(request, env, uid) {
   };
   await store.put(key, JSON.stringify(member));
 
+  // The console's uid → club pointer, kept beside the row that grants the role.
+  // Written after it, so a crash in between leaves a pointer that resolves to
+  // no role rather than a role nothing points at.
+  if (member.role === 'admin' && !member.revokedAt) await writeAdminIndex(store, uid, clubId);
+  else await clearAdminIndex(store, uid, clubId);
+
   let cascaded = 0;
   if (requested === REVOKED) {
     const deviceKeys = await listAll(store, `club-device:${clubId}:`);
@@ -338,6 +366,49 @@ export async function handleMemberRole(request, env, uid) {
   }
 
   return json({ uid, member, devicesRevoked: cascaded, actor });
+}
+
+/** Long enough for "Sarah (VPE)", short enough that nobody writes an essay. */
+const MAX_DISPLAY_NAME_LENGTH = 60;
+
+/**
+ * POST /api/club/members/<uid>/name — what this person is called in the roster.
+ *
+ * A nickname an admin types, not an identity we harvest. Zoom will tell us a
+ * `screenName` through `getUserContext`, and reading it would fill the roster
+ * in by itself — but it is personal data this product has never collected, and
+ * collecting it is a privacy-policy change rather than a code change. Until
+ * then a raw uid is a bad label, and an officer typing "Sarah" once fixes it
+ * for everybody without anyone's name leaving the club.
+ *
+ * An empty name clears it, which is the undo.
+ */
+export async function handleMemberName(request, env, uid) {
+  if (request.method !== 'POST') return methodNotAllowed();
+
+  const gate = await requireAdmin(request, env);
+  if (gate.response) return gate.response;
+  const { store, clubId, actor } = gate;
+
+  if (!uid) return notFound();
+
+  const body = await readJsonBody(request);
+  const raw = typeof body?.name === 'string' ? body.name.trim() : '';
+  if (raw.length > MAX_DISPLAY_NAME_LENGTH) return json({ error: 'invalid_name' }, 400);
+
+  const key = clubMemberKey(clubId, uid);
+  const existing = (await store.get(key, 'json').catch(() => null)) ?? null;
+  // A person who has a device but no member row still deserves a label: the
+  // roster already shows them, so naming them writes the row it implies.
+  const member = {
+    role: existing?.role && ROLES.has(existing.role) ? existing.role : 'member',
+    displayName: raw || null,
+    addedAt: existing?.addedAt ?? Date.now(),
+    revokedAt: existing?.revokedAt ?? null,
+  };
+  await store.put(key, JSON.stringify(member));
+
+  return json({ uid, member, actor });
 }
 
 /**
@@ -526,8 +597,10 @@ export function handleClubAdminRoutes(request, route, env) {
 
   if (route.startsWith('members/')) {
     const [uid, tail, ...extra] = route.slice('members/'.length).split('/');
-    if (extra.length || tail !== 'role') return json({ error: 'Not found' }, 404);
-    return handleMemberRole(request, env, decodeURIComponent(uid || ''));
+    if (extra.length) return json({ error: 'Not found' }, 404);
+    if (tail === 'role') return handleMemberRole(request, env, decodeURIComponent(uid || ''));
+    if (tail === 'name') return handleMemberName(request, env, decodeURIComponent(uid || ''));
+    return json({ error: 'Not found' }, 404);
   }
 
   if (route.startsWith('devices/')) {

@@ -46,10 +46,21 @@ export const CLUB_BADGE_STORAGE_KEY = 'toastmaster_club_badge';
  * meeting, not for the rest of the grace window.
  */
 export const CLUB_GRACE_DISMISSED_STORAGE_KEY = 'toastmaster_club_grace_dismissed';
+/**
+ * What this browser calls itself on a club roster.
+ *
+ * Deliberately outlives `leaveClub()` — it is the one club-adjacent key that
+ * does. The server used to mint a fresh id on every activation, so a laptop
+ * that left and rejoined arrived as a stranger and the roster grew a row each
+ * time: "4 devices · 1 person" for one person with two browsers. It identifies
+ * a browser, never a human, and it is worth nothing without the club code.
+ */
+export const CLUB_DEVICE_ID_STORAGE_KEY = 'toastmaster_device_id';
 
 const ACTIVATE_ENDPOINT = '/api/club/activate';
 const CLUB_ENDPOINT = '/api/club';
 const CREATE_ENDPOINT = '/api/club/create';
+const LEAVE_ENDPOINT = '/api/club/leave';
 
 /** Once a day. A Tuesday publish reaches every device by the next meeting. */
 export const CLUB_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -92,6 +103,37 @@ function writeStored(value) {
     // Private mode, or storage disabled. The in-memory copy still carries this
     // page load, which is all the club needs to work in this meeting.
   }
+}
+
+/**
+ * This browser's device id, minted on first use and kept from then on.
+ *
+ * Never synced and never sent anywhere but the club it joins. A browser that
+ * cannot store it simply gets a server-minted id per activation, which is where
+ * this started.
+ *
+ * @returns {string|null}
+ */
+export function clubDeviceId() {
+  try {
+    const stored = localStorage.getItem(CLUB_DEVICE_ID_STORAGE_KEY);
+    if (typeof stored === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored)) return stored;
+    const minted = newDeviceId();
+    localStorage.setItem(CLUB_DEVICE_ID_STORAGE_KEY, minted);
+    return minted;
+  } catch {
+    // Private mode. The server mints one; the row is simply not stable.
+    return null;
+  }
+}
+
+function newDeviceId() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+  } catch {
+    // Fall through.
+  }
+  return `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
 /**
@@ -605,6 +647,8 @@ function applyPlan(entitlement) {
 export async function activateClub(code, { getToken, fetchImpl } = {}) {
   if (!code || !String(code).trim()) return { ok: false, error: 'invalid_code' };
 
+  const deviceId = clubDeviceId();
+
   let response;
   try {
     const token = getToken?.();
@@ -616,7 +660,7 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
       },
       credentials: 'same-origin',
       cache: 'no-store',
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, ...(deviceId ? { deviceId } : {}) }),
     });
   } catch {
     // Offline, minutes before a meeting. Say so rather than blaming the code.
@@ -662,6 +706,7 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
  */
 export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
   const timezone = details.timezone ?? guessTimezone();
+  const deviceId = clubDeviceId();
 
   let response;
   try {
@@ -677,6 +722,7 @@ export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
       body: JSON.stringify({
         ...(details.clubName?.trim() ? { clubName: details.clubName.trim() } : {}),
         ...(timezone ? { timezone } : {}),
+        ...(deviceId ? { deviceId } : {}),
       }),
     });
   } catch {
@@ -788,9 +834,30 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
  *
  * A deletion, not a restore: the device's own presets and artwork were never
  * written over while the club was active, so there is no backup to lose.
+ *
+ * The server is told, fire-and-forget, so the row leaves the roster too. Told
+ * *first*, because the club token is the only thing that can say which row —
+ * and the next two lines throw it away. A failure costs a stale row, which is
+ * what every leave used to cost.
+ *
+ * @param {{fetchImpl?: typeof fetch}} [options]
  */
-export function leaveClub() {
+export function leaveClub({ fetchImpl } = {}) {
   const had = Boolean(loadClub());
+  const token = loadClub()?.clubToken ?? null;
+  if (token) {
+    try {
+      (fetchImpl ?? fetch)(LEAVE_ENDPOINT, {
+        method: 'POST',
+        headers: { 'X-Club': token },
+        credentials: 'same-origin',
+        cache: 'no-store',
+        keepalive: true,
+      })?.catch?.(() => {});
+    } catch {
+      // No fetch, or a tab already being torn down. The device leaves anyway.
+    }
+  }
   cached = null;
   loaded = true;
   writeStored(null);

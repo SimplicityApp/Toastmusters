@@ -14,6 +14,7 @@ import {
   readOutbox,
   recordSpeech,
   resetClubArchiveForTests,
+  setArchiveReporter,
   startNewMeeting,
   subscribeOutbox,
 } from '../clubArchive.js';
@@ -441,7 +442,9 @@ describe('ending a meeting and sharing it', () => {
       createCanvas,
     });
 
-    const [url, init] = fetchImpl.mock.calls[0];
+    // Not call 0 any more: the club's own copy of the meeting is read back
+    // first, so the counts and both PNGs cover every device's speeches.
+    const [url, init] = fetchImpl.mock.calls.find(([called]) => String(called).endsWith('/share'));
     expect(url).toBe('/api/club/meetings/20260929/share');
     expect(init.method).toBe('POST');
     // No Content-Type: the boundary is generated with the body.
@@ -501,5 +504,268 @@ describe('ending a meeting and sharing it', () => {
 
     expect(result.error).toBe('no_club');
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // The whole meeting, not this laptop's half of it
+  // -------------------------------------------------------------------------
+
+  /** A canvas that remembers every string it was asked to draw. */
+  const recordingCanvas = (drawn) => (width, height) => {
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext();
+    return { ...canvas, getContext: () => ({ ...context, fillText: (text) => drawn.push(String(text)) }) };
+  };
+
+  const archived = (over = {}) => ({
+    speechId: 'srv-1',
+    name: 'Cara',
+    role: 'Standard Speech',
+    duration: '7:20',
+    color: 'red',
+    comments: '',
+    disqualified: false,
+    finishedAt: 3,
+    ...over,
+  });
+
+  /** The club's copy for `/share`, and whatever the caller wants for `/`. */
+  const archiveServer = (speeches) =>
+    vi.fn(async (url) => {
+      if (String(url).endsWith('/share')) return shared();
+      return { ok: true, status: 200, json: async () => ({ meeting: { meetingId: '20260929', speeches } }) };
+    });
+
+  it('counts every device’s speeches, not only the ones on this Report tab', async () => {
+    joinClub();
+    // Three speeches in the club's archive; this device timed two of them.
+    const server = [
+      archived({ speechId: 'a', name: 'Alice', color: 'green' }),
+      archived({ speechId: 'b', name: 'Bob', color: 'red' }),
+      archived({ speechId: 'c', name: 'Cara', color: 'red' }),
+    ];
+    const local = [
+      { ...speech({ name: 'Alice' }), speechId: 'a' },
+      { ...speech({ name: 'Bob', color: 'red' }), speechId: 'b' },
+    ];
+    const drawn = [];
+
+    const result = await endMeetingAndShare({
+      speeches: local,
+      fetchImpl: archiveServer(server),
+      createCanvas: recordingCanvas(drawn),
+    });
+
+    // The web card used to say "2 speeches, 1 over time" for a meeting the
+    // hosted page correctly reported as 3 · 2 over time.
+    expect(result).toMatchObject({ speeches: 3, overtime: 2 });
+    // And the picture listed only this device's two.
+    expect(drawn).toContain('Cara');
+  });
+
+  it('keeps a speech the club has not received yet rather than dropping it', async () => {
+    joinClub();
+    const local = [
+      { ...speech({ name: 'Alice' }), speechId: 'a' },
+      { ...speech({ name: 'Dana' }), speechId: 'd' },
+    ];
+
+    const result = await endMeetingAndShare({
+      speeches: local,
+      fetchImpl: archiveServer([archived({ speechId: 'a', name: 'Alice', color: 'green' })]),
+      createCanvas,
+    });
+
+    // One on the server, one still queued here: the meeting had two.
+    expect(result.speeches).toBe(2);
+  });
+
+  it('falls back to this device’s rows when the archive cannot be read', async () => {
+    joinClub();
+    const fetchImpl = vi.fn(async (url) =>
+      String(url).endsWith('/share') ? shared() : { ok: false, status: 404, json: async () => ({ error: 'not_found' }) }
+    );
+
+    const result = await endMeetingAndShare({ speeches: rows, fetchImpl, createCanvas });
+
+    expect(result).toMatchObject({ speeches: 2, overtime: 1, error: null });
+  });
+
+  // -------------------------------------------------------------------------
+  // Sharing the same meeting twice
+  // -------------------------------------------------------------------------
+
+  it('shares the same meeting again when nothing new has been timed', async () => {
+    joinClub();
+    const withIds = [
+      { ...speech({ name: 'Alice' }), speechId: 'a' },
+      { ...speech({ name: 'Bob', color: 'red' }), speechId: 'b' },
+    ];
+    const fetchImpl = archiveServer([]);
+
+    const first = await endMeetingAndShare({ title: 'Contest', speeches: withIds, fetchImpl, createCanvas });
+    expect(first.meetingId).toBe('20260929');
+    expect(first.url).toBe('https://x/r/ABCDEFGHJKMNPQRS');
+
+    // Closing the card and pressing the button again used to derive 20260929-2,
+    // which has no speeches in it: 404, no link, and the title lost.
+    const again = await endMeetingAndShare({ speeches: withIds, fetchImpl, createCanvas });
+
+    expect(again.meetingId).toBe('20260929');
+    expect(again.url).toBe(first.url);
+    expect(again.token).toBe(first.token);
+    // The title the meeting already has, rather than nothing.
+    expect(again.title).toBe('Contest');
+    // And the day's sequence moved once, for one meeting.
+    expect(deriveMeetingId({ now: EVENING })).toBe('20260929-2');
+  });
+
+  it('starts a new meeting once something new has been timed', async () => {
+    joinClub();
+    const first = [{ ...speech({ name: 'Alice' }), speechId: 'a' }];
+    const fetchImpl = archiveServer([]);
+
+    await endMeetingAndShare({ speeches: first, fetchImpl, createCanvas });
+
+    const second = await endMeetingAndShare({
+      speeches: [...first, { ...speech({ name: 'Bob' }), speechId: 'b' }],
+      fetchImpl,
+      createCanvas,
+    });
+
+    expect(second.meetingId).toBe('20260929-2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A queue that does not go out
+// ---------------------------------------------------------------------------
+
+describe('coming back to a queue that did not go out', () => {
+  /** A request that neither resolves nor rejects — a connection that died asleep. */
+  const hung = () => vi.fn(() => new Promise(() => {}));
+
+  const shared = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ token: 'ABCDEFGHJKMNPQRS', url: 'https://x/r/ABCDEFGHJKMNPQRS' }),
+  });
+
+  it('abandons a request that never answers, and keeps the speech for later', async () => {
+    joinClub();
+    vi.useFakeTimers();
+    vi.setSystemTime(EVENING);
+    try {
+      const stuck = hung();
+      recordSpeech(speech(), { fetchImpl: stuck });
+      const drain = drainOutbox({ fetchImpl: stuck });
+
+      // Ten seconds, and the drain settles rather than holding the module's
+      // `draining` promise — and with it every later drain — for ever.
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(drain).resolves.toMatchObject({ sent: 0, pending: 1 });
+
+      // The speech is kept, and the next drain hands it over.
+      await expect(drainOutbox({ fetchImpl: vi.fn(async () => ok()) })).resolves.toMatchObject({
+        sent: 1,
+        pending: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports why an upload did not go out', async () => {
+    joinClub();
+    vi.useFakeTimers();
+    vi.setSystemTime(EVENING);
+    const seen = [];
+    setArchiveReporter((event, properties) => seen.push([event, properties]));
+    try {
+      recordSpeech(speech(), { fetchImpl: hung() });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(seen).toContainEqual(['club_upload_failed', { reason: 'timeout', pending: 1 }]);
+
+      await drainOutbox({ fetchImpl: vi.fn(async () => serverError()) });
+      expect(seen).toContainEqual(['club_upload_failed', { reason: 'http_5xx', pending: 1 }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries on its own, without waiting for another FINISH', async () => {
+    joinClub();
+    vi.useFakeTimers();
+    vi.setSystemTime(EVENING);
+    try {
+      let attempt = 0;
+      const fetchImpl = vi.fn(async () => {
+        attempt += 1;
+        return attempt === 1 ? serverError() : ok();
+      });
+
+      recordSpeech(speech(), { fetchImpl });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(outboxCount()).toBe(1);
+
+      // Nothing happens here but the clock: no app start, no second speech.
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(outboxCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drains when the network comes back', async () => {
+    joinClub();
+    let attempt = 0;
+    const fetchImpl = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new TypeError('Failed to fetch');
+      return ok();
+    });
+
+    recordSpeech(speech(), { fetchImpl });
+    await drainOutbox({ fetchImpl });
+    expect(outboxCount()).toBe(1);
+
+    window.dispatchEvent(new Event('online'));
+
+    await vi.waitFor(() => expect(outboxCount()).toBe(0));
+  });
+
+  it('shares even while a drain is hung', async () => {
+    joinClub();
+    vi.useFakeTimers();
+    vi.setSystemTime(EVENING);
+    try {
+      // The drain this FINISH fires never answers; the share awaits that same
+      // promise, which is what used to leave the button saying "Saving…".
+      recordSpeech(speech(), { fetchImpl: hung() });
+
+      const share = endMeetingAndShare({
+        speeches: [speech()],
+        fetchImpl: vi.fn(async (url) => (String(url).endsWith('/share') ? shared() : ok())),
+        createCanvas: (width, height) => ({
+          width,
+          height,
+          getContext: () => ({
+            fillRect: () => {}, fillText: () => {}, drawImage: () => {}, beginPath: () => {},
+            closePath: () => {}, moveTo: () => {}, lineTo: () => {}, quadraticCurveTo: () => {},
+            fill: () => {}, save: () => {}, restore: () => {},
+            measureText: (text) => ({ width: String(text).length * 8 }),
+          }),
+          toBlob: (cb) => cb(new Blob(['png'], { type: 'image/png' })),
+        }),
+      });
+
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      await expect(share).resolves.toMatchObject({ url: 'https://x/r/ABCDEFGHJKMNPQRS', error: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
