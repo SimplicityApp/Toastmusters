@@ -466,7 +466,7 @@ export function warmClubLogo({ loadImage } = {}) {
         image.src = src;
       }));
 
-  logoPending = Promise.resolve()
+  const pending = Promise.resolve()
     .then(() => load(url))
     .then((image) => {
       if (logoImageUrl !== url) return logoImage;
@@ -476,10 +476,13 @@ export function warmClubLogo({ loadImage } = {}) {
     })
     .catch(() => null)
     .finally(() => {
-      logoPending = null;
+      // Only if nothing newer has started: a load for a logo that has since
+      // changed must not clear the flag of the load that replaced it.
+      if (logoPending === pending) logoPending = null;
     });
 
-  return logoPending;
+  logoPending = pending;
+  return pending;
 }
 
 /**

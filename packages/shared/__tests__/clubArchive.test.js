@@ -769,3 +769,86 @@ describe('coming back to a queue that did not go out', () => {
     }
   });
 });
+
+/**
+ * The drain that finished before it was stored.
+ *
+ * A drain with nothing to await runs to completion synchronously, so the flag
+ * that says "a drain is running" used to be cleared before it was ever set, and
+ * then set to a promise that had already settled. Every later drain returned
+ * that promise and did nothing. App start drains an empty outbox on every clean
+ * load, so on those pages FINISH never uploaded until the next reload.
+ */
+describe('after a drain that had nothing to do', () => {
+  it('uploads a speech finished after the app started with an empty outbox', async () => {
+    joinClub();
+    const idle = vi.fn(async () => ok());
+    await drainOutbox({ fetchImpl: idle }); // app start
+
+    const fetchImpl = vi.fn(async () => ok());
+    recordSpeech(speech(), { fetchImpl });
+
+    await vi.waitFor(() => expect(outboxCount()).toBe(0));
+    expect(idle).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('uploads once the club is set up, though app start had no club token yet', async () => {
+    const idle = vi.fn(async () => ok());
+    await drainOutbox({ fetchImpl: idle }); // app start, before joining
+
+    joinClub();
+    const fetchImpl = vi.fn(async () => ok());
+    recordSpeech(speech(), { fetchImpl });
+
+    await vi.waitFor(() => expect(outboxCount()).toBe(0));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('still drains when the network comes back', async () => {
+    joinClub();
+    await drainOutbox({ fetchImpl: vi.fn() }); // app start
+
+    let attempt = 0;
+    const fetchImpl = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new TypeError('Failed to fetch');
+      return ok();
+    });
+    recordSpeech(speech(), { fetchImpl });
+    await drainOutbox({ fetchImpl }); // the drain FINISH started, still in flight
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(outboxCount()).toBe(1);
+
+    window.dispatchEvent(new Event('online'));
+
+    await vi.waitFor(() => expect(outboxCount()).toBe(0));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('still retries on its own', async () => {
+    joinClub();
+    vi.useFakeTimers();
+    vi.setSystemTime(EVENING);
+    try {
+      await drainOutbox({ fetchImpl: vi.fn() }); // app start
+
+      let attempt = 0;
+      const fetchImpl = vi.fn(async () => {
+        attempt += 1;
+        return attempt === 1 ? serverError() : ok();
+      });
+      recordSpeech(speech(), { fetchImpl });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(outboxCount()).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(outboxCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

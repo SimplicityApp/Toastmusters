@@ -466,44 +466,40 @@ function stopListeningForWake() {
 export function drainOutbox({ getToken, fetchImpl } = {}) {
   if (draining) return draining;
 
-  draining = (async () => {
+  const run = (async () => {
     let sent = 0;
-    try {
-      // Re-read between entries rather than iterating a snapshot: a speech
-      // finished while the drain is in flight must not be dropped by a write
-      // that predates it.
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const queue = readOutbox();
-        if (!queue.length) break;
-        const entry = queue[0];
-        if (!loadClub()?.clubToken) break;
+    // Re-read between entries rather than iterating a snapshot: a speech
+    // finished while the drain is in flight must not be dropped by a write
+    // that predates it.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const queue = readOutbox();
+      if (!queue.length) break;
+      const entry = queue[0];
+      if (!loadClub()?.clubToken) break;
 
-        let response;
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          response = await uploadOne(entry, { getToken, fetchImpl });
-        } catch (error) {
-          // Offline, or a connection that died while the laptop slept.
-          // Everything stays queued.
-          reportFailure(error instanceof UploadTimeout || error?.name === 'AbortError' ? 'timeout' : 'network');
-          break;
-        }
-
-        // A 5xx is the club's problem, not this entry's: keep it and stop.
-        if (response.status >= 500) {
-          reportFailure('http_5xx');
-          break;
-        }
-        // Anything else — accepted, or refused in a way a retry cannot fix —
-        // means this entry is done travelling.
-        const remaining = readOutbox().filter((queued) => queued.speechId !== entry.speechId);
-        writeOutbox(remaining);
-        notify();
-        if (response.ok) sent += 1;
+      let response;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        response = await uploadOne(entry, { getToken, fetchImpl });
+      } catch (error) {
+        // Offline, or a connection that died while the laptop slept.
+        // Everything stays queued.
+        reportFailure(error instanceof UploadTimeout || error?.name === 'AbortError' ? 'timeout' : 'network');
+        break;
       }
-    } finally {
-      draining = null;
+
+      // A 5xx is the club's problem, not this entry's: keep it and stop.
+      if (response.status >= 500) {
+        reportFailure('http_5xx');
+        break;
+      }
+      // Anything else — accepted, or refused in a way a retry cannot fix —
+      // means this entry is done travelling.
+      const remaining = readOutbox().filter((queued) => queued.speechId !== entry.speechId);
+      writeOutbox(remaining);
+      notify();
+      if (response.ok) sent += 1;
     }
     const pending = outboxCount();
     if (pending) scheduleRetry({ getToken, fetchImpl });
@@ -511,7 +507,21 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
     return { sent, pending };
   })();
 
-  return draining;
+  // Assign first, clear after, and only if this run is still the current one.
+  // A drain with nothing to await — an empty queue, or no club yet — runs to
+  // completion synchronously inside the IIFE above, so a `finally` in there
+  // would clear the flag *before* this assignment stored the settled promise,
+  // and every later call would return that stale promise and never drain
+  // again. App start drains an empty outbox on every clean load, which is how
+  // FINISH stopped uploading until the next reload, and why PR #74's retry
+  // timer and wake triggers never fired a real drain either.
+  draining = run;
+  const release = () => {
+    if (draining === run) draining = null;
+  };
+  // Both arms, so the bookkeeping never adds an unhandled rejection of its own.
+  run.then(release, release);
+  return run;
 }
 
 // ---------------------------------------------------------------------------
