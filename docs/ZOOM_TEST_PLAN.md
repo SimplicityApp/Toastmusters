@@ -170,6 +170,12 @@ and no sign-in at all, which is Step P4 and the claim most worth checking.
 > everyone and a refusal (HTTP 402) never fires. That is deliberate — it lets a
 > reviewer see the whole Pro surface without paying. It also means Steps P6 and
 > P7 cannot show a *lapse* on dev as shipped; see the note in each.
+>
+> **On the dev app `FLAGS_FORCE` is `"1"`**, so every release flag
+> (`pro_billing`, `web_signin`, `clubs`) is on and the whole surface below is
+> visible. Production asks PostHog instead, and there each of these features
+> stays hidden, with its endpoints answering 404, until its flag is turned on.
+> See [FEATURE_FLAGS.md](./FEATURE_FLAGS.md).
 
 ---
 
