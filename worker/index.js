@@ -137,9 +137,10 @@ export default {
 
     // Club activation and the daily club refresh. Ahead of the www redirect
     // like every other POST, and ahead of host routing so the Zoom app can
-    // reach it from the zoom.<domain> host.
+    // reach it from the zoom.<domain> host. The doors into a club (activate,
+    // create, the admin link) sit behind the clubs flag; the refresh never does.
     if (pathname === '/api/club' || pathname.startsWith('/api/club/')) {
-      return handleClub(request, url, env);
+      return handleClub(request, url, env, { ctx });
     }
 
     // Identity + entitlement re-check (polled after a purchase). The web app's

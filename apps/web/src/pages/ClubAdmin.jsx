@@ -5,6 +5,7 @@ import { clubHeaders, refreshClub } from '@toastmaster-timer/shared'
 import { signInUrl } from '../utils/webIdentity'
 import { useFlag } from '../hooks/useFlag'
 import { trackEvent } from '../utils/posthog'
+import NotFoundView from '../components/NotFoundView'
 
 /**
  * The officer's console: who is in the club, what they may do, and the kit.
@@ -18,6 +19,10 @@ import { trackEvent } from '../utils/posthog'
  * club token this browser already holds; the mailed link names its own club, so
  * it works in a browser that never typed a code. Both reach one permission
  * check in the Worker, and differ only in the actor they carry.
+ *
+ * The console is a door into a club, so the whole page sits behind the `clubs`
+ * release flag: it waits for the flags, and while clubs is off it is the
+ * not-found view and asks the Worker nothing.
  */
 
 const ROLE_LABELS = { admin: 'Admin', editor: 'Editor', member: 'Member' }
@@ -358,6 +363,8 @@ export default function ClubAdmin() {
   // than telling an officer their club was bought under someone else.
   const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
   const canOpenPortal = flagsKnown && billingEnabled
+  const { enabled: clubsEnabled } = useFlag('clubs')
+  const clubsReleased = flagsKnown && clubsEnabled
 
   const load = useCallback(async () => {
     const result = await api('/api/club/roster')
@@ -382,6 +389,9 @@ export default function ClubAdmin() {
   }, [])
 
   useEffect(() => {
+    // "Loading your club…" until the flags land; nothing is asked of a
+    // console that turns out not to exist.
+    if (!clubsReleased) return
     load().then((body) => {
       if (!body || opened.current) return
       opened.current = true
@@ -391,7 +401,7 @@ export default function ClubAdmin() {
         club_id: body.club?.id ?? null,
       })
     })
-  }, [load])
+  }, [load, clubsReleased])
 
   const handleRole = async (uid, role) => {
     setBusy(true)
@@ -450,6 +460,8 @@ export default function ClubAdmin() {
     await api('/api/club/manage/signout', { method: 'POST' }).catch(() => {})
     window.location.assign('/club/admin')
   }
+
+  if (flagsKnown && !clubsEnabled) return <NotFoundView />
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">

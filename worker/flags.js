@@ -27,6 +27,7 @@
 export const FLAG_FALLBACKS = Object.freeze({
   pro_billing: false, // Stripe checkout, portal, and the Upgrade path. removeBy: 2026-12-31
   web_signin: false, // Sign in to the web app with Zoom. removeBy: 2026-12-31
+  clubs: false, // Joining, creating and administering a club (the doors only). removeBy: 2026-12-31
 });
 
 // The ingestion host, called directly rather than through the browser's

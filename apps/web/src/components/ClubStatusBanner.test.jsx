@@ -4,6 +4,8 @@ import {
   CLUB_STORAGE_KEY,
   CLUB_GRACE_DISMISSED_STORAGE_KEY,
   resetClubForTests,
+  resetFlagsForTests,
+  setFlags,
 } from '@toastmaster-timer/shared';
 import ClubStatusBanner from './ClubStatusBanner';
 import { trackEvent } from '../utils/posthog';
@@ -36,6 +38,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   resetClubForTests();
+  resetFlagsForTests();
 });
 
 describe('ClubStatusBanner', () => {
@@ -72,6 +75,7 @@ describe('ClubStatusBanner', () => {
   });
 
   it('offers billing to an admin', () => {
+    setFlags({ pro_billing: true });
     localStorage.setItem(
       CLUB_STORAGE_KEY,
       cache({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: Date.now() + DAY, role: 'admin' })
@@ -80,6 +84,23 @@ describe('ClubStatusBanner', () => {
 
     expect(screen.getByTestId('club-grace-banner')).toHaveTextContent("Downtown Speakers's Pro ends tomorrow");
     expect(screen.getByRole('button', { name: /manage billing/i })).toBeInTheDocument();
+  });
+
+  // The portal answers 404 while pro_billing is off, so the button would do
+  // nothing. The warning itself still reaches the admin.
+  it.each([
+    ['the flags are still unknown', () => {}],
+    ['pro_billing is off', () => setFlags({ pro_billing: false })],
+  ])('warns an admin but offers no billing while %s', (_, seed) => {
+    seed();
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      cache({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: Date.now() + DAY, role: 'admin' })
+    );
+    render(<ClubStatusBanner />);
+
+    expect(screen.getByTestId('club-grace-banner')).toHaveTextContent('Renew to keep your presets');
+    expect(screen.queryByRole('button', { name: /manage billing/i })).not.toBeInTheDocument();
   });
 
   // Quiet for the rest of the meeting, not for the rest of the grace window.

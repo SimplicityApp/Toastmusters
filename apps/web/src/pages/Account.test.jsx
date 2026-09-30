@@ -280,8 +280,9 @@ describe('Account: setting up a club', () => {
     const { resetClubForTests } = await import('@toastmaster-timer/shared');
     resetClubForTests();
     localStorage.clear();
-    // The plan section these cases read is behind pro_billing.
-    setFlags({ pro_billing: true });
+    // The plan section these cases read is behind pro_billing, and the setup
+    // card is a door into a club, behind clubs.
+    setFlags({ pro_billing: true, clubs: true });
   });
 
   it('offers the card to a subscriber with no club', async () => {
@@ -349,5 +350,94 @@ describe('Account: setting up a club', () => {
 
     await user.click(await screen.findByRole('button', { name: /set up my club/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/person who pays for the plan/i);
+  });
+});
+
+/**
+ * The `clubs` release flag. Setting up a club and typing a code are the doors
+ * into one, and the Worker refuses both while clubs is dark. A browser already
+ * in a club keeps it, and can always leave.
+ */
+describe('Account: the clubs flag', () => {
+  const SUBSCRIBER = { plan: 'pro', entitled: true, status: 'active', source: 'subscription' };
+
+  const renderAccount = () =>
+    render(
+      <MemoryRouter initialEntries={['/account']}>
+        <Account />
+      </MemoryRouter>
+    );
+
+  const asSubscriber = async () => {
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    stubMe({ uid: 'u1', entitlement: SUBSCRIBER });
+    setEntitlement(SUBSCRIBER);
+  };
+
+  const codeField = () => screen.queryByLabelText(/already on pro through your club/i);
+  const setupButton = () => screen.queryByRole('button', { name: /set up my club/i });
+
+  beforeEach(async () => {
+    const { resetClubForTests } = await import('@toastmaster-timer/shared');
+    localStorage.clear();
+    resetClubForTests();
+  });
+
+  it('offers the code field and the setup card once clubs is on', async () => {
+    await asSubscriber();
+    setFlags({ pro_billing: true, clubs: true });
+    renderAccount();
+
+    expect(await screen.findByRole('button', { name: /set up my club/i })).toBeInTheDocument();
+    expect(codeField()).toBeInTheDocument();
+  });
+
+  it.each([
+    ['the flags are still unknown', () => {}],
+    ['clubs is off', () => setFlags({ pro_billing: true, clubs: false })],
+  ])('shows no club section at all while %s', async (_, seed) => {
+    await asSubscriber();
+    seed();
+    renderAccount();
+
+    await waitFor(() => expect(screen.getByText('Sign out')).toBeInTheDocument());
+    expect(screen.queryByTestId('account-club')).toBeNull();
+    expect(codeField()).toBeNull();
+    expect(setupButton()).toBeNull();
+  });
+
+  it('still shows a browser already in a club its club, and lets it leave', async () => {
+    const { CLUB_STORAGE_KEY, initClubFromCache } = await import('@toastmaster-timer/shared');
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify({
+        clubToken: 'tok.sig',
+        lastRefreshAt: Date.now(),
+        ver: 1,
+        club: { id: 'club-1', name: 'Downtown Speakers' },
+        kit: null,
+        presets: null,
+        badge: null,
+        timezone: null,
+        role: 'admin',
+        code: 'DTSP-7K2QM9',
+        shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
+        plan: 'pro',
+        entitled: true,
+        status: 'active',
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        source: 'club',
+      })
+    );
+    initClubFromCache();
+    stubMe({ error: 'Unauthorized' }, 401);
+    setFlags({ clubs: false });
+    renderAccount();
+
+    expect(await screen.findByText('This browser is on Pro through your club.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /leave this club on this device/i })).toBeInTheDocument();
+    // The code is a door for somebody else, and that door is shut.
+    expect(screen.queryByDisplayValue('DTSP-7K2QM9')).toBeNull();
   });
 });

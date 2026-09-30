@@ -52,6 +52,11 @@ export default function Account() {
   // session is real, and Sign out must always be there.
   const { enabled: signInEnabled } = useFlag('web_signin')
   const showSignIn = flagsKnown && signInEnabled
+  // Setting up a club and typing a code are the doors into one, both refused
+  // by the Worker while clubs is dark. A browser already in a club still sees
+  // it, and can still leave it.
+  const { enabled: clubsEnabled } = useFlag('clubs')
+  const showClubDoors = flagsKnown && clubsEnabled
   const { club } = useClub()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -253,28 +258,30 @@ export default function Account() {
           </p>
         )}
 
-        <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
-          <h3 className="text-sm uppercase tracking-wide text-gray-400">Your club</h3>
-          {/* Ahead of the code field: a subscriber with no club has nothing to
-              type, and the code field alone was the whole dead end. */}
-          {(shareCode || canCreateClub) && (
-            <div className="mt-3 border-b border-white/10 pb-6">
-              <ClubSetupCard
-                tone="dark"
-                code={shareCode}
-                shareUrl={shareUrl}
-                busy={clubBusy}
-                error={clubError}
-                onCreate={handleCreateClub}
-                onCopied={(what) => trackEvent('club_invite_copied', { surface: 'web', what })}
-                onManageClub={() => navigate('/club/admin')}
-              />
+        {(showClubDoors || club?.entitled) && (
+          <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6" data-testid="account-club">
+            <h3 className="text-sm uppercase tracking-wide text-gray-400">Your club</h3>
+            {/* Ahead of the code field: a subscriber with no club has nothing to
+                type, and the code field alone was the whole dead end. */}
+            {showClubDoors && (shareCode || canCreateClub) && (
+              <div className="mt-3 border-b border-white/10 pb-6">
+                <ClubSetupCard
+                  tone="dark"
+                  code={shareCode}
+                  shareUrl={shareUrl}
+                  busy={clubBusy}
+                  error={clubError}
+                  onCreate={handleCreateClub}
+                  onCopied={(what) => trackEvent('club_invite_copied', { surface: 'web', what })}
+                  onManageClub={() => navigate('/club/admin')}
+                />
+              </div>
+            )}
+            <div className="mt-4">
+              <ClubCodeSection source="web_account" identified={Boolean(identity?.identified)} />
             </div>
-          )}
-          <div className="mt-4">
-            <ClubCodeSection source="web_account" identified={Boolean(identity?.identified)} />
-          </div>
-        </section>
+          </section>
+        )}
 
         {identity === null ? (
           <p className="mt-6 text-gray-300">Loading…</p>

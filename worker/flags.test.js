@@ -13,6 +13,10 @@ import {
 } from './flags.js';
 import { handleBilling, customerByUidKey } from './billing.js';
 import { handleAuthStart, handleOAuthCallback } from './auth.js';
+import { handleClub } from './club.js';
+import { createClubFromPending, clubByCodeKey } from './club-admin.js';
+import { ADMIN_COOKIE, magicKey, mintAdminSession } from './club-magic.js';
+import { entitlementKey } from './entitlements.js';
 import { mintSessionToken } from './session-token.js';
 import worker from './index.js';
 
@@ -318,6 +322,11 @@ function makeKv(seed = {}) {
       return type === 'json' ? JSON.parse(raw) : raw;
     },
     put: async (key, value) => { store.set(key, value); },
+    delete: async (key) => { store.delete(key); },
+    list: async ({ prefix = '' } = {}) => ({
+      keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+      list_complete: true,
+    }),
   };
 }
 
@@ -406,10 +415,98 @@ async function runSignInCallback(env, { uid }) {
   return { res, didWork: fetchImpl.mock.calls.length > 0 };
 }
 
+const CLUB_CODE = 'DTSP7K2QM9';
+const BILLING_EMAIL = 'treasurer@example.test';
+
+/** The send_email binding, recording what it was handed. */
+function makeEmail() {
+  const sent = [];
+  return { sent, send: async (message) => { sent.push(message); } };
+}
+
+const clubEnv = (over = {}) => ({
+  PROFILES: makeKv(),
+  EMAIL: makeEmail(),
+  SESSION_SIGNING_KEY: SIGNING_KEY,
+  ENTITLEMENT_ENFORCE: '1',
+  WEB_ORIGIN: 'https://www.example.test',
+  MAGIC_LINK_FROM: 'no-reply@example.test',
+  ...over,
+});
+
+/** A club to be let into, seeded once per store whoever asks first. */
+async function seedClubOnce(env) {
+  const existing = await env.PROFILES.get(clubByCodeKey(CLUB_CODE));
+  if (existing) return existing;
+  const { clubId } = await createClubFromPending(
+    env,
+    { clubName: 'Downtown Speakers', uid: 'buyer-uid', email: BILLING_EMAIL },
+    { code: CLUB_CODE }
+  );
+  return clubId;
+}
+
+/** A `prepare` for the routes that only need the club to exist. */
+async function withClub(env) {
+  await seedClubOnce(env);
+}
+
+/** A paying subscriber with a Stripe customer, the only caller create serves. */
+async function seedSubscriber(env, uid) {
+  if (!uid) return;
+  await env.PROFILES.put(
+    entitlementKey(uid),
+    JSON.stringify({ plan: 'pro', status: 'active', currentPeriodEnd: null, cancelAtPeriodEnd: false })
+  );
+  await env.PROFILES.put(customerByUidKey(uid), `cus_${uid}`);
+}
+
+/** A fresh, unspent admin link for the seeded club. */
+async function seedMagicToken(env) {
+  const clubId = await seedClubOnce(env);
+  const token = `magic-${env.PROFILES.store.size}`;
+  const now = Date.now();
+  await env.PROFILES.put(
+    magicKey(token),
+    JSON.stringify({ clubId, email: BILLING_EMAIL, createdAt: now, exp: now + 60_000 })
+  );
+  return `?t=${token}`;
+}
+
+const kvSnapshot = (kv) => JSON.stringify([...kv.store.entries()].sort());
+
+/**
+ * One call through the /api/club dispatch, as a Zoom app would make it (a
+ * bearer when there is a uid). Its work is any write to the store, or a mail.
+ * `prepare` seeds what the route needs before the snapshot is taken, and may
+ * hand back a query string.
+ */
+async function runClubDoor(env, { uid, path, body, prepare }) {
+  const query = (await prepare?.(env, uid)) ?? '';
+  const url = new URL(`https://www.example.test${path}${query}`);
+  const headers = {
+    'content-type': 'application/json',
+    ...(uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {}),
+  };
+  const before = kvSnapshot(env.PROFILES);
+  const mailed = env.EMAIL.sent.length;
+  const res = await handleClub(
+    new Request(url, { method: 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
+    url,
+    env,
+    { ctx }
+  );
+  return { res, didWork: kvSnapshot(env.PROFILES) !== before || env.EMAIL.sent.length > mailed };
+}
+
 /**
  * `off` is what a dark route answers: a bare 404, or — for the callback, which
  * shares its URL with the Marketplace install — null, so index.js falls through
  * to the SPA's install-success page exactly as for a request with no state.
+ *
+ * `noSession` is what a route that needs a session answers a caller without
+ * one while the flag is off. Billing checks the session first, so it stays 401;
+ * the club doors are gated in the dispatch ahead of everything, so it is 404.
  */
 const GATED = [
   {
@@ -420,6 +517,7 @@ const GATED = [
     onStatus: 200,
     off: 'not found',
     needsSession: true,
+    noSession: 401,
   },
   {
     flag: 'pro_billing',
@@ -429,6 +527,7 @@ const GATED = [
     onStatus: 200,
     off: 'not found',
     needsSession: true,
+    noSession: 401,
   },
   {
     flag: 'web_signin',
@@ -448,6 +547,45 @@ const GATED = [
     off: 'falls through',
     needsSession: false,
   },
+  // Only the doors into a club. The refresh, presets, meetings and the admin
+  // routes stay open, and are asserted to below.
+  {
+    flag: 'clubs',
+    name: 'POST /api/club/activate',
+    env: clubEnv,
+    run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/activate', body: { code: 'DTSP-7K2QM9' }, prepare: withClub }),
+    onStatus: 200,
+    off: 'not found',
+    needsSession: false,
+  },
+  {
+    flag: 'clubs',
+    name: 'POST /api/club/create',
+    env: clubEnv,
+    run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/create', body: { clubName: 'Downtown Speakers' }, prepare: seedSubscriber }),
+    onStatus: 200,
+    off: 'not found',
+    needsSession: true,
+    noSession: 404,
+  },
+  {
+    flag: 'clubs',
+    name: 'POST /api/club/magic-link',
+    env: clubEnv,
+    run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/magic-link', body: { email: BILLING_EMAIL }, prepare: withClub }),
+    onStatus: 200,
+    off: 'not found',
+    needsSession: false,
+  },
+  {
+    flag: 'clubs',
+    name: 'POST /api/club/manage',
+    env: clubEnv,
+    run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/manage', prepare: seedMagicToken }),
+    onStatus: 200,
+    off: 'not found',
+    needsSession: false,
+  },
 ];
 
 async function expectDark(off, res) {
@@ -461,9 +599,9 @@ async function expectDark(off, res) {
 }
 
 describe('gated endpoints', () => {
-  describe.each(GATED)('$name ($flag)', ({ flag, env: makeEnv, run, onStatus, off, needsSession }) => {
-    // A billing route needs a session to reach its gate at all; a sign-in route
-    // is usually called by nobody.
+  describe.each(GATED)('$name ($flag)', ({ flag, env: makeEnv, run, onStatus, off, needsSession, noSession }) => {
+    // A billing route (or club creation) needs a session to do anything; a
+    // sign-in route, or a club code typed by a guest, is usually called by nobody.
     const caller = { uid: needsSession ? 'u1' : null };
 
     it('behaves as it always has when the flag is on', async () => {
@@ -485,9 +623,11 @@ describe('gated endpoints', () => {
     });
 
     if (needsSession) {
-      it('still answers 401 to a caller with no session, whatever the flag says', async () => {
-        const { res } = await run(makeEnv({ FLAGS_FORCE: '0' }), { uid: null });
-        expect(res.status).toBe(401);
+      it(`answers ${noSession} to a caller with no session while the flag is off, and 401 while it is on`, async () => {
+        const dark = await run(makeEnv({ FLAGS_FORCE: '0' }), { uid: null });
+        expect(dark.res.status).toBe(noSession);
+        const lit = await run(makeEnv({ FLAGS_FORCE: '1' }), { uid: null });
+        expect(lit.res.status).toBe(401);
       });
     }
 
@@ -559,6 +699,76 @@ describe('gated endpoints', () => {
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toMatch(/^tt_session=; Path=\/; Max-Age=0/);
+  });
+
+  /**
+   * The clubs flag closes the doors and nothing else. Two clients read a 404
+   * from inside a club as final: refreshClub leaves the club on a 404 from
+   * GET /api/club, and drainOutbox drops a queued speech on any 4xx. So a
+   * device that joined while clubs was on has to keep working, unchanged, once
+   * it goes off — these are what stop a future edit from evicting club devices.
+   */
+  describe('the clubs flag leaves a device already in a club alone', () => {
+    /** One store; a device joins while clubs is on, then the flag moves. */
+    async function joined() {
+      const store = makeKv();
+      const envAt = (FLAGS_FORCE) => clubEnv({ PROFILES: store, FLAGS_FORCE });
+      const clubId = await seedClubOnce(envAt('1'));
+      const { res } = await runClubDoor(envAt('1'), { path: '/api/club/activate', body: { code: 'DTSP-7K2QM9' } });
+      const { clubToken } = await res.json();
+      return { clubId, clubToken, envAt };
+    }
+
+    const call = (env, path, { method = 'GET', headers = {}, body } = {}) => {
+      const url = new URL(`https://www.example.test${path}`);
+      return handleClub(
+        new Request(url, {
+          method,
+          headers: { 'content-type': 'application/json', ...headers },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+        url,
+        env,
+        { ctx }
+      );
+    };
+
+    it('answers the daily refresh, GET /api/club, with 200 while clubs is off', async () => {
+      const { clubToken, envAt } = await joined();
+
+      const res = await call(envAt('0'), '/api/club', { headers: { 'x-club': clubToken } });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ club: { name: 'Downtown Speakers' }, entitled: true });
+    });
+
+    it('still takes a queued speech while clubs is off', async () => {
+      const { clubToken, envAt } = await joined();
+
+      const res = await call(envAt('0'), '/api/club/meetings/20260929/speeches', {
+        method: 'POST',
+        headers: { 'x-club': clubToken },
+        body: { speechId: 's1', name: 'Alice', role: 'Standard Speech', duration: '5:50', color: 'green', finishedAt: 1_000 },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('answers presets, meetings, the admin routes and admin sign-out the same in both positions', async () => {
+      const { clubId, clubToken, envAt } = await joined();
+      const adminCookie = `${ADMIN_COOKIE}=${mintAdminSession({ clubId, email: BILLING_EMAIL }, SIGNING_KEY)}`;
+      const requests = [
+        ['/api/club/presets', { method: 'PUT', headers: { 'x-club': clubToken }, body: {} }],
+        ['/api/club/meetings', { headers: { 'x-club': clubToken } }],
+        ['/api/club/roster', { headers: { cookie: adminCookie } }],
+        ['/api/club/manage/signout', { method: 'POST' }],
+      ];
+
+      for (const [path, init] of requests) {
+        const lit = await call(envAt('1'), path, init);
+        const dark = await call(envAt('0'), path, init);
+        expect(dark.status, path).toBe(lit.status);
+        expect(dark.status, path).not.toBe(404);
+      }
+    });
   });
 });
 
@@ -638,6 +848,7 @@ describe('the declared flags', () => {
   it.each([
     ['pro_billing', ['worker', join('apps', 'zoom-app'), join('apps', 'web')]],
     ['web_signin', ['worker', join('apps', 'web')]],
+    ['clubs', ['worker', join('apps', 'zoom-app'), join('apps', 'web')]],
   ])('sees the server gate and the UI gates for %s', (key, places) => {
     const files = [...(referencedFlags().get(key) ?? [])];
     for (const place of places) {
