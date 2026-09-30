@@ -47,6 +47,11 @@ export default function Account() {
   // landed too, so the section never appears and then vanishes.
   const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
   const showPlan = flagsKnown && billingEnabled
+  // The signed-out card is one pitch for one door, Sign in with Zoom, so the
+  // whole card waits for web_signin. A signed-in visitor is unaffected: their
+  // session is real, and Sign out must always be there.
+  const { enabled: signInEnabled } = useFlag('web_signin')
+  const showSignIn = flagsKnown && signInEnabled
   const { club } = useClub()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -274,19 +279,21 @@ export default function Account() {
         {identity === null ? (
           <p className="mt-6 text-gray-300">Loading…</p>
         ) : !identity.identified ? (
-          <div className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-8">
-            <p className="text-gray-200">
-              Sign in with your Zoom account to see your plan and to have your settings follow you
-              between this browser and the Zoom app. No password: Zoom confirms who you are.
-            </p>
-            <a
-              href={signInUrl('/account')}
-              className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 hover:bg-gray-100 no-underline"
-              data-testid="sign-in-with-zoom"
-            >
-              Sign in with Zoom
-            </a>
-          </div>
+          showSignIn && (
+            <div className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-8" data-testid="account-sign-in">
+              <p className="text-gray-200">
+                Sign in with your Zoom account to see your plan and to have your settings follow you
+                between this browser and the Zoom app. No password: Zoom confirms who you are.
+              </p>
+              <a
+                href={signInUrl('/account')}
+                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 hover:bg-gray-100 no-underline"
+                data-testid="sign-in-with-zoom"
+              >
+                Sign in with Zoom
+              </a>
+            </div>
+          )
         ) : (
           <>
             {showPlan && (

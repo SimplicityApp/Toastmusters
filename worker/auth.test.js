@@ -14,11 +14,14 @@ import { mintSessionToken, verifySessionToken } from './session-token.js';
 
 const SIGNING_KEY = 'test-session-signing-key';
 const NOW = 1_800_000_000_000;
+// Sign-in released: these cases are about how it behaves once it is on. Its
+// dark position is covered in flags.test.js with the other gated endpoints.
 const env = {
   SESSION_SIGNING_KEY: SIGNING_KEY,
   ZOOM_CLIENT_ID: 'client-id',
   ZOOM_CLIENT_SECRET: 'client-secret',
   WEB_ORIGIN: 'https://www.example.test',
+  FLAGS_FORCE: '1',
 };
 
 const setCookies = (res) => res.headers.getSetCookie?.() ?? [res.headers.get('set-cookie')].filter(Boolean);
@@ -88,8 +91,8 @@ describe('handleAuthStart', () => {
   const start = (query = '?returnTo=%2Faccount') =>
     handleAuthStart(new Request(`https://www.example.test/api/auth/zoom/start${query}`), new URL(`https://www.example.test/api/auth/zoom/start${query}`), env, { now: NOW });
 
-  it('redirects to Zoom with a signed state and sets the nonce cookie', () => {
-    const res = start();
+  it('redirects to Zoom with a signed state and sets the nonce cookie', async () => {
+    const res = await start();
     expect(res.status).toBe(302);
     const location = new URL(res.headers.get('location'));
     expect(location.origin + location.pathname).toBe('https://zoom.us/oauth/authorize');
@@ -102,18 +105,18 @@ describe('handleAuthStart', () => {
     expect(setCookies(res)[0]).toMatch(/HttpOnly; Secure; SameSite=Lax/);
   });
 
-  it('answers 503 when the client id or origin is missing', () => {
+  it('answers 503 when the client id or origin is missing', async () => {
     const url = new URL('https://x/api/auth/zoom/start');
-    expect(handleAuthStart(new Request(url), url, { ...env, ZOOM_CLIENT_ID: undefined }).status).toBe(503);
-    expect(handleAuthStart(new Request(url), url, { ...env, WEB_ORIGIN: undefined }).status).toBe(503);
+    expect((await handleAuthStart(new Request(url), url, { ...env, ZOOM_CLIENT_ID: undefined })).status).toBe(503);
+    expect((await handleAuthStart(new Request(url), url, { ...env, WEB_ORIGIN: undefined })).status).toBe(503);
   });
 
   // The nonce cookie is host-only and the callback always lands on WEB_ORIGIN,
   // so starting anywhere else used to come back as a state mismatch.
-  it('hands a start on a non-canonical host to WEB_ORIGIN, without a cookie', () => {
+  it('hands a start on a non-canonical host to WEB_ORIGIN, without a cookie', async () => {
     for (const host of ['timer.example.test', 'www.other.test']) {
       const url = new URL(`https://${host}/api/auth/zoom/start?returnTo=%2Fclub%2Fadmin`);
-      const res = handleAuthStart(new Request(url), url, env, { now: NOW });
+      const res = await handleAuthStart(new Request(url), url, env, { now: NOW });
 
       expect(res.status).toBe(302);
       expect(res.headers.get('location')).toBe(
@@ -123,17 +126,17 @@ describe('handleAuthStart', () => {
     }
   });
 
-  it('carries a rejected returnTo to the canonical host as the safe default', () => {
+  it('carries a rejected returnTo to the canonical host as the safe default', async () => {
     const url = new URL('https://timer.example.test/api/auth/zoom/start?returnTo=https%3A%2F%2Fevil.test');
-    const res = handleAuthStart(new Request(url), url, env, { now: NOW });
+    const res = await handleAuthStart(new Request(url), url, env, { now: NOW });
     expect(res.headers.get('location')).toBe('https://www.example.test/api/auth/zoom/start?returnTo=%2Fapp');
   });
 
   // `wrangler dev` rewrites the Host header to the first configured route, so a
   // host check that ignored this would bounce every local request at production.
-  it('leaves http starts alone so local development still works', () => {
+  it('leaves http starts alone so local development still works', async () => {
     const url = new URL('http://localhost:8787/api/auth/zoom/start?returnTo=%2Fapp');
-    const res = handleAuthStart(new Request(url), url, env, { now: NOW });
+    const res = await handleAuthStart(new Request(url), url, env, { now: NOW });
     expect(new URL(res.headers.get('location')).origin).toBe('https://zoom.us');
     expect(cookieValue(res, 'tt_oauth')).toBeTruthy();
   });
@@ -152,9 +155,9 @@ describe('handleOAuthCallback', () => {
     });
   }
 
-  function startAndCallback({ code = 'the-code', withNonce = true, tamperState = false, fetchImpl = zoomFetch(), stateOverride } = {}) {
+  async function startAndCallback({ code = 'the-code', withNonce = true, tamperState = false, fetchImpl = zoomFetch(), stateOverride } = {}) {
     const startUrl = new URL('https://www.example.test/api/auth/zoom/start?returnTo=%2Faccount');
-    const started = handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW });
+    const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW });
     const location = new URL(started.headers.get('location'));
     let state = stateOverride ?? location.searchParams.get('state');
     if (tamperState) state = state.slice(0, -2) + 'zz';
@@ -168,7 +171,7 @@ describe('handleOAuthCallback', () => {
   }
 
   it('exchanges the code, reads the Zoom user id and sets a 30-day session cookie', async () => {
-    const { promise, fetchImpl } = startAndCallback();
+    const { promise, fetchImpl } = await startAndCallback();
     const res = await promise;
 
     expect(res.status).toBe(302);
@@ -192,12 +195,12 @@ describe('handleOAuthCallback', () => {
     const url = new URL('https://www.example.test/oauth/redirect?code=abc');
     expect(await handleOAuthCallback(new Request(url), url, env)).toBeNull();
 
-    const { promise } = startAndCallback({ tamperState: true });
+    const { promise } = await startAndCallback({ tamperState: true });
     expect(await promise).toBeNull();
   });
 
   it('fails closed without the nonce cookie (login CSRF)', async () => {
-    const { promise, fetchImpl } = startAndCallback({ withNonce: false });
+    const { promise, fetchImpl } = await startAndCallback({ withNonce: false });
     const res = await promise;
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('https://www.example.test/account?signin=failed&reason=state_mismatch');
@@ -206,16 +209,16 @@ describe('handleOAuthCallback', () => {
   });
 
   it('reports a declined consent and Zoom-side failures without a session', async () => {
-    expect((await startAndCallback({ code: null }).promise).headers.get('location')).toContain('reason=no_code');
-    expect((await startAndCallback({ fetchImpl: zoomFetch({ tokenOk: false }) }).promise).headers.get('location')).toContain('reason=exchange');
-    const noProfile = await startAndCallback({ fetchImpl: zoomFetch({ meOk: false }) }).promise;
+    expect((await (await startAndCallback({ code: null })).promise).headers.get('location')).toContain('reason=no_code');
+    expect((await (await startAndCallback({ fetchImpl: zoomFetch({ tokenOk: false }) })).promise).headers.get('location')).toContain('reason=exchange');
+    const noProfile = await (await startAndCallback({ fetchImpl: zoomFetch({ meOk: false }) })).promise;
     expect(noProfile.headers.get('location')).toContain('reason=profile');
     expect(cookieValue(noProfile, SESSION_COOKIE)).toBeNull();
   });
 
   it('rejects an expired state', async () => {
     const startUrl = new URL('https://www.example.test/api/auth/zoom/start');
-    const started = handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW - 11 * 60 * 1000 });
+    const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW - 11 * 60 * 1000 });
     const state = new URL(started.headers.get('location')).searchParams.get('state');
     const cb = new URL(`https://www.example.test/oauth/redirect?code=x&state=${encodeURIComponent(state)}`);
     expect(await handleOAuthCallback(new Request(cb, { headers: { cookie: `tt_oauth=${cookieValue(started, 'tt_oauth')}` } }), cb, env, { now: NOW })).toBeNull();

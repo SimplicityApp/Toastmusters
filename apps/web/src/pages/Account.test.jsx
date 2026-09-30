@@ -29,6 +29,7 @@ afterEach(() => {
 describe('Account', () => {
   it('offers Sign in with Zoom when there is no session', async () => {
     stubMe({ error: 'Unauthorized' }, 401);
+    setFlags({ web_signin: true });
     render(
       <MemoryRouter initialEntries={['/account']}>
         <Account />
@@ -40,6 +41,7 @@ describe('Account', () => {
 
   it('explains a failed sign-in from the query string', async () => {
     stubMe({ error: 'Unauthorized' }, 401);
+    setFlags({ web_signin: true });
     render(
       <MemoryRouter initialEntries={['/account?signin=failed&reason=denied']}>
         <Account />
@@ -176,12 +178,63 @@ describe('Account: the pro_billing flag', () => {
   // A signed-out visitor still gets the sign-in door; the plan section was
   // never shown to them either way.
   it('leaves sign-in alone when the flag is off', async () => {
-    stubMe({ uid: null, flags: { pro_billing: false } });
-    setFlags({ pro_billing: false });
+    stubMe({ uid: null, flags: { pro_billing: false, web_signin: true } });
+    setFlags({ pro_billing: false, web_signin: true });
     renderAccount();
 
     expect(await screen.findByTestId('sign-in-with-zoom')).toBeInTheDocument();
     expect(screen.queryByTestId('account-plan')).toBeNull();
+  });
+});
+
+/**
+ * The signed-out card is one pitch for one door, so it stays dark until
+ * web_signin is released — and hidden until the flags have landed. A signed-in
+ * visitor keeps Sign out whatever the flag says.
+ */
+describe('Account: the web_signin flag', () => {
+  const renderAccount = () =>
+    render(
+      <MemoryRouter initialEntries={['/account']}>
+        <Account />
+      </MemoryRouter>
+    );
+
+  it('offers no sign-in while the flags are still unknown', async () => {
+    stubMe({ error: 'Unauthorized' }, 401);
+    renderAccount();
+
+    // The club section is there, so the page has rendered past "Loading…".
+    await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
+    expect(screen.queryByTestId('account-sign-in')).toBeNull();
+    expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
+  });
+
+  it('offers no sign-in when the flag is off', async () => {
+    stubMe({ uid: null, flags: { web_signin: false } });
+    setFlags({ web_signin: false });
+    renderAccount();
+
+    await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
+    expect(screen.queryByTestId('account-sign-in')).toBeNull();
+    expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
+  });
+
+  it('offers Sign in with Zoom once the flag is on', async () => {
+    stubMe({ uid: null, flags: { web_signin: true } });
+    setFlags({ web_signin: true });
+    renderAccount();
+
+    expect(await screen.findByTestId('sign-in-with-zoom')).toHaveAttribute('href', '/api/auth/zoom/start?returnTo=%2Faccount');
+  });
+
+  it('still lets a signed-in visitor sign out when the flag is off', async () => {
+    stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
+    setFlags({ web_signin: false });
+    renderAccount();
+
+    expect(await screen.findByText('Sign out')).toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
   });
 });
 

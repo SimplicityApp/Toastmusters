@@ -377,22 +377,27 @@ describe('the Zoom identity endpoint is reachable from every host', () => {
 });
 
 describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
-  const authEnv = () => ({
+  // Sign-in released, unless a case says otherwise.
+  const authEnv = (FLAGS_FORCE = '1') => ({
     ...makeEnv(['/index.html']),
     SESSION_SIGNING_KEY: 'k',
     ZOOM_CLIENT_ID: 'cid',
     ZOOM_CLIENT_SECRET: 'sec',
     WEB_ORIGIN: 'https://www.timer.simple-tech.app',
+    FLAGS_FORCE,
   });
 
   // The Marketplace "Add" flow lands here with a code and no state. It must
-  // still get the SPA's install-success page, and never a session.
+  // still get the SPA's install-success page, and never a session — whether or
+  // not web sign-in is released.
   it('serves the SPA for an install callback without state', async () => {
-    const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), authEnv(), ctx);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('x-asset-path')).toBe('/index.html');
-    expect(res.headers.get('set-cookie')).toBeNull();
-    expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+    for (const FLAGS_FORCE of ['1', '0']) {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), authEnv(FLAGS_FORCE), ctx);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+    }
   });
 
   it('serves the SPA for a state nobody signed', async () => {
@@ -424,6 +429,37 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       expect(res.status).toBe(302);
       expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/app');
       expect(res.headers.get('set-cookie')).toMatch(/tt_session=/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  // web_signin off: the start is a URL that does not exist, and a callback
+  // carrying a state we did sign lands on the install page like any other,
+  // with no code exchange and no session.
+  it('404s the start and serves the SPA for a signed callback while web_signin is off', async () => {
+    const off = authEnv('0');
+    const start = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), off, ctx);
+    expect(start.status).toBe(404);
+    expect(await start.json()).toEqual({ error: 'Not found' });
+    expect(start.headers.get('set-cookie')).toBeNull();
+
+    // A state minted while sign-in was on, spent after it went off.
+    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), authEnv('1'), ctx);
+    const state = new URL(started.headers.get('location')).searchParams.get('state');
+    const nonce = started.headers.get('set-cookie').match(/tt_oauth=([^;]+)/)[1];
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response('{}'));
+    try {
+      const cb = new Request(`https://www.timer.simple-tech.app/oauth/redirect?code=c&state=${encodeURIComponent(state)}`, {
+        headers: { host: 'www.timer.simple-tech.app', cookie: `tt_oauth=${nonce}` },
+      });
+      const res = await worker.fetch(cb, off, ctx);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = realFetch;
     }

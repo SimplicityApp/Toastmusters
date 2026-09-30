@@ -12,7 +12,9 @@ import {
   flagEnabled,
 } from './flags.js';
 import { handleBilling, customerByUidKey } from './billing.js';
+import { handleAuthStart, handleOAuthCallback } from './auth.js';
 import { mintSessionToken } from './session-token.js';
+import worker from './index.js';
 
 /**
  * The release flags, end to end: the resolver's failure modes, the
@@ -287,10 +289,10 @@ describe('the edge cache', () => {
 });
 
 describe('flagEnabled', () => {
-  it('answers one declared flag as a boolean', async () => {
-    expect(await flagEnabled({ FLAGS_FORCE: '1' }, 'pro_billing')).toBe(true);
-    expect(await flagEnabled({ FLAGS_FORCE: '0' }, 'pro_billing')).toBe(false);
-    expect(await flagEnabled({}, 'pro_billing')).toBe(FLAG_FALLBACKS.pro_billing);
+  it.each(Object.keys(FLAG_FALLBACKS))('answers %s as a boolean', async (key) => {
+    expect(await flagEnabled({ FLAGS_FORCE: '1' }, key)).toBe(true);
+    expect(await flagEnabled({ FLAGS_FORCE: '0' }, key)).toBe(false);
+    expect(await flagEnabled({}, key)).toBe(FLAG_FALLBACKS[key]);
   });
 
   it('is false for a key nobody declared, even with every flag forced on', async () => {
@@ -352,65 +354,183 @@ function callBilling(env, stripe, { path, method = 'POST', uid = 'u1', body, que
   return handleBilling(request, url, env, { stripe, ctx });
 }
 
+/**
+ * One run of a billing route: the response, and whether Stripe was asked to do
+ * anything.
+ */
+async function runBilling(env, { uid, ...call }, didWork) {
+  const stripe = fakeStripe();
+  const res = await callBilling(env, stripe, { ...call, uid });
+  return { res, didWork: didWork(stripe).mock.calls.length > 0 };
+}
+
+const authEnv = (over = {}) => ({
+  SESSION_SIGNING_KEY: SIGNING_KEY,
+  ZOOM_CLIENT_ID: 'client-id',
+  ZOOM_CLIENT_SECRET: 'client-secret',
+  WEB_ORIGIN: 'https://www.example.test',
+  ...over,
+});
+
+/** Who is calling a sign-in route: nobody usually, a session cookie otherwise. */
+const sessionCookieFor = (uid) => (uid ? `tt_session=${mintSessionToken(uid, SIGNING_KEY)}` : null);
+const nonceFrom = (res) => res.headers.get('set-cookie')?.match(/tt_oauth=([^;]+)/)?.[1] ?? null;
+
+/** GET /api/auth/zoom/start. Its work is a redirect to Zoom carrying a nonce. */
+async function runSignInStart(env, { uid }) {
+  const url = new URL('https://www.example.test/api/auth/zoom/start?returnTo=%2Faccount');
+  const cookie = sessionCookieFor(uid);
+  const res = await handleAuthStart(new Request(url, { headers: cookie ? { cookie } : {} }), url, env, { ctx });
+  const didWork = res.status === 302 && res.headers.get('location').startsWith('https://zoom.us/') && Boolean(nonceFrom(res));
+  return { res, didWork };
+}
+
+/**
+ * GET /oauth/redirect?state=… with a state this Worker really signed (minted
+ * with sign-in on, so the only thing varying is the callback's own gate). Its
+ * work is the code exchange with Zoom.
+ */
+async function runSignInCallback(env, { uid }) {
+  const startUrl = new URL('https://www.example.test/api/auth/zoom/start?returnTo=%2Faccount');
+  const started = await handleAuthStart(new Request(startUrl), startUrl, authEnv({ FLAGS_FORCE: '1' }), { ctx });
+  const state = new URL(started.headers.get('location')).searchParams.get('state');
+
+  const url = new URL(`https://www.example.test/oauth/redirect?code=the-code&state=${encodeURIComponent(state)}`);
+  const cookie = [`tt_oauth=${nonceFrom(started)}`, sessionCookieFor(uid)].filter(Boolean).join('; ');
+  const fetchImpl = vi.fn(async (target) =>
+    String(target).startsWith('https://zoom.us/oauth/token')
+      ? new Response(JSON.stringify({ access_token: 'at' }))
+      : new Response(JSON.stringify({ id: 'zoom-user-1' }))
+  );
+  const res = await handleOAuthCallback(new Request(url, { headers: { cookie } }), url, env, { fetchImpl, ctx });
+  return { res, didWork: fetchImpl.mock.calls.length > 0 };
+}
+
+/**
+ * `off` is what a dark route answers: a bare 404, or — for the callback, which
+ * shares its URL with the Marketplace install — null, so index.js falls through
+ * to the SPA's install-success page exactly as for a request with no state.
+ */
 const GATED = [
   {
     flag: 'pro_billing',
     name: 'POST /api/billing/checkout',
-    call: { path: '/api/billing/checkout', body: { interval: 'monthly' } },
-    didWork: (stripe) => stripe.createCheckoutSession,
+    env: billingEnv,
+    run: (env, caller) => runBilling(env, { path: '/api/billing/checkout', body: { interval: 'monthly' }, ...caller }, (s) => s.createCheckoutSession),
+    onStatus: 200,
+    off: 'not found',
+    needsSession: true,
   },
   {
     flag: 'pro_billing',
     name: 'POST /api/billing/portal',
-    call: { path: '/api/billing/portal' },
-    didWork: (stripe) => stripe.createPortalSession,
+    env: billingEnv,
+    run: (env, caller) => runBilling(env, { path: '/api/billing/portal', ...caller }, (s) => s.createPortalSession),
+    onStatus: 200,
+    off: 'not found',
+    needsSession: true,
+  },
+  {
+    flag: 'web_signin',
+    name: 'GET /api/auth/zoom/start',
+    env: authEnv,
+    run: runSignInStart,
+    onStatus: 302,
+    off: 'not found',
+    needsSession: false,
+  },
+  {
+    flag: 'web_signin',
+    name: 'GET /oauth/redirect?state',
+    env: authEnv,
+    run: runSignInCallback,
+    onStatus: 302,
+    off: 'falls through',
+    needsSession: false,
   },
 ];
 
+async function expectDark(off, res) {
+  if (off === 'falls through') {
+    expect(res).toBeNull();
+    return;
+  }
+  expect(res.status).toBe(404);
+  // Nothing on the wire says "flag": the same body as a mistyped URL.
+  expect(await res.json()).toEqual({ error: 'Not found' });
+}
+
 describe('gated endpoints', () => {
-  describe.each(GATED)('$name ($flag)', ({ call, didWork }) => {
+  describe.each(GATED)('$name ($flag)', ({ flag, env: makeEnv, run, onStatus, off, needsSession }) => {
+    // A billing route needs a session to reach its gate at all; a sign-in route
+    // is usually called by nobody.
+    const caller = { uid: needsSession ? 'u1' : null };
+
     it('behaves as it always has when the flag is on', async () => {
-      const stripe = fakeStripe();
-      const res = await callBilling(billingEnv({ FLAGS_FORCE: '1' }), stripe, call);
-      expect(res.status).toBe(200);
-      expect(didWork(stripe)).toHaveBeenCalledTimes(1);
+      const { res, didWork } = await run(makeEnv({ FLAGS_FORCE: '1' }), caller);
+      expect(res.status).toBe(onStatus);
+      expect(didWork).toBe(true);
     });
 
-    it('answers a bare 404, and does no work, when the flag is off', async () => {
-      const stripe = fakeStripe();
-      const res = await callBilling(billingEnv({ FLAGS_FORCE: '0' }), stripe, call);
-      expect(res.status).toBe(404);
-      // Nothing on the wire says "flag": the same body as a mistyped URL.
-      expect(await res.json()).toEqual({ error: 'Not found' });
-      expect(didWork(stripe)).not.toHaveBeenCalled();
+    it(`is dark (${off}), and does no work, when the flag is off`, async () => {
+      const { res, didWork } = await run(makeEnv({ FLAGS_FORCE: '0' }), caller);
+      await expectDark(off, res);
+      expect(didWork).toBe(false);
     });
 
     it('is off by default: no override and no PostHog key means the fallback', async () => {
-      const stripe = fakeStripe();
-      expect((await callBilling(billingEnv(), stripe, call)).status).toBe(404);
-      expect(didWork(stripe)).not.toHaveBeenCalled();
+      const { res, didWork } = await run(makeEnv(), caller);
+      await expectDark(off, res);
+      expect(didWork).toBe(false);
     });
 
-    it('still answers 401 to a caller with no session, whatever the flag says', async () => {
-      const stripe = fakeStripe();
-      expect((await callBilling(billingEnv({ FLAGS_FORCE: '0' }), stripe, { ...call, uid: null })).status).toBe(401);
-    });
+    if (needsSession) {
+      it('still answers 401 to a caller with no session, whatever the flag says', async () => {
+        const { res } = await run(makeEnv({ FLAGS_FORCE: '0' }), { uid: null });
+        expect(res.status).toBe(401);
+      });
+    }
 
     // The production use: PostHog targets one account, and only that account
-    // gets through.
+    // gets through. For sign-in that account has to be carrying a session
+    // already; a signed-out visitor asks as anonymous (the next case).
     it('follows PostHog\'s per-account answer', async () => {
       vi.stubGlobal('fetch', vi.fn(async (url, init) => {
         const { distinct_id: id } = JSON.parse(init.body);
-        return new Response(JSON.stringify(flagsAnswer({ pro_billing: id === 'zoom:u1' })));
+        return new Response(JSON.stringify(flagsAnswer({ [flag]: id === 'zoom:u1' })));
       }));
-      const env = billingEnv({ POSTHOG_API_KEY: 'phc_test', PROFILES: makeKv({
+      const env = makeEnv({ POSTHOG_API_KEY: 'phc_test', PROFILES: makeKv({
         [customerByUidKey('u1')]: 'cus_1',
         [customerByUidKey('u2')]: 'cus_2',
       }) });
 
-      expect((await callBilling(env, fakeStripe(), { ...call, uid: 'u1' })).status).toBe(200);
-      expect((await callBilling(env, fakeStripe(), { ...call, uid: 'u2' })).status).toBe(404);
+      const u1 = await run(env, { uid: 'u1' });
+      expect(u1.res.status).toBe(onStatus);
+      expect(u1.didWork).toBe(true);
+      const u2 = await run(env, { uid: 'u2' });
+      await expectDark(off, u2.res);
+      expect(u2.didWork).toBe(false);
     });
+
+    if (!needsSession) {
+      it('asks as anonymous for a signed-out visitor, and follows the everyone position', async () => {
+        const asked = [];
+        let everyone = false;
+        vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+          const { distinct_id: id } = JSON.parse(init.body);
+          asked.push(id);
+          return new Response(JSON.stringify(flagsAnswer({ [flag]: everyone })));
+        }));
+        const env = makeEnv({ POSTHOG_API_KEY: 'phc_test' });
+
+        const dark = await run(env, { uid: null });
+        await expectDark(off, dark.res);
+        everyone = true;
+        const lit = await run(env, { uid: null });
+        expect(lit.res.status).toBe(onStatus);
+        expect(asked).toEqual([ANONYMOUS_DISTINCT_ID, ANONYMOUS_DISTINCT_ID]);
+      });
+    }
   });
 
   // The success page in the system browser polls this with no session. It
@@ -424,6 +544,21 @@ describe('gated endpoints', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ paid: true });
     }
+  });
+
+  // Signing out must always work, including for someone who signed in while
+  // web_signin was on and is still holding the cookie after it went off.
+  it('leaves POST /api/auth/logout ungated', async () => {
+    const res = await worker.fetch(
+      new Request('https://www.example.test/api/auth/logout', {
+        method: 'POST',
+        headers: { host: 'www.example.test', cookie: sessionCookieFor('u1') },
+      }),
+      authEnv({ FLAGS_FORCE: '0' }),
+      ctx
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toMatch(/^tt_session=; Path=\/; Max-Age=0/);
   });
 });
 
@@ -497,13 +632,17 @@ describe('the declared flags', () => {
     expect(Object.isFrozen(FLAG_FALLBACKS)).toBe(true);
   });
 
-  it('sees both the server gate and the UI gate for pro_billing', () => {
-    // A guard on the scan itself: a broken pattern would otherwise make the
-    // bidirectional check pass by finding nothing on either side.
-    const files = [...(referencedFlags().get('pro_billing') ?? [])];
-    expect(files.some((f) => f.startsWith('worker'))).toBe(true);
-    expect(files.some((f) => f.startsWith(join('apps', 'zoom-app')))).toBe(true);
-    expect(files.some((f) => f.startsWith(join('apps', 'web')))).toBe(true);
+  // A guard on the scan itself: a broken pattern would otherwise make the
+  // bidirectional check pass by finding nothing on either side. Each flag is
+  // expected wherever it has a gate; web sign-in has no Zoom-app surface.
+  it.each([
+    ['pro_billing', ['worker', join('apps', 'zoom-app'), join('apps', 'web')]],
+    ['web_signin', ['worker', join('apps', 'web')]],
+  ])('sees the server gate and the UI gates for %s', (key, places) => {
+    const files = [...(referencedFlags().get(key) ?? [])];
+    for (const place of places) {
+      expect(files.some((f) => f.startsWith(place)), `${key} in ${place}`).toBe(true);
+    }
   });
 });
 

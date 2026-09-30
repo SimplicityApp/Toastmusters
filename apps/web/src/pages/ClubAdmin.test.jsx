@@ -82,6 +82,7 @@ afterEach(() => {
 
 describe('ClubAdmin — the two doors', () => {
   it('offers Zoom sign-in and the billing link when nobody is signed in', async () => {
+    setFlags({ web_signin: true });
     stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
     renderConsole();
 
@@ -91,6 +92,7 @@ describe('ClubAdmin — the two doors', () => {
   });
 
   it('explains why a non-admin was refused, and still offers both doors', async () => {
+    setFlags({ web_signin: true });
     stubApi({ '/api/club/roster': { status: 403, body: { error: 'forbidden' } } });
     renderConsole();
 
@@ -114,6 +116,38 @@ describe('ClubAdmin — the two doors', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('If that address pays for a club');
     const sent = calls.find((call) => call.path === '/api/club/magic-link');
     expect(JSON.parse(sent.body)).toEqual({ email: 'nobody@example.com' });
+  });
+});
+
+// Sign-in is one of the two doors and waits for web_signin. The mailed link is
+// the other, and stays open whatever the flag says.
+describe('ClubAdmin — the web_signin flag', () => {
+  it('offers only the billing link while the flags are still unknown', async () => {
+    stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
+    renderConsole();
+
+    expect(await screen.findByLabelText('Admin moved on?')).toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
+  });
+
+  it('offers only the billing link when the flag is off, and says so', async () => {
+    setFlags({ web_signin: false });
+    stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
+    renderConsole();
+
+    expect(await screen.findByLabelText('Admin moved on?')).toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
+    expect(screen.queryByText(/Sign in with the Zoom account/)).toBeNull();
+    expect(screen.getByText('Ask for a link at the address that pays for your club.')).toBeInTheDocument();
+  });
+
+  it('offers Zoom sign-in once the flag is on', async () => {
+    setFlags({ web_signin: true });
+    stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
+    renderConsole();
+
+    expect(await screen.findByTestId('sign-in-with-zoom')).toHaveAttribute('href', '/api/auth/zoom/start?returnTo=%2Fclub%2Fadmin');
+    expect(screen.getByLabelText('Admin moved on?')).toBeInTheDocument();
   });
 });
 

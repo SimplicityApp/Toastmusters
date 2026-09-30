@@ -26,6 +26,7 @@
 // and the code's flagEnabled/useFlag references drift apart in either direction.
 export const FLAG_FALLBACKS = Object.freeze({
   pro_billing: false, // Stripe checkout, portal, and the Upgrade path. removeBy: 2026-12-31
+  web_signin: false, // Sign in to the web app with Zoom. removeBy: 2026-12-31
 });
 
 // The ingestion host, called directly rather than through the browser's

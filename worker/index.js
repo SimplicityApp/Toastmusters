@@ -161,14 +161,15 @@ export default {
     // Sign in with Zoom (web). The callback shares /oauth/redirect with the
     // Marketplace install flow: only a request carrying a state we signed is a
     // sign-in; everything else falls through to the SPA's install-success page.
+    // Both sit behind the web_signin flag; logout never does.
     if (pathname === '/api/auth/zoom/start') {
-      return handleAuthStart(request, url, env);
+      return handleAuthStart(request, url, env, { ctx });
     }
     if (pathname === '/api/auth/logout') {
       return handleLogout(request);
     }
     if (pathname === '/oauth/redirect' && url.searchParams.has('state')) {
-      const signedIn = await handleOAuthCallback(request, url, env);
+      const signedIn = await handleOAuthCallback(request, url, env, { ctx });
       if (signedIn) return signedIn;
     }
 

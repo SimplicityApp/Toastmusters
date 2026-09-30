@@ -44,11 +44,19 @@ async function api(path, { method = 'GET', body, form } = {}) {
 
 // ---------------------------------------------------------------------------
 
-/** The two doors, shown to anyone the roster refused. */
+/**
+ * The two doors, shown to anyone the roster refused.
+ *
+ * Signing in with Zoom is behind the `web_signin` release flag, and is not
+ * offered until the flags have landed. The mailed link is the other door and
+ * stays open either way, so an officer is never left with nothing to try.
+ */
 function DoorsPanel({ reason }) {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
+  const { enabled: signInEnabled, known: flagsKnown } = useFlag('web_signin')
+  const offerSignIn = flagsKnown && signInEnabled
 
   const requestLink = async (event) => {
     event.preventDefault()
@@ -68,16 +76,20 @@ function DoorsPanel({ reason }) {
       <p className="mt-2 text-gray-300" role={reason ? 'alert' : undefined}>
         {reason === 'forbidden'
           ? 'This account is on the club, but it is not an admin. Ask a club admin to promote you, or use the billing address below.'
-          : 'Sign in with the Zoom account that runs your club, or ask for a link at the address that pays for it.'}
+          : offerSignIn
+            ? 'Sign in with the Zoom account that runs your club, or ask for a link at the address that pays for it.'
+            : 'Ask for a link at the address that pays for your club.'}
       </p>
 
-      <a
-        href={signInUrl('/club/admin')}
-        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 no-underline hover:bg-gray-100"
-        data-testid="sign-in-with-zoom"
-      >
-        Sign in with Zoom
-      </a>
+      {offerSignIn && (
+        <a
+          href={signInUrl('/club/admin')}
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 no-underline hover:bg-gray-100"
+          data-testid="sign-in-with-zoom"
+        >
+          Sign in with Zoom
+        </a>
+      )}
 
       <form onSubmit={requestLink} className="mt-8 border-t border-white/10 pt-6">
         <label htmlFor="billing-email" className="block font-medium text-white">

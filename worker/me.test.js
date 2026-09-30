@@ -68,6 +68,8 @@ describe('GET /api/me', () => {
 describe('GET /api/me?flags=1', () => {
   const ctx = { waitUntil: () => {} };
   const baseEnv = () => ({ PROFILES: makeKv(), SESSION_SIGNING_KEY: SIGNING_KEY });
+  // Every declared flag in one position, as FLAGS_FORCE sets them.
+  const allFlags = (on) => Object.fromEntries(Object.keys(FLAG_FALLBACKS).map((key) => [key, on]));
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -79,7 +81,7 @@ describe('GET /api/me?flags=1', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toMatchObject({ uid: 'u1', entitlement: { plan: 'free' } });
-      expect(body.flags).toEqual({ pro_billing: FLAGS_FORCE === '1' });
+      expect(body.flags).toEqual(allFlags(FLAGS_FORCE === '1'));
     }
   });
 
@@ -90,7 +92,7 @@ describe('GET /api/me?flags=1', () => {
       const res = await handleMe(req({ query: '?flags=1' }), { ...baseEnv(), FLAGS_FORCE }, ctx);
       expect(res.status).toBe(200);
       expect(res.headers.get('cache-control')).toBe('private, no-store');
-      expect(await res.json()).toEqual({ uid: null, flags: { pro_billing: FLAGS_FORCE === '1' } });
+      expect(await res.json()).toEqual({ uid: null, flags: allFlags(FLAGS_FORCE === '1') });
     }
   });
 
@@ -110,8 +112,8 @@ describe('GET /api/me?flags=1', () => {
     }));
     const env = { ...baseEnv(), POSTHOG_API_KEY: 'phc_test' };
 
-    expect((await (await handleMe(req({ uid: 'u1', query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ pro_billing: true });
-    expect((await (await handleMe(req({ query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ pro_billing: false });
+    expect((await (await handleMe(req({ uid: 'u1', query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: true });
+    expect((await (await handleMe(req({ query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: false });
     expect(asked).toEqual(['zoom:u1', 'anonymous']);
   });
 

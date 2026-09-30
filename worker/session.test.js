@@ -173,7 +173,7 @@ describe('handleZoomSession', () => {
     // including the loads where it will never know who this is.
     it('come back in every branch', async () => {
       for (const FLAGS_FORCE of ['1', '0']) {
-        const expected = { pro_billing: FLAGS_FORCE === '1' };
+        const expected = Object.fromEntries(Object.keys(FLAG_FALLBACKS).map((key) => [key, FLAGS_FORCE === '1']));
         for (const req of [identifiedReq(), guestReq(), anonymousReq()]) {
           const body = await (await handleZoomSession(req, { ...env, FLAGS_FORCE }, ctx)).json();
           expect(body.flags).toEqual(expected);
@@ -197,9 +197,9 @@ describe('handleZoomSession', () => {
       }));
       const posthogEnv = { ...env, POSTHOG_API_KEY: 'phc_test' };
 
-      expect((await (await handleZoomSession(identifiedReq(), posthogEnv, ctx)).json()).flags).toEqual({ pro_billing: true });
-      expect((await (await handleZoomSession(guestReq(), posthogEnv, ctx)).json()).flags).toEqual({ pro_billing: false });
-      expect((await (await handleZoomSession(anonymousReq(), posthogEnv, ctx)).json()).flags).toEqual({ pro_billing: false });
+      expect((await (await handleZoomSession(identifiedReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: true });
+      expect((await (await handleZoomSession(guestReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: false });
+      expect((await (await handleZoomSession(anonymousReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: false });
       expect(asked).toEqual(['zoom:uid-1', 'anonymous', 'anonymous']);
     });
 
