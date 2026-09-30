@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { handleMe } from './me.js';
+import { FLAG_FALLBACKS } from './flags.js';
 import { mintSessionToken } from './session-token.js';
 import { grantKey } from './entitlements.js';
 import { SESSION_COOKIE, WEB_SESSION_TTL_MS } from './auth.js';
@@ -18,8 +19,8 @@ function makeKv(seed = {}) {
   };
 }
 
-function req({ uid, method = 'GET' } = {}) {
-  return new Request('https://zoom.example.test/api/me', {
+function req({ uid, method = 'GET', query = '' } = {}) {
+  return new Request(`https://zoom.example.test/api/me${query}`, {
     method,
     headers: uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {},
   });
@@ -55,5 +56,85 @@ describe('GET /api/me', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(await res.json()).toMatchObject({ uid: 'u1', entitlement: { plan: 'pro', entitled: true, source: 'grant' } });
+  });
+});
+
+/**
+ * The release flags ride on this endpoint only for the web app's identity
+ * call, which asks with ?flags=1. refreshEntitlement and waitForPro poll the
+ * same URL without it, and must neither pay for a flag resolution nor see
+ * their 401 turn into a 200.
+ */
+describe('GET /api/me?flags=1', () => {
+  const ctx = { waitUntil: () => {} };
+  const baseEnv = () => ({ PROFILES: makeKv(), SESSION_SIGNING_KEY: SIGNING_KEY });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('adds the flags for a signed-in caller', async () => {
+    for (const FLAGS_FORCE of ['1', '0']) {
+      const res = await handleMe(req({ uid: 'u1', query: '?flags=1' }), { ...baseEnv(), FLAGS_FORCE }, ctx);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({ uid: 'u1', entitlement: { plan: 'free' } });
+      expect(body.flags).toEqual({ pro_billing: FLAGS_FORCE === '1' });
+    }
+  });
+
+  // A signed-out visitor still has to end the load knowing which features to
+  // show, so with the param "no session" is an answer rather than an error.
+  it('answers a caller with no session with 200, a null uid and the flags', async () => {
+    for (const FLAGS_FORCE of ['1', '0']) {
+      const res = await handleMe(req({ query: '?flags=1' }), { ...baseEnv(), FLAGS_FORCE }, ctx);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('private, no-store');
+      expect(await res.json()).toEqual({ uid: null, flags: { pro_billing: FLAGS_FORCE === '1' } });
+    }
+  });
+
+  it('falls back to the checked-in values when nothing is configured', async () => {
+    expect((await (await handleMe(req({ query: '?flags=1' }), baseEnv(), ctx)).json()).flags).toEqual(FLAG_FALLBACKS);
+    expect((await (await handleMe(req({ uid: 'u1', query: '?flags=1' }), baseEnv(), ctx)).json()).flags).toEqual(FLAG_FALLBACKS);
+  });
+
+  // Targeting is by uid for a signed-in caller; a signed-out one asks as the
+  // shared anonymous id and only ever gets the everyone position.
+  it('asks PostHog as zoom:<uid> when signed in, and as anonymous otherwise', async () => {
+    const asked = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const { distinct_id: id } = JSON.parse(init.body);
+      asked.push(id);
+      return new Response(JSON.stringify({ flags: { pro_billing: { key: 'pro_billing', enabled: id === 'zoom:u1' } } }));
+    }));
+    const env = { ...baseEnv(), POSTHOG_API_KEY: 'phc_test' };
+
+    expect((await (await handleMe(req({ uid: 'u1', query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ pro_billing: true });
+    expect((await (await handleMe(req({ query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ pro_billing: false });
+    expect(asked).toEqual(['zoom:u1', 'anonymous']);
+  });
+
+  // The poller contract: exactly what it was before flags existed.
+  describe('without the param', () => {
+    it('still answers 401 to a caller with no session', async () => {
+      expect((await handleMe(req(), { ...baseEnv(), FLAGS_FORCE: '1' }, ctx)).status).toBe(401);
+      expect((await handleMe(req({ query: '?flags=0' }), { ...baseEnv(), FLAGS_FORCE: '1' }, ctx)).status).toBe(401);
+    });
+
+    it('carries no flags and never asks PostHog', async () => {
+      const fetchMock = vi.fn(async () => new Response('{}'));
+      vi.stubGlobal('fetch', fetchMock);
+      const env = { ...baseEnv(), POSTHOG_API_KEY: 'phc_test' };
+
+      const res = await handleMe(req({ uid: 'u1' }), env, ctx);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).not.toHaveProperty('flags');
+      expect(body).toMatchObject({ uid: 'u1', entitlement: { plan: 'free' } });
+
+      expect((await handleMe(req(), env, ctx)).status).toBe(401);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });

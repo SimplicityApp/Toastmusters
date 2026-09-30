@@ -4,6 +4,7 @@ import { Sparkles, Check, ExternalLink, LogOut } from 'lucide-react'
 import { refreshEntitlement, createClub } from '@toastmaster-timer/shared'
 import ClubSetupCard from '@toastmaster-timer/ui/ClubSetupCard'
 import { useEntitlement, useWebIdentity } from '../hooks/useEntitlement'
+import { useFlag } from '../hooks/useFlag'
 import { useClub } from '../hooks/useClub'
 import { signInUrl, signOut } from '../utils/webIdentity'
 import { signinFailureMessage } from '../utils/signinFailure'
@@ -41,6 +42,11 @@ async function postJson(path, body) {
 export default function Account() {
   const identity = useWebIdentity()
   const { entitlement, isPro, known } = useEntitlement()
+  // The plan, the prices and "Manage billing" are all doors into Stripe, which
+  // stays dark until pro_billing is released. Hidden until the flags have
+  // landed too, so the section never appears and then vanishes.
+  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
+  const showPlan = flagsKnown && billingEnabled
   const { club } = useClub()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -283,11 +289,13 @@ export default function Account() {
           </div>
         ) : (
           <>
-            <section className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-6">
-              <h3 className="text-sm uppercase tracking-wide text-gray-400">Plan</h3>
-              <div className="mt-2">{renderPlan()}</div>
-              {error && <p className="mt-3 text-sm text-red-300" role="alert">{error}</p>}
-            </section>
+            {showPlan && (
+              <section className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-6" data-testid="account-plan">
+                <h3 className="text-sm uppercase tracking-wide text-gray-400">Plan</h3>
+                <div className="mt-2">{renderPlan()}</div>
+                {error && <p className="mt-3 text-sm text-red-300" role="alert">{error}</p>}
+              </section>
+            )}
 
             <section className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-6">
               <h3 className="text-sm uppercase tracking-wide text-gray-400">Signed in</h3>

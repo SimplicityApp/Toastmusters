@@ -142,9 +142,10 @@ export default {
       return handleClub(request, url, env);
     }
 
-    // Identity + entitlement re-check (polled after a purchase).
+    // Identity + entitlement re-check (polled after a purchase). The web app's
+    // identity call adds ?flags=1 for the release flags; the polls do not.
     if (pathname === '/api/me') {
-      return handleMe(request, env);
+      return handleMe(request, env, ctx);
     }
 
     // Stripe Checkout / Billing Portal. Ahead of the redirect like every POST.

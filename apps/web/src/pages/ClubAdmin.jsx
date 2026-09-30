@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Users, ExternalLink, ShieldCheck, LogOut, Upload, Trash2, RotateCcw } from 'lucide-react'
 import { clubHeaders, refreshClub } from '@toastmaster-timer/shared'
 import { signInUrl } from '../utils/webIdentity'
+import { useFlag } from '../hooks/useFlag'
 import { trackEvent } from '../utils/posthog'
 
 /**
@@ -339,6 +340,12 @@ export default function ClubAdmin() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const opened = useRef(false)
+  // The portal answers 404 both for "no Stripe customer on this account" and
+  // for pro_billing being off, and handlePortal reads a 404 as the first. So
+  // the button is not offered at all until the flag is known and on, rather
+  // than telling an officer their club was bought under someone else.
+  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
+  const canOpenPortal = flagsKnown && billingEnabled
 
   const load = useCallback(async () => {
     const result = await api('/api/club/roster')
@@ -509,14 +516,16 @@ export default function ClubAdmin() {
             <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
               <h3 className="text-sm uppercase tracking-wide text-gray-400">Billing</h3>
               {roster.actor?.type === 'zoom' ? (
-                <button
-                  onClick={handlePortal}
-                  disabled={busy}
-                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 font-medium text-white hover:bg-white/20 disabled:opacity-60"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Manage billing
-                </button>
+                canOpenPortal && (
+                  <button
+                    onClick={handlePortal}
+                    disabled={busy}
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 font-medium text-white hover:bg-white/20 disabled:opacity-60"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Manage billing
+                  </button>
+                )
               ) : (
                 // The Stripe portal is opened against the buyer's own customer
                 // record, which is keyed by their Zoom uid — so the way through

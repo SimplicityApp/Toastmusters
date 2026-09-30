@@ -4,6 +4,7 @@ import {
   setEntitlement,
   subscribeEntitlement,
   FREE_ENTITLEMENT,
+  setFlags,
 } from '@toastmaster-timer/shared'
 import { identifyUser, setUserProperties } from './posthog'
 
@@ -16,24 +17,39 @@ import { identifyUser, setUserProperties } from './posthog'
  * state: the timer works fully without signing in.
  */
 
-const ME_ENDPOINT = '/api/me'
-const ANONYMOUS = Object.freeze({ identified: false, uid: null, entitlement: null })
+// ?flags=1 asks for the release flags as well (see worker/flags.js). Only this
+// identity call sends it: refreshEntitlement and waitForPro poll the bare
+// /api/me, which keeps flag resolution at one request per page load.
+const ME_ENDPOINT = '/api/me?flags=1'
+// `flags: null` for when the Worker could not be reached: the flag store reads
+// it as "answered, all off", so nothing gated waits forever.
+const ANONYMOUS = Object.freeze({ identified: false, uid: null, entitlement: null, flags: null })
 
 let identityPromise = null
 
 async function resolveOnce() {
   try {
     const response = await fetch(ME_ENDPOINT, { cache: 'no-store', credentials: 'same-origin' })
-    if (!response.ok) return { ...ANONYMOUS }
-    const body = await response.json()
-    if (!body?.uid) return { ...ANONYMOUS }
-    return { identified: true, uid: body.uid, entitlement: body.entitlement ?? null }
+    let body = null
+    try {
+      body = await response.json()
+    } catch {
+      // A 401 or a proxy error page need not be JSON; that is still anonymous.
+    }
+    // Read before the uid check: a signed-out visitor gets `{ uid: null, flags }`
+    // and still has to end the load knowing which features to show.
+    const flags = body?.flags ?? null
+    if (!response.ok || !body?.uid) return { ...ANONYMOUS, flags }
+    return { identified: true, uid: body.uid, entitlement: body.entitlement ?? null, flags }
   } catch {
     return { ...ANONYMOUS }
   }
 }
 
-/** @returns {Promise<{identified: boolean, uid: string|null, entitlement: Object|null}>} never rejects */
+/**
+ * @returns {Promise<{identified: boolean, uid: string|null, entitlement: Object|null,
+ *   flags: Object|null}>} never rejects
+ */
 export function resolveWebIdentity() {
   if (!identityPromise) identityPromise = resolveOnce().catch(() => ({ ...ANONYMOUS }))
   return identityPromise
@@ -62,6 +78,10 @@ export async function signOut() {
 export async function startWebSession() {
   const identity = await resolveWebIdentity()
   setEntitlement(identity.entitlement ?? FREE_ENTITLEMENT)
+  // In the same breath as the entitlement, so a flag-gated control and an
+  // entitlement-gated one appear together. Held for the whole page; nothing
+  // re-asks.
+  setFlags(identity.flags)
   setUserProperties({ surface: 'web', web_signed_in: identity.identified })
   if (!identity.identified) return identity
 

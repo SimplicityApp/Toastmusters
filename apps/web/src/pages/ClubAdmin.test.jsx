@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { resetClubForTests } from '@toastmaster-timer/shared';
+import { resetClubForTests, resetFlagsForTests, setFlags } from '@toastmaster-timer/shared';
 import ClubAdmin from './ClubAdmin';
 
 /**
@@ -73,6 +73,7 @@ const renderConsole = () =>
 
 beforeEach(() => {
   resetClubForTests();
+  resetFlagsForTests();
 });
 
 afterEach(() => {
@@ -245,9 +246,32 @@ describe('ClubAdmin — the kit', () => {
 
 describe('ClubAdmin — billing', () => {
   it('offers the Stripe portal to the Zoom actor', async () => {
+    setFlags({ pro_billing: true });
     stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
     renderConsole();
     expect(await screen.findByRole('button', { name: /Manage billing/ })).toBeInTheDocument();
+  });
+
+  // The portal's 404 already means "no Stripe customer on this account", and
+  // the page turns it into "bought under a different Zoom account". A portal
+  // refused by the flag must never reach that message, so the button is gone.
+  it('offers no portal while pro_billing is off', async () => {
+    setFlags({ pro_billing: false });
+    stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
+    renderConsole();
+
+    expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
+    expect(screen.getByText('Billing')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Manage billing/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/different Zoom account/)).not.toBeInTheDocument();
+  });
+
+  it('offers no portal while the flags are still unknown', async () => {
+    stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
+    renderConsole();
+
+    expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Manage billing/ })).not.toBeInTheDocument();
   });
 
   // The portal is opened against the buyer's Stripe customer, which is keyed by

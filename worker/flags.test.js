@@ -502,7 +502,8 @@ describe('the declared flags', () => {
     // bidirectional check pass by finding nothing on either side.
     const files = [...(referencedFlags().get('pro_billing') ?? [])];
     expect(files.some((f) => f.startsWith('worker'))).toBe(true);
-    expect(files.some((f) => f.startsWith('apps'))).toBe(true);
+    expect(files.some((f) => f.startsWith(join('apps', 'zoom-app')))).toBe(true);
+    expect(files.some((f) => f.startsWith(join('apps', 'web')))).toBe(true);
   });
 });
 

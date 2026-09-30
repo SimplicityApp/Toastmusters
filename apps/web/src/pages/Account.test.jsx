@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { resetEntitlementForTests } from '@toastmaster-timer/shared';
+import { resetEntitlementForTests, resetFlagsForTests, setFlags } from '@toastmaster-timer/shared';
 import { resetWebIdentityForTests } from '../utils/webIdentity';
 import Account from './Account';
 
@@ -9,7 +9,8 @@ function stubMe(body, status = 200) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url) => {
-      if (String(url) === '/api/me') return { ok: status === 200, status, json: async () => body };
+      // Both the identity call (?flags=1) and the entitlement re-check.
+      if (String(url).split('?')[0] === '/api/me') return { ok: status === 200, status, json: async () => body };
       return { ok: true, status: 200, json: async () => ({}) };
     })
   );
@@ -18,6 +19,7 @@ function stubMe(body, status = 200) {
 beforeEach(() => {
   resetWebIdentityForTests();
   resetEntitlementForTests();
+  resetFlagsForTests();
 });
 
 afterEach(() => {
@@ -52,6 +54,7 @@ describe('Account', () => {
     // in isolation, seed it the way the app would.
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement({ plan: 'pro', entitled: true, status: 'active', currentPeriodEnd: 1_900_000_000_000, source: 'subscription' });
+    setFlags({ pro_billing: true });
 
     render(
       <MemoryRouter initialEntries={['/account']}>
@@ -67,6 +70,7 @@ describe('Account', () => {
     stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement({ plan: 'free', entitled: false });
+    setFlags({ pro_billing: true });
 
     render(
       <MemoryRouter initialEntries={['/account']}>
@@ -84,6 +88,7 @@ describe('Account', () => {
     stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement({ plan: 'free', entitled: false });
+    setFlags({ pro_billing: true });
 
     render(
       <MemoryRouter initialEntries={['/account']}>
@@ -100,6 +105,83 @@ describe('Account', () => {
     await user.click(screen.getByText('Monthly'));
     expect(JSON.parse(fetch.mock.calls.filter(([url]) => url === '/api/billing/checkout')[1][1].body))
       .toEqual({ interval: 'monthly', clubName: 'Downtown Speakers' });
+  });
+});
+
+/**
+ * The plan section is every web door into Stripe (the prices, Checkout, and
+ * "Manage billing"), so it stays dark until pro_billing is released — and
+ * hidden until the flags have landed, so it never appears and then vanishes.
+ */
+describe('Account: the pro_billing flag', () => {
+  const FREE = { plan: 'free', entitled: false };
+  const PRO = { plan: 'pro', entitled: true, status: 'active', currentPeriodEnd: 1_900_000_000_000, source: 'subscription' };
+
+  const renderAccount = () =>
+    render(
+      <MemoryRouter initialEntries={['/account']}>
+        <Account />
+      </MemoryRouter>
+    );
+
+  it('hides the plan section while the flags are still unknown', async () => {
+    stubMe({ uid: 'u1', entitlement: FREE });
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement(FREE);
+    renderAccount();
+
+    // Signed in, so the rest of the page is there; only the plan is held back.
+    expect(await screen.findByText('Sign out')).toBeInTheDocument();
+    expect(screen.queryByTestId('account-plan')).toBeNull();
+    expect(screen.queryByText('Monthly')).toBeNull();
+    expect(screen.queryByText('Checking your plan…')).toBeNull();
+  });
+
+  it('hides the prices from a free user when the flag is off', async () => {
+    stubMe({ uid: 'u1', entitlement: FREE });
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement(FREE);
+    setFlags({ pro_billing: false });
+    renderAccount();
+
+    expect(await screen.findByText('Sign out')).toBeInTheDocument();
+    expect(screen.queryByTestId('account-plan')).toBeNull();
+    expect(screen.queryByText('Monthly')).toBeNull();
+    expect(screen.queryByText('Yearly')).toBeNull();
+  });
+
+  it('hides Manage billing from a subscriber when the flag is off', async () => {
+    stubMe({ uid: 'u1', entitlement: PRO });
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement(PRO);
+    setFlags({ pro_billing: false });
+    renderAccount();
+
+    expect(await screen.findByText('Sign out')).toBeInTheDocument();
+    expect(screen.queryByTestId('account-plan')).toBeNull();
+    expect(screen.queryByText('Manage billing')).toBeNull();
+  });
+
+  it('shows the plan section once the flag is on', async () => {
+    stubMe({ uid: 'u1', entitlement: FREE });
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement(FREE);
+    setFlags({ pro_billing: true });
+    renderAccount();
+
+    expect(await screen.findByTestId('account-plan')).toBeInTheDocument();
+    expect(screen.getByText('Monthly')).toBeInTheDocument();
+  });
+
+  // A signed-out visitor still gets the sign-in door; the plan section was
+  // never shown to them either way.
+  it('leaves sign-in alone when the flag is off', async () => {
+    stubMe({ uid: null, flags: { pro_billing: false } });
+    setFlags({ pro_billing: false });
+    renderAccount();
+
+    expect(await screen.findByTestId('sign-in-with-zoom')).toBeInTheDocument();
+    expect(screen.queryByTestId('account-plan')).toBeNull();
   });
 });
 
@@ -127,7 +209,7 @@ describe('Account: setting up a club', () => {
       vi.fn(async (url) => {
         const path = String(url);
         if (routes[path]) return routes[path];
-        if (path === '/api/me') return { ok: true, status: 200, json: async () => ({ uid: 'u1', entitlement: SUBSCRIBER }) };
+        if (path.split('?')[0] === '/api/me') return { ok: true, status: 200, json: async () => ({ uid: 'u1', entitlement: SUBSCRIBER }) };
         return { ok: true, status: 200, json: async () => ({}) };
       })
     );
@@ -145,6 +227,8 @@ describe('Account: setting up a club', () => {
     const { resetClubForTests } = await import('@toastmaster-timer/shared');
     resetClubForTests();
     localStorage.clear();
+    // The plan section these cases read is behind pro_billing.
+    setFlags({ pro_billing: true });
   });
 
   it('offers the card to a subscriber with no club', async () => {
