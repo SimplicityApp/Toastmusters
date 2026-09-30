@@ -112,7 +112,7 @@ export default {
     // It also has to stay ahead of host routing so the zoom.<domain> host can
     // reach it without being rewritten into /zoom/*.
     if (pathname === '/api/zoom/session') {
-      return handleZoomSession(request, env);
+      return handleZoomSession(request, env, ctx);
     }
 
     // Cross-device settings. Ahead of the redirect for the same body-dropping
@@ -149,7 +149,7 @@ export default {
 
     // Stripe Checkout / Billing Portal. Ahead of the redirect like every POST.
     if (pathname.startsWith('/api/billing/')) {
-      return handleBilling(request, url, env);
+      return handleBilling(request, url, env, { ctx });
     }
 
     // Stripe webhook: a 301 would drop the signed body, exactly like Zoom's.

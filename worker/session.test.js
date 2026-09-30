@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { handleZoomSession } from './session.js';
 import { verifySessionToken } from './session-token.js';
+import { FLAG_FALLBACKS } from './flags.js';
 import { encryptZoomContext } from './test-helpers.js';
 
 const CLIENT_SECRET = 'test-zoom-client-secret';
@@ -97,7 +98,7 @@ describe('handleZoomSession', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ identified: false, isGuest: true });
+    expect(body).toEqual({ identified: false, isGuest: true, flags: FLAG_FALLBACKS });
   });
 
   // Not knowing who someone is must never look like an error: it is the normal
@@ -111,7 +112,7 @@ describe('handleZoomSession', () => {
     ]) {
       const res = await handleZoomSession(req, env);
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ identified: false, isGuest: false });
+      expect(await res.json()).toEqual({ identified: false, isGuest: false, flags: FLAG_FALLBACKS });
     }
   });
 
@@ -156,6 +157,64 @@ describe('handleZoomSession', () => {
     const res = await handleZoomSession(request({ method: 'GET' }), env);
 
     expect(res.status).toBe(405);
+  });
+
+  describe('release flags', () => {
+    const ctx = { waitUntil: () => {} };
+    const identifiedReq = () => request({ body: { context: context({ uid: 'uid-1', exp: futureExp() }) } });
+    const guestReq = () => request({ body: { context: context({ mid: 'm', exp: futureExp() }) } });
+    const anonymousReq = () => request({ body: {} });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    // Every branch, so the client always ends the load knowing its flags —
+    // including the loads where it will never know who this is.
+    it('come back in every branch', async () => {
+      for (const FLAGS_FORCE of ['1', '0']) {
+        const expected = { pro_billing: FLAGS_FORCE === '1' };
+        for (const req of [identifiedReq(), guestReq(), anonymousReq()]) {
+          const body = await (await handleZoomSession(req, { ...env, FLAGS_FORCE }, ctx)).json();
+          expect(body.flags).toEqual(expected);
+        }
+      }
+    });
+
+    it('fall back to the checked-in values when nothing is configured', async () => {
+      const body = await (await handleZoomSession(identifiedReq(), env, ctx)).json();
+      expect(body.flags).toEqual(FLAG_FALLBACKS);
+    });
+
+    // Targeting is by uid for identified users; guests and anonymous loads all
+    // ask as the one shared anonymous id.
+    it('are asked for as zoom:<uid> when identified, and as anonymous otherwise', async () => {
+      const asked = [];
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        const { distinct_id: id } = JSON.parse(init.body);
+        asked.push(id);
+        return new Response(JSON.stringify({ flags: { pro_billing: { key: 'pro_billing', enabled: id === 'zoom:uid-1' } } }));
+      }));
+      const posthogEnv = { ...env, POSTHOG_API_KEY: 'phc_test' };
+
+      expect((await (await handleZoomSession(identifiedReq(), posthogEnv, ctx)).json()).flags).toEqual({ pro_billing: true });
+      expect((await (await handleZoomSession(guestReq(), posthogEnv, ctx)).json()).flags).toEqual({ pro_billing: false });
+      expect((await (await handleZoomSession(anonymousReq(), posthogEnv, ctx)).json()).flags).toEqual({ pro_billing: false });
+      expect(asked).toEqual(['zoom:uid-1', 'anonymous', 'anonymous']);
+    });
+
+    it('do not cost the identified user their entitlement when PostHog is down', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const body = await (await handleZoomSession(identifiedReq(), { ...env, POSTHOG_API_KEY: 'phc_test' }, ctx)).json();
+        expect(body.identified).toBe(true);
+        expect(body.entitlement).toMatchObject({ plan: 'free' });
+        expect(body.flags).toEqual(FLAG_FALLBACKS);
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   // Per-user payload: the edge must never hand one person's uid to the next caller.

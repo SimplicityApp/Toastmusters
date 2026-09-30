@@ -26,11 +26,17 @@
   //    toastmusters.com`, which auto-provisions SPF and DKIM; DMARC is not
   //    auto-added and should be set alongside it). Dev needs its own onboarded
   //    domain, since env.dev serves the *-dev hosts.
+  //  - FLAGS_FORCE: short-circuits the release flags (worker/flags.js). "1"
+  //    turns every flag on, "0" turns every flag off, anything else asks
+  //    PostHog. Production leaves it "" and always asks. Never "1" here: that
+  //    would light up every dark feature at once, and worker/flags.test.js
+  //    fails if it is.
   "vars": {
     "WEB_ORIGIN": "https://www.timer.simple-tech.app",
     "ENTITLEMENT_ENFORCE": "1",
     "STRIPE_AUTOMATIC_TAX": "0",
-    "MAGIC_LINK_FROM": "no-reply@toastmusters.com"
+    "MAGIC_LINK_FROM": "no-reply@toastmusters.com",
+    "FLAGS_FORCE": ""
   },
 
   // The club admin link, mailed to the club's billing address. A binding rather
@@ -168,11 +174,15 @@
           }
         ]
       },
+      // FLAGS_FORCE "1" keeps dev working with every feature on, and makes no
+      // flag requests. "0" exercises the dark path; clear it to test the real
+      // PostHog round trip.
       "vars": {
         "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
         "ENTITLEMENT_ENFORCE": "0",
         "STRIPE_AUTOMATIC_TAX": "0",
-        "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com"
+        "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com",
+        "FLAGS_FORCE": "1"
       }
     }
   }

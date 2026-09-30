@@ -1,7 +1,8 @@
 import { readSession } from './auth.js';
 import { entitlementStore } from './entitlements.js';
 import { createStripeClient, StripeError } from './stripe.js';
-import { json, unauthorized, methodNotAllowed, notConfigured } from './http.js';
+import { flagEnabled } from './flags.js';
+import { json, unauthorized, notFound, methodNotAllowed, notConfigured } from './http.js';
 
 /**
  * Buying and managing the paid plan.
@@ -17,6 +18,9 @@ import { json, unauthorized, methodNotAllowed, notConfigured } from './http.js';
  *
  * Prices are found by lookup key (`pro_monthly`, `pro_yearly`), so the same
  * code runs against test and live accounts; only the secret differs.
+ *
+ * Checkout and the portal sit behind the `pro_billing` release flag
+ * (worker/flags.js): while it is off for a caller, both answer a bare 404.
  */
 
 export const LOOKUP_KEYS = Object.freeze({ monthly: 'pro_monthly', yearly: 'pro_yearly' });
@@ -113,7 +117,8 @@ export function readClubName(value) {
  * @param {Request} request
  * @param {URL} url
  * @param {Object} env
- * @param {{stripe?: Object}} [deps] - injectable client for tests
+ * @param {{stripe?: Object, ctx?: Object}} [deps] - injectable client for tests;
+ *   ctx lets the flag answer be cached at the edge
  */
 export async function handleBilling(request, url, env, deps = {}) {
   const stripe = deps.stripe ?? createStripeClient(env);
@@ -142,6 +147,15 @@ export async function handleBilling(request, url, env, deps = {}) {
 
   const session = readSession(request, env);
   if (!session) return unauthorized();
+
+  // Until pro_billing is released, checkout and the portal do not exist. After
+  // the session check, so an unauthenticated caller still gets 401 as before;
+  // checkout-status above stays open because Stripe's success page polls it.
+  if (!(await flagEnabled(env, 'pro_billing', { uid: session.uid }, deps.ctx))) {
+    console.log('flag off: pro_billing', route);
+    return notFound();
+  }
+
   if (request.method !== 'POST') return methodNotAllowed();
 
   if (route === 'checkout') {
@@ -201,5 +215,5 @@ export async function handleBilling(request, url, env, deps = {}) {
     }
   }
 
-  return json({ error: 'Not found' }, 404);
+  return notFound();
 }

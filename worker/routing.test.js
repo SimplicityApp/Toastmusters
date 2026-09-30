@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import worker from './index.js';
+import { FLAG_FALLBACKS } from './flags.js';
 
 // Minimal ASSETS stub. Returns 200 for paths we declare as present, 404
 // otherwise, and echoes the resolved asset path back in a header so tests can
@@ -340,7 +341,7 @@ describe('the Zoom identity endpoint is reachable from every host', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
-    expect(await res.json()).toEqual({ identified: false, isGuest: false });
+    expect(await res.json()).toEqual({ identified: false, isGuest: false, flags: FLAG_FALLBACKS });
   });
 
   // A 301 drops the POST body, taking the app context with it.

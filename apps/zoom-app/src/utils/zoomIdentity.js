@@ -35,6 +35,8 @@ const ANONYMOUS = Object.freeze({
   contextType: null,
   meetingId: null,
   entitlement: null,
+  // Null, not a guess: the flag store reads it as "answered, all off".
+  flags: null,
 });
 
 /**
@@ -114,6 +116,9 @@ async function resolveOnce() {
       meetingId: session.meetingId ?? null,
       // What this user may use, as the server decided it. Null for guests.
       entitlement: session.entitlement ?? null,
+      // Which unreleased features to show. Sent for guests and anonymous
+      // loads too, so every load ends up knowing.
+      flags: session.flags ?? null,
     };
   } catch {
     // Offline, the Worker is down, or local development with no endpoint. The
@@ -131,7 +136,8 @@ async function resolveOnce() {
  *
  * @returns {Promise<{identified: boolean, isGuest: boolean, uid: string|null,
  *   token: string|null, authStatus: string|null, role: string|null,
- *   contextType: string|null, meetingId: string|null, entitlement: Object|null}>} never rejects
+ *   contextType: string|null, meetingId: string|null, entitlement: Object|null,
+ *   flags: Object|null}>} never rejects
  */
 export function resolveZoomIdentity() {
   if (!identityPromise) {
