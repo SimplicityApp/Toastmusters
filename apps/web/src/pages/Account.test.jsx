@@ -29,7 +29,7 @@ afterEach(() => {
 describe('Account', () => {
   it('offers Sign in with Zoom when there is no session', async () => {
     stubMe({ error: 'Unauthorized' }, 401);
-    setFlags({ web_signin: true });
+    setFlags({ pro: true });
     render(
       <MemoryRouter initialEntries={['/account']}>
         <Account />
@@ -41,7 +41,7 @@ describe('Account', () => {
 
   it('explains a failed sign-in from the query string', async () => {
     stubMe({ error: 'Unauthorized' }, 401);
-    setFlags({ web_signin: true });
+    setFlags({ pro: true });
     render(
       <MemoryRouter initialEntries={['/account?signin=failed&reason=denied']}>
         <Account />
@@ -56,7 +56,7 @@ describe('Account', () => {
     // in isolation, seed it the way the app would.
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement({ plan: 'pro', entitled: true, status: 'active', currentPeriodEnd: 1_900_000_000_000, source: 'subscription' });
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
 
     render(
       <MemoryRouter initialEntries={['/account']}>
@@ -72,7 +72,7 @@ describe('Account', () => {
     stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement({ plan: 'free', entitled: false });
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
 
     render(
       <MemoryRouter initialEntries={['/account']}>
@@ -90,7 +90,7 @@ describe('Account', () => {
     stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement({ plan: 'free', entitled: false });
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
 
     render(
       <MemoryRouter initialEntries={['/account']}>
@@ -112,10 +112,10 @@ describe('Account', () => {
 
 /**
  * The plan section is every web door into Stripe (the prices, Checkout, and
- * "Manage billing"), so it stays dark until pro_billing is released — and
+ * "Manage billing"), so it stays dark until pro is released — and
  * hidden until the flags have landed, so it never appears and then vanishes.
  */
-describe('Account: the pro_billing flag', () => {
+describe('Account: the pro flag, the plan', () => {
   const FREE = { plan: 'free', entitled: false };
   const PRO = { plan: 'pro', entitled: true, status: 'active', currentPeriodEnd: 1_900_000_000_000, source: 'subscription' };
 
@@ -143,7 +143,7 @@ describe('Account: the pro_billing flag', () => {
     stubMe({ uid: 'u1', entitlement: FREE });
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement(FREE);
-    setFlags({ pro_billing: false });
+    setFlags({ pro: false });
     renderAccount();
 
     expect(await screen.findByText('Sign out')).toBeInTheDocument();
@@ -156,7 +156,7 @@ describe('Account: the pro_billing flag', () => {
     stubMe({ uid: 'u1', entitlement: PRO });
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement(PRO);
-    setFlags({ pro_billing: false });
+    setFlags({ pro: false });
     renderAccount();
 
     expect(await screen.findByText('Sign out')).toBeInTheDocument();
@@ -168,31 +168,20 @@ describe('Account: the pro_billing flag', () => {
     stubMe({ uid: 'u1', entitlement: FREE });
     const { setEntitlement } = await import('@toastmaster-timer/shared');
     setEntitlement(FREE);
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
     renderAccount();
 
     expect(await screen.findByTestId('account-plan')).toBeInTheDocument();
     expect(screen.getByText('Monthly')).toBeInTheDocument();
   });
-
-  // A signed-out visitor still gets the sign-in door; the plan section was
-  // never shown to them either way.
-  it('leaves sign-in alone when the flag is off', async () => {
-    stubMe({ uid: null, flags: { pro_billing: false, web_signin: true } });
-    setFlags({ pro_billing: false, web_signin: true });
-    renderAccount();
-
-    expect(await screen.findByTestId('sign-in-with-zoom')).toBeInTheDocument();
-    expect(screen.queryByTestId('account-plan')).toBeNull();
-  });
 });
 
 /**
  * The signed-out card is one pitch for one door, so it stays dark until
- * web_signin is released — and hidden until the flags have landed. A signed-in
+ * pro is released — and hidden until the flags have landed. A signed-in
  * visitor keeps Sign out whatever the flag says.
  */
-describe('Account: the web_signin flag', () => {
+describe('Account: the pro flag, signing in', () => {
   const renderAccount = () =>
     render(
       <MemoryRouter initialEntries={['/account']}>
@@ -211,8 +200,8 @@ describe('Account: the web_signin flag', () => {
   });
 
   it('offers no sign-in when the flag is off', async () => {
-    stubMe({ uid: null, flags: { web_signin: false } });
-    setFlags({ web_signin: false });
+    stubMe({ uid: null, flags: { pro: false } });
+    setFlags({ pro: false });
     renderAccount();
 
     await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
@@ -221,8 +210,8 @@ describe('Account: the web_signin flag', () => {
   });
 
   it('offers Sign in with Zoom once the flag is on', async () => {
-    stubMe({ uid: null, flags: { web_signin: true } });
-    setFlags({ web_signin: true });
+    stubMe({ uid: null, flags: { pro: true } });
+    setFlags({ pro: true });
     renderAccount();
 
     expect(await screen.findByTestId('sign-in-with-zoom')).toHaveAttribute('href', '/api/auth/zoom/start?returnTo=%2Faccount');
@@ -230,7 +219,7 @@ describe('Account: the web_signin flag', () => {
 
   it('still lets a signed-in visitor sign out when the flag is off', async () => {
     stubMe({ uid: 'u1', entitlement: { plan: 'free', entitled: false } });
-    setFlags({ web_signin: false });
+    setFlags({ pro: false });
     renderAccount();
 
     expect(await screen.findByText('Sign out')).toBeInTheDocument();
@@ -280,9 +269,8 @@ describe('Account: setting up a club', () => {
     const { resetClubForTests } = await import('@toastmaster-timer/shared');
     resetClubForTests();
     localStorage.clear();
-    // The plan section these cases read is behind pro_billing, and the setup
-    // card is a door into a club, behind clubs.
-    setFlags({ pro_billing: true, clubs: true });
+    // The plan section these cases read and the setup card are both behind pro.
+    setFlags({ pro: true });
   });
 
   it('offers the card to a subscriber with no club', async () => {
@@ -354,11 +342,11 @@ describe('Account: setting up a club', () => {
 });
 
 /**
- * The `clubs` release flag. Setting up a club and typing a code are the doors
- * into one, and the Worker refuses both while clubs is dark. A browser already
+ * The `pro` release flag. Setting up a club and typing a code are the doors
+ * into one, and the Worker refuses both while pro is dark. A browser already
  * in a club keeps it, and can always leave.
  */
-describe('Account: the clubs flag', () => {
+describe('Account: the pro flag, the ways into a club', () => {
   const SUBSCRIBER = { plan: 'pro', entitled: true, status: 'active', source: 'subscription' };
 
   const renderAccount = () =>
@@ -383,9 +371,9 @@ describe('Account: the clubs flag', () => {
     resetClubForTests();
   });
 
-  it('offers the code field and the setup card once clubs is on', async () => {
+  it('offers the code field and the setup card once pro is on', async () => {
     await asSubscriber();
-    setFlags({ pro_billing: true, clubs: true });
+    setFlags({ pro: true });
     renderAccount();
 
     expect(await screen.findByRole('button', { name: /set up my club/i })).toBeInTheDocument();
@@ -394,7 +382,7 @@ describe('Account: the clubs flag', () => {
 
   it.each([
     ['the flags are still unknown', () => {}],
-    ['clubs is off', () => setFlags({ pro_billing: true, clubs: false })],
+    ['pro is off', () => setFlags({ pro: false })],
   ])('shows no club section at all while %s', async (_, seed) => {
     await asSubscriber();
     seed();
@@ -432,7 +420,7 @@ describe('Account: the clubs flag', () => {
     );
     initClubFromCache();
     stubMe({ error: 'Unauthorized' }, 401);
-    setFlags({ clubs: false });
+    setFlags({ pro: false });
     renderAccount();
 
     expect(await screen.findByText('This browser is on Pro through your club.')).toBeInTheDocument();

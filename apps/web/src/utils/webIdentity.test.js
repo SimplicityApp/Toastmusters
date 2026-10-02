@@ -34,12 +34,12 @@ describe('resolveWebIdentity', () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro_billing: true } }),
+      json: async () => ({ uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro: true } }),
     }));
     vi.stubGlobal('fetch', fetchMock);
 
     const [a, b] = await Promise.all([resolveWebIdentity(), resolveWebIdentity()]);
-    expect(a).toEqual({ identified: true, uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro_billing: true } });
+    expect(a).toEqual({ identified: true, uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro: true } });
     expect(a).toBe(b);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     // The identity call is the one that asks for flags; the entitlement polls
@@ -51,8 +51,8 @@ describe('resolveWebIdentity', () => {
   // The Worker answers a signed-out ?flags=1 with 200 and a null uid, so the
   // flags have to be read before the uid decides this is anonymous.
   it('keeps the flags for a signed-out visitor', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ uid: null, flags: { pro_billing: true } }) })));
-    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: { pro_billing: true } });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ uid: null, flags: { pro: true } }) })));
+    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: { pro: true } });
   });
 
   it('survives a body that is not JSON', async () => {
@@ -84,7 +84,7 @@ describe('startWebSession', () => {
       'fetch',
       vi.fn(async (url) => {
         if (String(url) === '/api/me?flags=1') {
-          return { ok: true, status: 200, json: async () => ({ uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro_billing: true } }) };
+          return { ok: true, status: 200, json: async () => ({ uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro: true } }) };
         }
         return { ok: true, status: 200, json: async () => ({ profile: { rev: 0, fields: {} } }) };
       })
@@ -95,7 +95,7 @@ describe('startWebSession', () => {
     expect(identifyUser).toHaveBeenCalledWith('zoom:u1');
     expect(getEntitlement().plan).toBe('pro');
     expect(areFlagsKnown()).toBe(true);
-    expect(getFlags()).toEqual({ pro_billing: true });
+    expect(getFlags()).toEqual({ pro: true });
   });
 
   it('stays anonymous and free without a session', async () => {
@@ -110,12 +110,12 @@ describe('startWebSession', () => {
   });
 
   it('seeds the flags for a signed-out visitor too', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ uid: null, flags: { pro_billing: true } }) })));
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ uid: null, flags: { pro: true } }) })));
     const identity = await startWebSession();
     expect(identity.identified).toBe(false);
     expect(identifyUser).not.toHaveBeenCalled();
     expect(areFlagsKnown()).toBe(true);
-    expect(getFlags()).toEqual({ pro_billing: true });
+    expect(getFlags()).toEqual({ pro: true });
   });
 
   it('marks the flags known, all off, when the Worker cannot be reached', async () => {

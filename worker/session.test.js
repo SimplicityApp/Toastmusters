@@ -193,13 +193,13 @@ describe('handleZoomSession', () => {
       vi.stubGlobal('fetch', vi.fn(async (url, init) => {
         const { distinct_id: id } = JSON.parse(init.body);
         asked.push(id);
-        return new Response(JSON.stringify({ flags: { pro_billing: { key: 'pro_billing', enabled: id === 'zoom:uid-1' } } }));
+        return new Response(JSON.stringify({ flags: { pro: { key: 'pro', enabled: id === 'zoom:uid-1' } } }));
       }));
       const posthogEnv = { ...env, POSTHOG_API_KEY: 'phc_test' };
 
-      expect((await (await handleZoomSession(identifiedReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: true });
-      expect((await (await handleZoomSession(guestReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: false });
-      expect((await (await handleZoomSession(anonymousReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: false });
+      expect((await (await handleZoomSession(identifiedReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro: true });
+      expect((await (await handleZoomSession(guestReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro: false });
+      expect((await (await handleZoomSession(anonymousReq(), posthogEnv, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro: false });
       expect(asked).toEqual(['zoom:uid-1', 'anonymous', 'anonymous']);
     });
 

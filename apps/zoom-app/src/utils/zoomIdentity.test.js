@@ -40,7 +40,7 @@ describe('resolveZoomIdentity', () => {
         contextType: 'meeting',
         meetingId: 'mid-1',
         entitlement: { plan: 'pro', entitled: true },
-        flags: { pro_billing: true },
+        flags: { pro: true },
       })
     );
 
@@ -54,7 +54,7 @@ describe('resolveZoomIdentity', () => {
       contextType: 'meeting',
       meetingId: 'mid-1',
       entitlement: { plan: 'pro', entitled: true },
-      flags: { pro_billing: true },
+      flags: { pro: true },
     });
     expect(getSessionToken()).toBe('tok-1');
   });
@@ -87,7 +87,7 @@ describe('resolveZoomIdentity', () => {
 
   it('reports a guest as unidentified, with the status that explains why', async () => {
     readZoomUserSummary.mockResolvedValue({ status: 'unauthenticated', role: 'attendee' });
-    vi.stubGlobal('fetch', respondWith({ identified: false, isGuest: true, flags: { pro_billing: false } }));
+    vi.stubGlobal('fetch', respondWith({ identified: false, isGuest: true, flags: { pro: false } }));
 
     expect(await resolveZoomIdentity()).toEqual({
       identified: false,
@@ -100,7 +100,7 @@ describe('resolveZoomIdentity', () => {
       meetingId: null,
       entitlement: null,
       // A guest has no entitlement but does get flags: the everyone position.
-      flags: { pro_billing: false },
+      flags: { pro: false },
     });
     expect(getSessionToken()).toBeNull();
   });

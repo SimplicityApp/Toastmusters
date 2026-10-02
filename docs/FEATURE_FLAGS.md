@@ -23,7 +23,7 @@ GET  /api/me?flags=1    (web app identity call, once per page load)
       POST https://us.i.posthog.com/flags?v=2  { api_key, distinct_id }
         ok                       → declared keys only, cached 60 s
         any failure              → FLAG_FALLBACKS (not cached)
-  → { …, flags: { pro_billing, web_signin, clubs } }
+  → { …, flags: { pro } }
   → packages/shared/flags.js (setFlags, known = true) → useFlag(key) → UI
 
 Server gates: flagEnabled(env, key, { uid }) → bare 404 when off
@@ -47,32 +47,31 @@ Server gates: flagEnabled(env, key, { uid }) → bare 404 when off
   directly, not the browser's `e.simple-tech.app` proxy.
 - **UI gating.** `useFlag(key)` returns `{ enabled, known }`, shaped like
   `useEntitlement`. A gated control renders only when
-  `flagsKnown && enabled`, so it never appears and then vanishes.
+  `flagsKnown && enabled`, so it never appears and then vanishes. A whole web
+  page is gated at its route instead, with `<FlagGate flag="pro">` in
+  `apps/web/src/App.jsx`: the page is not mounted until the flag is known and
+  on, and is the not-found view while it is off.
 
-## The flags
+## The flag
 
-Every flag is declared in `FLAG_FALLBACKS` in `worker/flags.js`, with a
-`removeBy` date in a comment. Every fallback is `false`: the safe value, not the
-current one.
+There is one flag, `pro`, declared in `FLAG_FALLBACKS` in `worker/flags.js`
+with a `removeBy` date in a comment. Billing, web sign-in and clubs are all Pro
+features that launch together, so one switch covers them. Its fallback is
+`false`: the safe value, not the current one.
 
-| Flag | Server: 404 while off | UI hidden while off or unknown | Never gated |
-|---|---|---|---|
-| `pro_billing` | `POST /api/billing/checkout`, `POST /api/billing/portal` (after the session check, so no session is still 401) | Zoom: Footer **Upgrade**/**Pro** button (the Upgrade modal's only door), the **Upgrade to Pro** link in Card images, **Manage billing** on the club banner. Web: the plan section on `/account`, **Manage billing** on `/club/admin` and on the club banner | `GET /api/billing/checkout-status`, the Stripe webhook, the success/cancel pages, entitlement itself |
-| `web_signin` | `GET /api/auth/zoom/start`. A sign-in callback on `/oauth/redirect` falls through to the install page instead, so Marketplace installs keep working | **Sign in** in the account menu, the signed-out card on `/account`, the sign-in link on `/club/admin` (the mailed link stays offered) | `POST /api/auth/logout` |
-| `clubs` | `/api/club/activate`, `/create`, `/magic-link` and `/manage`, whatever the method. Checked before anything else, so even an unauthenticated create is 404 | Zoom: the code field and **Set up my club** in the Upgrade modal. Web: the setup card and code field on `/account`. `/club/admin`, `/club/manage` and `/pro/:code` show the not-found view | `GET /api/club` (the daily refresh), presets, `meetings/*` (including queued speeches), the admin routes, `manage/signout`, `/api/club-assets/*` |
+| Surface | 404 / hidden while `pro` is off (or, in the UI, unknown) | Never gated |
+|---|---|---|
+| Billing | `POST /api/billing/checkout`, `POST /api/billing/portal` (after the session check, so no session is still 401). Zoom: the Footer **Upgrade**/**Pro** button and the **Upgrade to Pro** link in Card images, which are the Upgrade modal's only doors. Both apps: **Manage billing** on the club banner. Web: the plan section on `/account` | `GET /api/billing/checkout-status`, the Stripe webhook, the success/cancel pages, entitlement itself |
+| Web sign-in | `GET /api/auth/zoom/start`. A sign-in callback on `/oauth/redirect` falls through to the install page instead, so Marketplace installs keep working. Web: **Sign in** in the account menu, the signed-out card on `/account` | `POST /api/auth/logout` |
+| Clubs | `/api/club/activate`, `/create`, `/magic-link` and `/manage`, whatever the method, checked before anything else so even an unauthenticated create is 404. Zoom: the code field and **Set up my club**, inside the Upgrade modal. Web: the setup card and code field on `/account`; `/club/admin`, `/club/manage` and `/pro/:code` are the not-found view (`FlagGate`) | `GET /api/club` (the daily refresh), presets, `meetings/*` (including queued speeches), the admin routes, `manage/signout`, `/api/club-assets/*` |
 
 A refusal is a bare 404, the same as any unknown URL. The reason is logged
-server-side only, as `flag off: <key> <route>`, so it shows in
+server-side only, as `flag off: pro <route>`, so it shows in
 `wrangler tail` and nowhere on the wire.
 
 ### Caveats
 
-- **In the Zoom app, clubs also needs `pro_billing`.** The Upgrade modal holds
-  the club code field and **Set up my club**, and it opens only from the Footer
-  button and the Card images link, both of which are `pro_billing` gates. With
-  `clubs` on and `pro_billing` off, a Zoom user has no way to join a club. The
-  web app's `/account` and `/pro/:code` do not have this dependency.
-- **Turning `clubs` off stops new joins, not existing clubs.** A blanket 404
+- **Turning `pro` off stops new club joins, not existing clubs.** A blanket 404
   would evict club devices: `refreshClub` reads a 404 from `GET /api/club` as a
   spent credential and leaves the club, and the speech outbox drops a queued
   speech on any 4xx. So only the doors are gated. A device that already holds a
@@ -84,13 +83,16 @@ server-side only, as `flag off: <key> <route>`, so it shows in
   signed-out browser on `/pro/:code`, and a mailed admin link opened without a
   web session all follow the **everyone** condition, not your per-account one.
   Single-account targeting of clubs only works from an identified session.
-- **`web_signin` is effectively everyone-or-nobody.** The person signing in is
+- **Web sign-in is effectively everyone-or-nobody.** The person signing in is
   signed out by definition, so the start and the callback are both evaluated as
   `anonymous`. Targeting `zoom:<your-uid>` alone never shows you the link. To
   try it in production, add a condition for `distinct_id` = `anonymous` at
   100%, sign in, then remove it. The session lasts 30 days, and while it
-  exists the web app resolves your other flags under your uid. Everyone signed
-  out sees the link during that window (plus up to 60 s of cache).
+  exists the web app resolves `pro` under your uid. During that window (plus up
+  to 60 s of cache) every signed-out visitor and Zoom guest is on the anonymous
+  position too: they see the sign-in link, and the doors into a club
+  (`/pro/:code`, the code field, a mailed admin link) open for them. Billing
+  does not, because checkout needs a session and is evaluated by uid.
 - **Guests never join a partial rollout.** Every uid-less caller shares the one
   `anonymous` id, so a percentage rollout puts all of them in or all of them
   out together. Treat the anonymous position as on only at 100%.
@@ -99,8 +101,8 @@ server-side only, as `flag off: <key> <route>`, so it shows in
 
 - **PostHog → Persons**, search `zoom:`. The Zoom app identifies as
   `zoom:<uid>` on every identified load (see Step 1b of
-  [ZOOM_TEST_PLAN.md](./ZOOM_TEST_PLAN.md)). This works even while `web_signin`
-  is dark.
+  [ZOOM_TEST_PLAN.md](./ZOOM_TEST_PLAN.md)). This works even while `pro` is
+  dark.
 - **`GET /api/me`** in a browser signed in on the web app. The first field is
   `uid`. Add `?flags=1` to also see what the Worker resolved for you.
 
@@ -111,7 +113,7 @@ Use the part after `zoom:` as the uid. PostHog conditions use the full
 
 1. PostHog (the project `POSTHOG_API_KEY` belongs to) → **Feature flags** →
    **New feature flag**. The key must be exactly the one in `FLAG_FALLBACKS`
-   (`pro_billing`, `web_signin`, `clubs`). Boolean, not multivariate.
+   (`pro`). Boolean, not multivariate.
 2. Release conditions:
 
    ```text
@@ -122,9 +124,8 @@ Use the part after `zoom:` as the uid. PostHog conditions use the full
 3. Save. A fresh app load or page load picks it up within about 60 s (the
    per-id edge cache, per Cloudflare location). An already-open Zoom webview or
    page keeps the answer it loaded with until it reloads.
-4. Check it: the Zoom app shows **Upgrade** (for `pro_billing`), or
-   `GET /api/me?flags=1` shows `"pro_billing": true`. A second account still
-   sees nothing.
+4. Check it: the Zoom app shows **Upgrade**, or `GET /api/me?flags=1` shows
+   `"pro": true`. A second account still sees nothing.
 
 **Widening** is Condition 2: raise the percentage, then set it to 100% for
 everyone. Guests and signed-out visitors follow Condition 2 only, and only
@@ -168,9 +169,11 @@ Changing `FLAGS_FORCE` on a deployed Worker is a redeploy
 2. Gate the server first. Put `flagEnabled(env, '<key>', { uid }, ctx)` in the
    endpoint and answer `notFound()` when it is off, with a
    `console.log('flag off: <key>', route)`. Do not gate an endpoint whose 404
-   a client reads as a final answer (see the clubs caveat).
+   a client reads as a final answer (see the caveat about existing clubs).
 3. Gate the UI with `useFlag('<key>')`, rendering only when
-   `known && enabled`, beside any entitlement `known` gate already there.
+   `known && enabled`, beside any entitlement `known` gate already there. Gate a
+   whole web page at its route with `<FlagGate flag="<key>">` instead of inside
+   the page.
 4. Add the endpoint to the gated-endpoint table in `worker/flags.test.js`, in
    both positions, and give each gated component a test for "hidden while
    unknown", "hidden when off" and "shown when on".
@@ -237,7 +240,7 @@ whole suite. No CI runs these tests; they only run when someone types
 
 The end-to-end check on dev, against the real PostHog:
 
-1. Create the flags in PostHog as in
+1. Create the `pro` flag in PostHog as in
    [Turning a flag on for yourself](#turning-a-flag-on-for-yourself-in-production).
 2. Clear `FLAGS_FORCE` in `env.dev.vars` and `npm run cf:deploy:dev`.
 3. In the real Zoom client, your account sees **Upgrade** and a second account

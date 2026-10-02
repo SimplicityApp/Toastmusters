@@ -434,10 +434,10 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
     }
   });
 
-  // web_signin off: the start is a URL that does not exist, and a callback
+  // pro off: the start is a URL that does not exist, and a callback
   // carrying a state we did sign lands on the install page like any other,
   // with no code exchange and no session.
-  it('404s the start and serves the SPA for a signed callback while web_signin is off', async () => {
+  it('404s the start and serves the SPA for a signed callback while pro is off', async () => {
     const off = authEnv('0');
     const start = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), off, ctx);
     expect(start.status).toBe(404);

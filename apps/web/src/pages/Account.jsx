@@ -42,21 +42,13 @@ async function postJson(path, body) {
 export default function Account() {
   const identity = useWebIdentity()
   const { entitlement, isPro, known } = useEntitlement()
-  // The plan, the prices and "Manage billing" are all doors into Stripe, which
-  // stays dark until pro_billing is released. Hidden until the flags have
-  // landed too, so the section never appears and then vanishes.
-  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
-  const showPlan = flagsKnown && billingEnabled
-  // The signed-out card is one pitch for one door, Sign in with Zoom, so the
-  // whole card waits for web_signin. A signed-in visitor is unaffected: their
-  // session is real, and Sign out must always be there.
-  const { enabled: signInEnabled } = useFlag('web_signin')
-  const showSignIn = flagsKnown && signInEnabled
-  // Setting up a club and typing a code are the doors into one, both refused
-  // by the Worker while clubs is dark. A browser already in a club still sees
-  // it, and can still leave it.
-  const { enabled: clubsEnabled } = useFlag('clubs')
-  const showClubDoors = flagsKnown && clubsEnabled
+  // The plan and prices, the signed-out Sign in with Zoom card, and the ways
+  // into a club all stay dark until pro is released, and are hidden until the
+  // flags have landed too, so nothing appears and then vanishes. What is
+  // already real is not: a signed-in visitor keeps Sign out, and a browser
+  // already in a club still sees it and can still leave it.
+  const { enabled: proEnabled, known: flagsKnown } = useFlag('pro')
+  const proReleased = flagsKnown && proEnabled
   const { club } = useClub()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -258,12 +250,12 @@ export default function Account() {
           </p>
         )}
 
-        {(showClubDoors || club?.entitled) && (
+        {(proReleased || club?.entitled) && (
           <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6" data-testid="account-club">
             <h3 className="text-sm uppercase tracking-wide text-gray-400">Your club</h3>
             {/* Ahead of the code field: a subscriber with no club has nothing to
                 type, and the code field alone was the whole dead end. */}
-            {showClubDoors && (shareCode || canCreateClub) && (
+            {proReleased && (shareCode || canCreateClub) && (
               <div className="mt-3 border-b border-white/10 pb-6">
                 <ClubSetupCard
                   tone="dark"
@@ -286,7 +278,7 @@ export default function Account() {
         {identity === null ? (
           <p className="mt-6 text-gray-300">Loading…</p>
         ) : !identity.identified ? (
-          showSignIn && (
+          proReleased && (
             <div className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-8" data-testid="account-sign-in">
               <p className="text-gray-200">
                 Sign in with your Zoom account to see your plan and to have your settings follow you
@@ -303,7 +295,7 @@ export default function Account() {
           )
         ) : (
           <>
-            {showPlan && (
+            {proReleased && (
               <section className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-6" data-testid="account-plan">
                 <h3 className="text-sm uppercase tracking-wide text-gray-400">Plan</h3>
                 <div className="mt-2">{renderPlan()}</div>

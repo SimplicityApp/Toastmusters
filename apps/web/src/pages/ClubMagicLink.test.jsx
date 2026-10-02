@@ -1,6 +1,5 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { resetFlagsForTests, setFlags } from '@toastmaster-timer/shared';
 import ClubMagicLink from './ClubMagicLink';
 
 /**
@@ -18,13 +17,6 @@ function renderAt(path) {
     </MemoryRouter>
   );
 }
-
-// Released unless a test says otherwise: the page is a door into a club, and
-// its dark position has its own block at the end.
-beforeEach(() => {
-  resetFlagsForTests();
-  setFlags({ clubs: true });
-});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -78,47 +70,5 @@ describe('ClubMagicLink', () => {
     renderAt('/club/manage?t=abc123');
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not reach the server'));
-  });
-});
-
-// The link opens the console, which is a door into a club. While clubs is dark
-// the Worker refuses the token anyway, so the page does not spend it: it waits
-// for the flags, and is the not-found view when they say off.
-describe('ClubMagicLink — the clubs flag', () => {
-  it('spends nothing until the flags land, then spends the token', async () => {
-    resetFlagsForTests();
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    renderAt('/club/manage?t=abc123');
-    expect(screen.getByText(/Opening your club/)).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    act(() => { setFlags({ clubs: true }); });
-    expect(await screen.findByText('The console')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('is the not-found view when clubs is off, and spends nothing', async () => {
-    setFlags({ clubs: false });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    renderAt('/club/manage?t=abc123');
-
-    expect(screen.getByTestId('not-found')).toHaveTextContent('Page not found');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('shows the not-found view rather than a reason from the Worker when clubs is off', () => {
-    setFlags({ clubs: false });
-    vi.stubGlobal('fetch', vi.fn());
-
-    renderAt('/club/manage?error=invalid_link');
-
-    expect(screen.getByTestId('not-found')).toBeInTheDocument();
-    expect(screen.queryByText(/already been used/)).toBeNull();
   });
 });

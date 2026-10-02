@@ -2,12 +2,14 @@ import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { resetClubForTests, resetFlagsForTests, setFlags } from '@toastmaster-timer/shared';
 import { resetWebIdentityForTests } from '../utils/webIdentity';
-import ProActivate from './ProActivate';
+import ProActivate from '../pages/ProActivate';
+import FlagGate from './FlagGate';
 
 /**
- * /pro/<code>, the officer's shareable link. Joining is a door into a club, so
- * the page sits behind the `clubs` release flag: it activates nothing until the
- * flags land, and is the not-found view while clubs is off.
+ * A page behind FlagGate, as App.jsx wires it. ProActivate is the example
+ * because mounting it has a side effect, activating the code in the URL, so
+ * "nothing ran" is something a test can see: the page does nothing until the
+ * flags land, and is the not-found view while pro is off.
  */
 
 const CLUB = {
@@ -42,7 +44,7 @@ const renderAt = (path) =>
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/pro/:code" element={<ProActivate />} />
+        <Route path="/pro/:code" element={<FlagGate flag="pro" fallback={<p>Waiting for flags</p>}><ProActivate /></FlagGate>} />
       </Routes>
     </MemoryRouter>
   );
@@ -59,9 +61,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('ProActivate — the clubs flag', () => {
-  it('activates the code from the link once clubs is on', async () => {
-    setFlags({ clubs: true });
+describe('FlagGate', () => {
+  it('activates the code from the link once pro is on', async () => {
+    setFlags({ pro: true });
     const activations = stubApi();
     renderAt('/pro/DTSP-7K2QM9');
 
@@ -70,21 +72,21 @@ describe('ProActivate — the clubs flag', () => {
     expect(JSON.parse(activations()[0][1].body)).toEqual({ code: 'DTSP-7K2QM9', deviceId: expect.any(String) });
   });
 
-  it('activates nothing while the flags are still unknown, then activates once they land', async () => {
+  it('shows the fallback and activates nothing while the flags are still unknown, then activates once they land', async () => {
     const activations = stubApi();
     renderAt('/pro/DTSP-7K2QM9');
 
-    expect(screen.getByText('Activating…')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for flags')).toBeInTheDocument();
     await settle();
     expect(activations()).toHaveLength(0);
 
-    act(() => { setFlags({ clubs: true }); });
+    act(() => { setFlags({ pro: true }); });
     expect(await screen.findByText(/You're on Pro in this browser/)).toBeInTheDocument();
     expect(activations()).toHaveLength(1);
   });
 
-  it('is the not-found view when clubs is off, and activates nothing', async () => {
-    setFlags({ clubs: false });
+  it('is the not-found view when pro is off, and activates nothing', async () => {
+    setFlags({ pro: false });
     const activations = stubApi();
     renderAt('/pro/DTSP-7K2QM9');
 

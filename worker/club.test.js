@@ -475,7 +475,7 @@ describe('routing', () => {
   it('dispatches /api/club and /api/club/activate ahead of the apex redirect', async () => {
     await seedClub();
 
-    // Activation is a door behind the clubs flag (worker/flags.test.js covers
+    // Activation is a door behind the pro flag (worker/flags.test.js covers
     // both positions); this is only about where the request is routed.
     const activate = await worker.fetch(
       new Request('https://timer.simple-tech.app/api/club/activate', {
