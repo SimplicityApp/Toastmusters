@@ -50,6 +50,9 @@ describe('renderSite', () => {
     expect(doc).toContain('"quoted" &amp; &lt;topic a&gt;');
     expect(doc).not.toContain('<topic a>');
     expect(doc).toContain('href="https://www.timer.toastmusters.com/app?role=Table%20Topics%20Speech&amp;name=');
+    // Crawlers must not follow one timer URL per question.
+    expect(doc).not.toMatch(/name=[^"]*" rel="noopener"/);
+    expect(doc).toContain('rel="nofollow noopener" data-tt-list-time');
     expect(doc).toContain('data-tt-generator data-tt-category="icebreakers"');
     expect((doc.match(/data-tt-item /g) || []).length).toBe(3);
     expect((doc.match(/data-tt-initial="([^"]+)"/) || [])[1].split(',').every((id) => id.startsWith('icebreakers-'))).toBe(true);

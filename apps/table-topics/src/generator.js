@@ -77,7 +77,7 @@ function renderItem(q, index) {
       <p class="tt-set-meta">
         <a href="/topics/${escapeHtml(q.category)}/" data-tt-category-link>${escapeHtml(q.categoryName)}</a>
         <span aria-hidden="true">·</span>
-        <a class="tt-set-time" data-tt-time href="${escapeHtml(timerDeepLink(q.text, TIMER_APP_URL))}" rel="noopener">Time this (1–2 min)</a>
+        <a class="tt-set-time" data-tt-time href="${escapeHtml(timerDeepLink(q.text, TIMER_APP_URL))}" rel="nofollow noopener">Time this (1–2 min)</a>
       </p>
     </div>
   </li>`;
@@ -233,7 +233,7 @@ function initToday(root) {
       const time = document.createElement('a');
       time.className = 'tt-list-time';
       time.href = timerDeepLink(q.text, TIMER_APP_URL);
-      time.rel = 'noopener';
+      time.rel = 'nofollow noopener';
       time.textContent = 'Time this';
       actions.append(cat, time);
       li.append(text, actions);

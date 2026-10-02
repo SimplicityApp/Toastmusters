@@ -54,7 +54,7 @@ export function setItem(config, q, index) {
               <p class="tt-set-meta">
                 <a href="/topics/${attr(q.category)}/" data-tt-category-link>${esc(q.categoryName)}</a>
                 <span aria-hidden="true">·</span>
-                <a class="tt-set-time" data-tt-time href="${attr(timerDeepLink(q.text, config.timerAppUrl))}" rel="noopener">Time this (1–2 min)</a>
+                <a class="tt-set-time" data-tt-time href="${attr(timerDeepLink(q.text, config.timerAppUrl))}" rel="nofollow noopener">Time this (1–2 min)</a>
               </p>
             </div>
           </li>`;
@@ -73,7 +73,7 @@ export function questionList(config, path, questions, { numbered = true, collaps
             <span class="tt-list-text">${esc(q.text)}</span>
             <span class="tt-list-actions">
               ${q.categoryName && !path.startsWith('/topics/') ? `<a class="tt-list-cat" href="/topics/${attr(q.category)}/">${esc(q.categoryName)}</a>` : ''}
-              <a class="tt-list-time" href="${attr(timerDeepLink(q.text, config.timerAppUrl))}" rel="noopener" data-tt-list-time>Time this</a>
+              <a class="tt-list-time" href="${attr(timerDeepLink(q.text, config.timerAppUrl))}" rel="nofollow noopener" data-tt-list-time>Time this</a>
             </span>
           </li>`
             )

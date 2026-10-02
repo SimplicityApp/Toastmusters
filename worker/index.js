@@ -344,6 +344,12 @@ function withSecurityHeaders(response, request, url) {
     headers.set('X-Robots-Tag', 'noindex, nofollow');
   }
 
+  // Deep links like /app?role=…&name=… (one per Table Topics question) are app
+  // state, not pages. Keep them out of the index; bare /app is unaffected.
+  if (url.pathname === '/app' && url.search) {
+    headers.set('X-Robots-Tag', 'noindex');
+  }
+
   // Immutable caching for background images (was /zoom/backgrounds/(.*)).
   const isBackground =
     url.pathname.startsWith('/zoom/backgrounds/') ||

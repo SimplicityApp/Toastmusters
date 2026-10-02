@@ -303,6 +303,20 @@ describe('indexing headers', () => {
     expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
   });
 
+  it('marks web timer deep links noindex, but not bare /app', async () => {
+    const env = makeEnv(['/index.html']);
+    const deep = await worker.fetch(
+      get('https://www.timer.toastmusters.com/app?role=Table%20Topics%20Speech&name=Test'),
+      env,
+      ctx
+    );
+    const bare = await worker.fetch(get('https://www.timer.toastmusters.com/app'), env, ctx);
+
+    expect(deep.status).toBe(200);
+    expect(deep.headers.get('x-robots-tag')).toBe('noindex');
+    expect(bare.headers.get('x-robots-tag')).toBeNull();
+  });
+
   it('does not mark ordinary pages noindex', async () => {
     const env = makeEnv(['/index.html']);
     const res = await worker.fetch(
