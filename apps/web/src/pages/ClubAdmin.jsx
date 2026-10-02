@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { Users, ExternalLink, ShieldCheck, LogOut, Upload, Trash2, RotateCcw, Pencil } from 'lucide-react'
 import { clubHeaders, refreshClub } from '@toastmaster-timer/shared'
 import { signInUrl } from '../utils/webIdentity'
+import { useFlag } from '../hooks/useFlag'
 import { trackEvent } from '../utils/posthog'
+import NotFoundView from '../components/NotFoundView'
 
 /**
  * The officer's console: who is in the club, what they may do, and the kit.
@@ -17,6 +19,10 @@ import { trackEvent } from '../utils/posthog'
  * club token this browser already holds; the mailed link names its own club, so
  * it works in a browser that never typed a code. Both reach one permission
  * check in the Worker, and differ only in the actor they carry.
+ *
+ * The console is a door into a club, so the whole page sits behind the `clubs`
+ * release flag: it waits for the flags, and while clubs is off it is the
+ * not-found view and asks the Worker nothing.
  */
 
 const ROLE_LABELS = { admin: 'Admin', editor: 'Editor', member: 'Member' }
@@ -43,11 +49,19 @@ async function api(path, { method = 'GET', body, form } = {}) {
 
 // ---------------------------------------------------------------------------
 
-/** The two doors, shown to anyone the roster refused. */
+/**
+ * The two doors, shown to anyone the roster refused.
+ *
+ * Signing in with Zoom is behind the `web_signin` release flag, and is not
+ * offered until the flags have landed. The mailed link is the other door and
+ * stays open either way, so an officer is never left with nothing to try.
+ */
 function DoorsPanel({ reason }) {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
+  const { enabled: signInEnabled, known: flagsKnown } = useFlag('web_signin')
+  const offerSignIn = flagsKnown && signInEnabled
 
   const requestLink = async (event) => {
     event.preventDefault()
@@ -67,16 +81,20 @@ function DoorsPanel({ reason }) {
       <p className="mt-2 text-gray-300" role={reason ? 'alert' : undefined}>
         {reason === 'forbidden'
           ? 'This account is on the club, but it is not an admin. Ask a club admin to promote you, or use the billing address below.'
-          : 'Sign in with the Zoom account that runs your club, or ask for a link at the address that pays for it.'}
+          : offerSignIn
+            ? 'Sign in with the Zoom account that runs your club, or ask for a link at the address that pays for it.'
+            : 'Ask for a link at the address that pays for your club.'}
       </p>
 
-      <a
-        href={signInUrl('/club/admin')}
-        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 no-underline hover:bg-gray-100"
-        data-testid="sign-in-with-zoom"
-      >
-        Sign in with Zoom
-      </a>
+      {offerSignIn && (
+        <a
+          href={signInUrl('/club/admin')}
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 no-underline hover:bg-gray-100"
+          data-testid="sign-in-with-zoom"
+        >
+          Sign in with Zoom
+        </a>
+      )}
 
       <form onSubmit={requestLink} className="mt-8 border-t border-white/10 pt-6">
         <label htmlFor="billing-email" className="block font-medium text-white">
@@ -393,6 +411,14 @@ export default function ClubAdmin() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const opened = useRef(false)
+  // The portal answers 404 both for "no Stripe customer on this account" and
+  // for pro_billing being off, and handlePortal reads a 404 as the first. So
+  // the button is not offered at all until the flag is known and on, rather
+  // than telling an officer their club was bought under someone else.
+  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
+  const canOpenPortal = flagsKnown && billingEnabled
+  const { enabled: clubsEnabled } = useFlag('clubs')
+  const clubsReleased = flagsKnown && clubsEnabled
 
   const load = useCallback(async () => {
     const result = await api('/api/club/roster')
@@ -417,6 +443,9 @@ export default function ClubAdmin() {
   }, [])
 
   useEffect(() => {
+    // "Loading your club…" until the flags land; nothing is asked of a
+    // console that turns out not to exist.
+    if (!clubsReleased) return
     load().then((body) => {
       if (!body || opened.current) return
       opened.current = true
@@ -426,7 +455,7 @@ export default function ClubAdmin() {
         club_id: body.club?.id ?? null,
       })
     })
-  }, [load])
+  }, [load, clubsReleased])
 
   const handleRole = async (uid, role) => {
     setBusy(true)
@@ -497,6 +526,8 @@ export default function ClubAdmin() {
     await api('/api/club/manage/signout', { method: 'POST' }).catch(() => {})
     window.location.assign('/club/admin')
   }
+
+  if (flagsKnown && !clubsEnabled) return <NotFoundView />
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -583,14 +614,16 @@ export default function ClubAdmin() {
             <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
               <h3 className="text-sm uppercase tracking-wide text-gray-400">Billing</h3>
               {roster.actor?.type === 'zoom' ? (
-                <button
-                  onClick={handlePortal}
-                  disabled={busy}
-                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 font-medium text-white hover:bg-white/20 disabled:opacity-60"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Manage billing
-                </button>
+                canOpenPortal && (
+                  <button
+                    onClick={handlePortal}
+                    disabled={busy}
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 font-medium text-white hover:bg-white/20 disabled:opacity-60"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Manage billing
+                  </button>
+                )
               ) : (
                 // The Stripe portal is opened against the buyer's own customer
                 // record, which is keyed by their Zoom uid — so the way through

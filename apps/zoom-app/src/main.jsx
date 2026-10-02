@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
-import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter } from '@toastmaster-timer/shared'
+import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, setFlags, initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter } from '@toastmaster-timer/shared'
 import { initPostHog, identifyUser, setUserProperties, registerSessionProperties, trackEvent } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
@@ -68,10 +68,14 @@ drainOutbox({ getToken: getSessionToken }).catch((error) => {
 // person to us next week instead of a brand-new anonymous ID. Deliberately not
 // awaited: rendering and the SDK handshake must not wait on analytics.
 resolveZoomIdentity()
-  .then(({ identified, isGuest, uid, authStatus, role, contextType, meetingId, entitlement }) => {
+  .then(({ identified, isGuest, uid, authStatus, role, contextType, meetingId, entitlement, flags }) => {
     // The server's answer on what this user may use. Guests and anonymous
     // loads are free; saying so now stops the UI from guessing.
     setEntitlement(entitlement ?? FREE_ENTITLEMENT);
+    // And on which unreleased features to show, in the same breath, so a
+    // flag-gated control and an entitlement-gated one appear together. Held
+    // for the whole session; nothing re-asks.
+    setFlags(flags);
 
     // The zoom: prefix keeps the ID out of PostHog's anonymous namespace —
     // identifying with a value that was once an anonymous distinct_id is the

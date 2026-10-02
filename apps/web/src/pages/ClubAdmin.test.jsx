@@ -1,7 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { resetClubForTests } from '@toastmaster-timer/shared';
+import { resetClubForTests, resetFlagsForTests, setFlags } from '@toastmaster-timer/shared';
 import ClubAdmin from './ClubAdmin';
 
 /**
@@ -71,8 +71,17 @@ const renderConsole = () =>
     </MemoryRouter>
   );
 
+/**
+ * The flags as the Worker would answer them, with clubs released: the console
+ * is a door into a club and is not there at all otherwise (see the last block).
+ * Anything a test does not name is off.
+ */
+const released = (flags = {}) => setFlags({ clubs: true, ...flags });
+
 beforeEach(() => {
   resetClubForTests();
+  resetFlagsForTests();
+  released();
 });
 
 afterEach(() => {
@@ -81,6 +90,7 @@ afterEach(() => {
 
 describe('ClubAdmin — the two doors', () => {
   it('offers Zoom sign-in and the billing link when nobody is signed in', async () => {
+    released({ web_signin: true });
     stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
     renderConsole();
 
@@ -90,6 +100,7 @@ describe('ClubAdmin — the two doors', () => {
   });
 
   it('explains why a non-admin was refused, and still offers both doors', async () => {
+    released({ web_signin: true });
     stubApi({ '/api/club/roster': { status: 403, body: { error: 'forbidden' } } });
     renderConsole();
 
@@ -113,6 +124,38 @@ describe('ClubAdmin — the two doors', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('If that address pays for a club');
     const sent = calls.find((call) => call.path === '/api/club/magic-link');
     expect(JSON.parse(sent.body)).toEqual({ email: 'nobody@example.com' });
+  });
+});
+
+// Sign-in is one of the two doors and waits for web_signin. The mailed link is
+// the other, and stays open whatever the flag says.
+describe('ClubAdmin — the web_signin flag', () => {
+  it('offers only the billing link when the answer does not mention web_signin', async () => {
+    stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
+    renderConsole();
+
+    expect(await screen.findByLabelText('Admin moved on?')).toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
+  });
+
+  it('offers only the billing link when the flag is off, and says so', async () => {
+    released({ web_signin: false });
+    stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
+    renderConsole();
+
+    expect(await screen.findByLabelText('Admin moved on?')).toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
+    expect(screen.queryByText(/Sign in with the Zoom account/)).toBeNull();
+    expect(screen.getByText('Ask for a link at the address that pays for your club.')).toBeInTheDocument();
+  });
+
+  it('offers Zoom sign-in once the flag is on', async () => {
+    released({ web_signin: true });
+    stubApi({ '/api/club/roster': { status: 401, body: { error: 'Unauthorized' } } });
+    renderConsole();
+
+    expect(await screen.findByTestId('sign-in-with-zoom')).toHaveAttribute('href', '/api/auth/zoom/start?returnTo=%2Fclub%2Fadmin');
+    expect(screen.getByLabelText('Admin moved on?')).toBeInTheDocument();
   });
 });
 
@@ -280,9 +323,32 @@ describe('ClubAdmin — the kit', () => {
 
 describe('ClubAdmin — billing', () => {
   it('offers the Stripe portal to the Zoom actor', async () => {
+    released({ pro_billing: true });
     stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
     renderConsole();
     expect(await screen.findByRole('button', { name: /Manage billing/ })).toBeInTheDocument();
+  });
+
+  // The portal's 404 already means "no Stripe customer on this account", and
+  // the page turns it into "bought under a different Zoom account". A portal
+  // refused by the flag must never reach that message, so the button is gone.
+  it('offers no portal while pro_billing is off', async () => {
+    released({ pro_billing: false });
+    stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
+    renderConsole();
+
+    expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
+    expect(screen.getByText('Billing')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Manage billing/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/different Zoom account/)).not.toBeInTheDocument();
+  });
+
+  it('offers no portal when the answer does not mention pro_billing', async () => {
+    stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
+    renderConsole();
+
+    expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Manage billing/ })).not.toBeInTheDocument();
   });
 
   // The portal is opened against the buyer's Stripe customer, which is keyed by
@@ -300,5 +366,41 @@ describe('ClubAdmin — billing', () => {
     expect(await screen.findByText(/Promote a current officer to Admin/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Manage billing/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sign out of this admin session/ })).toBeInTheDocument();
+  });
+});
+
+// The console is a door into a club. While clubs is dark the Worker refuses
+// the way in, so the page is not there either — and it asks for nothing.
+describe('ClubAdmin — the clubs flag', () => {
+  it('waits for the flags, and asks the Worker nothing, while they are still unknown', async () => {
+    resetFlagsForTests();
+    const calls = stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
+    renderConsole();
+
+    expect(screen.getByText('Loading your club…')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([]);
+    expect(screen.queryByTestId('not-found')).toBeNull();
+  });
+
+  it('is the not-found view when clubs is off, whoever is asking', async () => {
+    setFlags({ clubs: false, web_signin: true, pro_billing: true });
+    const calls = stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
+    renderConsole();
+
+    expect(screen.getByTestId('not-found')).toHaveTextContent('Page not found');
+    expect(screen.queryByText('Downtown Speakers')).toBeNull();
+    expect(screen.queryByLabelText('Admin moved on?')).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([]);
+  });
+
+  it('opens the console once the flags land with clubs on', async () => {
+    resetFlagsForTests();
+    stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
+    renderConsole();
+
+    act(() => { released(); });
+    expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
   });
 });

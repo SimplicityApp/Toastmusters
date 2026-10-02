@@ -5,6 +5,8 @@ import { activateClub } from '@toastmaster-timer/shared'
 import { useWebIdentity } from '../hooks/useEntitlement'
 import { useClub } from '../components/ClubCodeSection'
 import { trackEvent } from '../utils/posthog'
+import { useFlag } from '../hooks/useFlag'
+import NotFoundView from '../components/NotFoundView'
 
 /**
  * /pro/<code> — the officer's shareable link.
@@ -14,6 +16,10 @@ import { trackEvent } from '../utils/posthog'
  * times in Zoom exactly where to type the same code, which is the other half of
  * the job — the link is the discoverability mechanism for a field that has no
  * banner and no first-launch prompt pointing at it.
+ *
+ * Joining is a door into a club, so this sits behind the `clubs` release flag:
+ * it waits for the flags before activating anything, and while clubs is off it
+ * is the not-found view and activates nothing.
  */
 
 const CLUB_ERRORS = {
@@ -26,6 +32,8 @@ export default function ProActivate() {
   const { code } = useParams()
   const identity = useWebIdentity()
   const club = useClub()
+  const { enabled: clubsEnabled, known: flagsKnown } = useFlag('clubs')
+  const clubsReleased = flagsKnown && clubsEnabled
   const [phase, setPhase] = useState('activating') // activating | done | error
   const [error, setError] = useState(null)
   // Activation writes a device record, so it must happen once per visit and not
@@ -33,7 +41,7 @@ export default function ProActivate() {
   const startedRef = useRef(false)
 
   useEffect(() => {
-    if (startedRef.current) return
+    if (!clubsReleased || startedRef.current) return
     startedRef.current = true
 
     activateClub(code).then((result) => {
@@ -55,7 +63,9 @@ export default function ProActivate() {
       })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code])
+  }, [code, clubsReleased])
+
+  if (flagsKnown && !clubsEnabled) return <NotFoundView />
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">

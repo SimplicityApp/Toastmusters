@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { readSession, readClub } from './auth.js';
-import { json, methodNotAllowed, notConfigured, unauthorized } from './http.js';
+import { json, methodNotAllowed, notConfigured, notFound, unauthorized } from './http.js';
+import { flagEnabled } from './flags.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
 import { mintClubToken } from './club-token.js';
 import { normalizeCode, formatCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
@@ -22,6 +23,11 @@ import { handleMagicLinkRequest, handleClubManage, handleClubManageSignOut } fro
  * when `ver` moves, while plan and `entitled` carry no version and are applied
  * every time — a club can lapse with nothing having been written, because a
  * grace window just expires against the clock.
+ *
+ * The doors into a club sit behind the `clubs` release flag (worker/flags.js):
+ * while it is off, activate, create, magic-link and manage answer a bare 404.
+ * The refresh and every route that needs an existing club stay open, so a
+ * device already in a club keeps working (see CLUB_DOORS below).
  */
 
 /**
@@ -488,14 +494,47 @@ export async function handleClubState(request, env) {
 }
 
 /**
+ * The routes that let someone into a club: joining with a code, minting one,
+ * and the two halves of the mailed admin link. These, and only these, sit
+ * behind the `clubs` release flag (worker/flags.js).
+ *
+ * Everything else stays open on purpose. A 404 from GET /api/club makes the
+ * client leave the club, and a 4xx from the speech outbox makes it drop the
+ * queued speech, so a blanket gate would evict club devices and lose their
+ * work the first time the flag went off. The other routes need a club token or
+ * an admin session, and while the flag is off nobody can get either.
+ */
+const CLUB_DOORS = new Set(['activate', 'create', 'magic-link', 'manage']);
+
+/**
+ * Whether clubs are released for this caller. By uid when a session rides
+ * along (a Zoom app bearer, or a web cookie); otherwise the anonymous
+ * position, which is what a guest device or a mailed link gets.
+ */
+async function clubsReleased(request, env, ctx) {
+  const uid = readSession(request, env)?.uid ?? null;
+  return flagEnabled(env, 'clubs', { uid }, ctx);
+}
+
+/**
  * Dispatch for /api/club and /api/club/*.
  *
  * @param {Request} request
  * @param {URL} url
  * @param {Object} env
+ * @param {{ctx?: Object}} [deps] - ctx lets the flag answer be cached at the edge
+ * @returns {Promise<Response>}
  */
-export function handleClub(request, url, env) {
+export async function handleClub(request, url, env, { ctx } = {}) {
   const route = url.pathname.slice('/api/club'.length).replace(/^\/+|\/+$/g, '');
+
+  // Ahead of every other answer, so a dark door cannot be told apart from a
+  // mistyped URL — not even by a 401, a 405 or a "not configured" 503.
+  if (CLUB_DOORS.has(route) && !(await clubsReleased(request, env, ctx))) {
+    console.log('flag off: clubs', route);
+    return notFound();
+  }
+
   if (route === '') return handleClubState(request, env);
   if (route === 'activate') return handleClubActivate(request, env);
   if (route === 'create') return handleClubCreate(request, env);
@@ -513,5 +552,5 @@ export function handleClub(request, url, env) {
   const admin = handleClubAdminRoutes(request, route, env);
   if (admin) return admin;
 
-  return json({ error: 'Not found' }, 404);
+  return notFound();
 }

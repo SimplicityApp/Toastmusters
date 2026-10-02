@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { Sparkles, UserRound } from 'lucide-react'
 import { useEntitlement, useWebIdentity } from '../hooks/useEntitlement'
+import { useFlag } from '../hooks/useFlag'
 import { signInUrl } from '../utils/webIdentity'
 
 /**
@@ -9,10 +10,16 @@ import { signInUrl } from '../utils/webIdentity'
  * Renders nothing until the Worker has said whether there is a session, so
  * signed-in users never see a sign-in button flash. `compact` is the small
  * variant for the timer's top bar.
+ *
+ * The sign-in link is behind the `web_signin` release flag, and waits for the
+ * flags as well as the identity. Someone already signed in keeps their account
+ * link whatever the flag says: that session is real, and signing out of it
+ * must always be reachable.
  */
 export default function AccountMenu({ compact = false }) {
   const identity = useWebIdentity()
   const { isPro, known } = useEntitlement()
+  const { enabled: signInEnabled, known: flagsKnown } = useFlag('web_signin')
   const location = useLocation()
 
   if (!identity) return null
@@ -23,6 +30,7 @@ export default function AccountMenu({ compact = false }) {
     : 'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors'
 
   if (!identity.identified) {
+    if (!flagsKnown || !signInEnabled) return null
     return (
       <a
         href={signInUrl(returnTo)}

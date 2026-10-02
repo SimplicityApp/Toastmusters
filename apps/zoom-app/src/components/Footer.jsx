@@ -1,6 +1,7 @@
 import { useState, lazy, Suspense, memo } from 'react';
 import { MessageSquare, Star, Sparkles } from 'lucide-react';
 import { useEntitlement } from '../hooks/useEntitlement';
+import { useFlag } from '../hooks/useFlag';
 import {
   FEEDBACK_SURVEY_ID,
   REVIEW_PROMPT,
@@ -19,6 +20,7 @@ export default memo(function Footer() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const { isPro, known } = useEntitlement();
+  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing');
 
   const handleFeedbackClick = () => {
     (window.requestIdleCallback || setTimeout)(() => {
@@ -75,8 +77,9 @@ export default memo(function Footer() {
           <span>Review</span>
         </button>
         {/* Hidden until the server has said which plan this is, so a Pro user
-            never sees "Upgrade" flash before the answer lands. */}
-        {known && (
+            never sees "Upgrade" flash before the answer lands — and, the same
+            way, until it has said whether Pro billing is released at all. */}
+        {known && flagsKnown && billingEnabled && (
           <button
             onClick={() => setShowUpgradeModal(true)}
             className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors duration-150 ${

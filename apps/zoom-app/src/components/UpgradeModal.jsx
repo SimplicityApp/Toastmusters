@@ -16,6 +16,7 @@ import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
 import { getSessionToken, resolveZoomIdentity } from '../utils/zoomIdentity';
 import { useEntitlement } from '../hooks/useEntitlement';
+import { useFlag } from '../hooks/useFlag';
 
 /**
  * Buying Pro from inside Zoom, and joining a club that already bought it.
@@ -33,6 +34,10 @@ import { useEntitlement } from '../hooks/useEntitlement';
  * Guests (not signed in to Zoom, or the app not added) have no identity to
  * attach a purchase to, so they are pointed at adding the app first — but the
  * code field works for them, which is the whole point of it.
+ *
+ * The code field and the club setup card are the doors into a club, and sit
+ * behind the `clubs` release flag. A device already in a club still sees its
+ * club, and can still leave it: only the ways in go dark.
  */
 
 const PRICE_COPY = {
@@ -91,6 +96,10 @@ async function openPortal() {
 
 export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUpgraded }) {
   const { entitlement, isPro } = useEntitlement();
+  // Joining with a code and setting a club up are both refused by the server
+  // while clubs is dark, so neither is offered until the flag is known and on.
+  const { enabled: clubsEnabled, known: flagsKnown } = useFlag('clubs');
+  const showClubDoors = flagsKnown && clubsEnabled;
   const club = useClub();
   const [identity, setIdentity] = useState(null);
   const [phase, setPhase] = useState('choose'); // choose | opening | waiting | done | error
@@ -271,6 +280,7 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   const adminUrl = shareUrl ? new URL('/club/admin', shareUrl).toString() : null;
 
   const renderClubSetup = () => {
+    if (!showClubDoors) return null;
     if (!shareCode && !canCreateClub) return null;
     return (
       <div className="mt-4 pt-4 border-t border-gray-200">
@@ -297,7 +307,7 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
    * common case at this point, and a timer who was told where to type arrives
    * knowing what they are looking for.
    */
-  const renderCodeEntry = () => (
+  const renderCodeEntry = () => showClubDoors && (
     <form onSubmit={handleActivate} className="mt-4 pt-4 border-t border-gray-200">
       <label htmlFor="club-code" className="block text-sm font-medium text-gray-700">
         Already on Pro through your club?

@@ -17,5 +17,8 @@ export function json(body, status = 200, headers = {}) {
 }
 
 export const unauthorized = () => json({ error: 'Unauthorized' }, 401);
+// Also what a flagged-off feature answers, so it cannot be told apart from a
+// mistyped URL on the wire.
+export const notFound = () => json({ error: 'Not found' }, 404);
 export const methodNotAllowed = () => json({ error: 'Method not allowed' }, 405);
 export const notConfigured = (what) => json({ error: `${what} is not configured` }, 503);

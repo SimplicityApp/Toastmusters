@@ -26,11 +26,17 @@
   //    toastmusters.com`, which auto-provisions SPF and DKIM; DMARC is not
   //    auto-added and should be set alongside it). Dev needs its own onboarded
   //    domain, since env.dev serves the *-dev hosts.
+  //  - FLAGS_FORCE: short-circuits the release flags (worker/flags.js). "1"
+  //    turns every flag on, "0" turns every flag off, anything else asks
+  //    PostHog. Production leaves it "" and always asks. Never "1" here: that
+  //    would light up every dark feature at once, and worker/flags.test.js
+  //    fails if it is.
   "vars": {
     "WEB_ORIGIN": "https://www.timer.simple-tech.app",
     "ENTITLEMENT_ENFORCE": "1",
     "STRIPE_AUTOMATIC_TAX": "0",
-    "MAGIC_LINK_FROM": "no-reply@toastmusters.com"
+    "MAGIC_LINK_FROM": "no-reply@toastmusters.com",
+    "FLAGS_FORCE": ""
   },
 
   // The club admin link, mailed to the club's billing address. A binding rather
@@ -168,17 +174,25 @@
           }
         ]
       },
+      // FLAGS_FORCE "1" keeps dev working with every feature on, and makes no
+      // flag requests. "0" exercises the dark path; clear it to test the real
+      // PostHog round trip.
       "vars": {
         "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
         "ENTITLEMENT_ENFORCE": "0",
         "STRIPE_AUTOMATIC_TAX": "0",
-        "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com"
+        "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com",
+        "FLAGS_FORCE": "1"
       }
     }
   }
 
   // Secrets are NOT stored here. Set them per environment with `wrangler secret put`:
-  //   ZOOM_WEBHOOK_SECRET_TOKEN, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, POSTHOG_API_KEY,
+  //   ZOOM_WEBHOOK_SECRET_TOKEN, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
+  //   POSTHOG_API_KEY (the public project key, phc_…: server-side capture from the
+  //     Zoom webhook, and the release flags' POST /flags in worker/flags.js. Missing,
+  //     every flag is at its FLAG_FALLBACKS value, so every gated feature is dark
+  //     unless FLAGS_FORCE says otherwise. See docs/FEATURE_FLAGS.md.)
   //   POSTHOG_QUERY_API_KEY (personal key with Query read scope, for /api/stats)
   //   SESSION_SIGNING_KEY (HMAC key for /api/profile session tokens; generate with
   //     `openssl rand -base64 32`. Deliberately NOT ZOOM_CLIENT_SECRET — that one is

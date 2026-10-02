@@ -8,6 +8,8 @@ import {
   CLUB_STORAGE_KEY,
   resetClubForTests,
   resetEntitlementForTests,
+  resetFlagsForTests,
+  setFlags,
   initClubFromCache,
   getEntitlement,
 } from '@toastmaster-timer/shared';
@@ -48,6 +50,10 @@ beforeEach(() => {
   localStorage.clear();
   resetClubForTests();
   resetEntitlementForTests();
+  resetFlagsForTests();
+  // Released unless a test says otherwise; the dark position has its own block
+  // at the end.
+  setFlags({ clubs: true });
   resolveZoomIdentity.mockResolvedValue({ identified: true, uid: 'u1' });
   global.fetch = vi.fn();
 });
@@ -325,5 +331,73 @@ describe('setting up a club', () => {
 
     await user.click(await screen.findByRole('button', { name: /manage your club/i }));
     expect(openExternalUrl).toHaveBeenCalledWith('https://www.example.test/club/admin');
+  });
+});
+
+/**
+ * The `clubs` release flag. Only the doors go dark — the code field and the
+ * setup card — because the server refuses activate and create while it is off.
+ * The pitch, the purchase, and a device already in a club are all unchanged.
+ */
+describe('while clubs is not released', () => {
+  const codeField = () => screen.queryByLabelText(/already on pro through your club/i);
+  const setupButton = () => screen.queryByRole('button', { name: /set up my club/i });
+
+  it('offers no code field while the flags are still unknown', async () => {
+    resetFlagsForTests();
+    renderModal();
+
+    expect(await screen.findByRole('button', { name: /monthly/i })).toBeInTheDocument();
+    expect(codeField()).toBeNull();
+  });
+
+  it('keeps the pitch and the prices, and offers no code field', async () => {
+    setFlags({ clubs: false });
+    renderModal();
+
+    expect(await screen.findByText(/One Pro account for your whole club/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /monthly/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/your club's name/i)).toBeInTheDocument();
+    expect(codeField()).toBeNull();
+  });
+
+  it('tells a guest how to subscribe, with no code field', async () => {
+    setFlags({ clubs: false });
+    resolveZoomIdentity.mockResolvedValue({ identified: false, isGuest: true });
+    renderModal();
+
+    expect(await screen.findByText(/sign in to Zoom and add Toastmasters Timer/i)).toBeInTheDocument();
+    expect(codeField()).toBeNull();
+  });
+
+  it('offers a subscriber no club setup', async () => {
+    setFlags({ clubs: false });
+    const { setEntitlement } = await import('@toastmaster-timer/shared');
+    setEntitlement({ plan: 'pro', entitled: true, status: 'active', source: 'subscription' });
+    renderModal();
+
+    expect(await screen.findByRole('button', { name: /manage billing/i })).toBeInTheDocument();
+    expect(setupButton()).toBeNull();
+  });
+
+  // A device that joined while clubs was on keeps its club, and leaving must
+  // always work.
+  it('still shows a device its club, and still lets it leave', async () => {
+    setFlags({ clubs: false });
+    localStorage.setItem(
+      CLUB_STORAGE_KEY,
+      JSON.stringify({
+        clubToken: 'tok.sig',
+        lastRefreshAt: Date.now(),
+        ...clubState({ role: 'admin', code: 'DTSP-7K2QM9', shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9' }),
+      })
+    );
+    initClubFromCache();
+    renderModal();
+
+    expect(await screen.findByText(/Downtown Speakers/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /leave this club on this device/i })).toBeInTheDocument();
+    // The code is a door for somebody else, and that door is shut.
+    expect(screen.queryByDisplayValue('DTSP-7K2QM9')).toBeNull();
   });
 });

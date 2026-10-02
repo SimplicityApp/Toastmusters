@@ -112,7 +112,7 @@ export default {
     // It also has to stay ahead of host routing so the zoom.<domain> host can
     // reach it without being rewritten into /zoom/*.
     if (pathname === '/api/zoom/session') {
-      return handleZoomSession(request, env);
+      return handleZoomSession(request, env, ctx);
     }
 
     // Cross-device settings. Ahead of the redirect for the same body-dropping
@@ -137,19 +137,21 @@ export default {
 
     // Club activation and the daily club refresh. Ahead of the www redirect
     // like every other POST, and ahead of host routing so the Zoom app can
-    // reach it from the zoom.<domain> host.
+    // reach it from the zoom.<domain> host. The doors into a club (activate,
+    // create, the admin link) sit behind the clubs flag; the refresh never does.
     if (pathname === '/api/club' || pathname.startsWith('/api/club/')) {
-      return handleClub(request, url, env);
+      return handleClub(request, url, env, { ctx });
     }
 
-    // Identity + entitlement re-check (polled after a purchase).
+    // Identity + entitlement re-check (polled after a purchase). The web app's
+    // identity call adds ?flags=1 for the release flags; the polls do not.
     if (pathname === '/api/me') {
-      return handleMe(request, env);
+      return handleMe(request, env, ctx);
     }
 
     // Stripe Checkout / Billing Portal. Ahead of the redirect like every POST.
     if (pathname.startsWith('/api/billing/')) {
-      return handleBilling(request, url, env);
+      return handleBilling(request, url, env, { ctx });
     }
 
     // Stripe webhook: a 301 would drop the signed body, exactly like Zoom's.
@@ -160,14 +162,15 @@ export default {
     // Sign in with Zoom (web). The callback shares /oauth/redirect with the
     // Marketplace install flow: only a request carrying a state we signed is a
     // sign-in; everything else falls through to the SPA's install-success page.
+    // Both sit behind the web_signin flag; logout never does.
     if (pathname === '/api/auth/zoom/start') {
-      return handleAuthStart(request, url, env);
+      return handleAuthStart(request, url, env, { ctx });
     }
     if (pathname === '/api/auth/logout') {
       return handleLogout(request);
     }
     if (pathname === '/oauth/redirect' && url.searchParams.has('state')) {
-      const signedIn = await handleOAuthCallback(request, url, env);
+      const signedIn = await handleOAuthCallback(request, url, env, { ctx });
       if (signedIn) return signedIn;
     }
 

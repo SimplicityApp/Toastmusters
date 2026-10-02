@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { verifySessionToken, readBearerToken, mintSessionToken } from './session-token.js';
 import { verifyClubToken, readClubHeader } from './club-token.js';
-import { json, notConfigured, methodNotAllowed } from './http.js';
+import { json, notFound, notConfigured, methodNotAllowed } from './http.js';
+import { flagEnabled } from './flags.js';
 import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
 
 /**
@@ -18,6 +19,10 @@ import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
  *
  * One identity namespace, two doors. A subscription bought in Zoom is therefore
  * the same subscription on the web with nothing to link.
+ *
+ * The web door sits behind the `web_signin` release flag (worker/flags.js):
+ * while it is off, the start answers a bare 404 and the callback falls through
+ * to the install page. Logout is never gated, so signing out always works.
  */
 
 export const SESSION_COOKIE = 'tt_session';
@@ -229,6 +234,19 @@ function canonicalStartUrl(url, env, returnTo) {
 }
 
 /**
+ * Whether web sign-in is released for this caller.
+ *
+ * Usually nobody is signed in yet, so this is the anonymous position. A caller
+ * who already holds a session (an officer refused as a non-admin on
+ * /club/admin, signing in again as someone else) is asked for by uid, the same
+ * way /api/me?flags=1 asked when it decided to show them the link.
+ */
+async function signInReleased(request, env, ctx) {
+  const uid = readSession(request, env)?.uid ?? null;
+  return flagEnabled(env, 'web_signin', { uid }, ctx);
+}
+
+/**
  * GET /api/auth/zoom/start?returnTo=/app — send the browser to Zoom.
  *
  * The state is signed and carries a nonce that is also set as a short-lived
@@ -237,8 +255,17 @@ function canonicalStartUrl(url, env, returnTo) {
  * with Zoom, so sign-in always lands (and sets its cookie) on the canonical
  * web host, whichever host the user started from — which is exactly why the
  * start has to happen there too.
+ *
+ * @returns {Promise<Response>}
  */
-export function handleAuthStart(request, url, env, { now = Date.now() } = {}) {
+export async function handleAuthStart(request, url, env, { now = Date.now(), ctx } = {}) {
+  // Ahead of every other answer, so a dark sign-in cannot be told apart from a
+  // mistyped URL — not even by a 405 or a "not configured" 503.
+  if (!(await signInReleased(request, env, ctx))) {
+    console.log('flag off: web_signin', 'start');
+    return notFound();
+  }
+
   if (request.method !== 'GET') return methodNotAllowed();
   if (!env.ZOOM_CLIENT_ID || !env.WEB_ORIGIN) return notConfigured('Sign in with Zoom');
   if (!env.SESSION_SIGNING_KEY) return notConfigured('Sign in with Zoom (signing key)');
@@ -267,13 +294,23 @@ export function handleAuthStart(request, url, env, { now = Date.now() } = {}) {
  * set without a valid state; otherwise an attacker could complete an install
  * with their own code and log the victim's browser in as them.
  *
+ * While web_signin is off this is null too, rather than a 404: the install flow
+ * shares the URL, and a real install redirect has to keep working while
+ * sign-in is dark. Checked after the state, so an install never costs a flag
+ * lookup.
+ *
  * @returns {Promise<Response|null>}
  */
-export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch, now = Date.now() } = {}) {
+export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch, now = Date.now(), ctx } = {}) {
   const state = url.searchParams.get('state');
   if (!state) return null;
   const payload = verifyState(state, env.SESSION_SIGNING_KEY, now);
   if (!payload || payload.purpose !== 'signin') return null;
+
+  if (!(await signInReleased(request, env, ctx))) {
+    console.log('flag off: web_signin', 'callback');
+    return null;
+  }
 
   const returnTo = sanitizeReturnTo(payload.returnTo);
   const origin = env.WEB_ORIGIN || url.origin;

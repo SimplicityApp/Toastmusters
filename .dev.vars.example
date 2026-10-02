@@ -4,7 +4,16 @@
 ZOOM_WEBHOOK_SECRET_TOKEN=
 ZOOM_CLIENT_ID=
 ZOOM_CLIENT_SECRET=
+# Public project key (phc_…). Server-side capture from the Zoom webhook, and the
+# release flags (POST /flags in worker/flags.js). Leave it empty and every flag
+# is at its checked-in fallback, which is off.
 POSTHOG_API_KEY=
+# Release flags (docs/FEATURE_FLAGS.md). `npm run cf:dev` runs without --env dev,
+# so it reads the production block, where FLAGS_FORCE is "" and PostHog is
+# asked. With no key above, that hides every gated feature (Pro billing, web
+# sign-in, clubs). "1" turns every flag on, "0" turns every flag off, and empty
+# asks PostHog. A value here overrides wrangler.jsonc.
+FLAGS_FORCE=1
 # Personal API key (phx_…) with "Query read" scope, for /api/stats.
 # Create at https://us.posthog.com/settings/user-api-keys — the project key
 # above cannot run queries.

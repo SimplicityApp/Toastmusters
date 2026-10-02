@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react
 import { ClubGraceBanner } from '@toastmaster-timer/ui'
 import { clubGraceReminder, dismissGraceReminder, loadClub, subscribeClub } from '@toastmaster-timer/shared'
 import { trackEvent } from '../utils/posthog'
+import { useFlag } from '../hooks/useFlag'
 
 /**
  * The renewal reminder, wired to this browser's club.
@@ -12,12 +13,17 @@ import { trackEvent } from '../utils/posthog'
  * the system browser instead.
  *
  * Renders nothing unless a club is inside its grace window.
+ *
+ * "Manage billing" is offered only once pro_billing is known and on. While it
+ * is off the portal answers 404, and this button would do nothing at all.
  */
 export default function ClubStatusBanner() {
   const club = useSyncExternalStore(subscribeClub, loadClub, () => null)
   // Bumped by a dismissal so the memo below re-asks; the answer itself lives in
   // localStorage, which is what makes the reminder come back tomorrow.
   const [dismissals, setDismissals] = useState(0)
+  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
+  const canOpenPortal = flagsKnown && billingEnabled
 
   const reminder = useMemo(() => clubGraceReminder(), [club, dismissals])
 
@@ -50,7 +56,7 @@ export default function ClubStatusBanner() {
       clubName={reminder.clubName || 'Your club'}
       daysLeft={reminder.daysLeft}
       isAdmin={reminder.isAdmin}
-      onManageBilling={handleManageBilling}
+      onManageBilling={canOpenPortal ? handleManageBilling : undefined}
       onDismiss={handleDismiss}
     />
   )

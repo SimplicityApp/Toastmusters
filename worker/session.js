@@ -1,6 +1,7 @@
 import { decryptAppContext } from './zoom-context.js';
 import { mintSessionToken } from './session-token.js';
 import { resolveAccess } from './entitlements.js';
+import { resolveFlags } from './flags.js';
 import { readClub } from './auth.js';
 
 /**
@@ -52,11 +53,17 @@ async function readContextFromBody(request) {
 }
 
 /**
+ * Every branch carries `flags`, the release flags for this caller (see
+ * worker/flags.js). This is one of the two places they are resolved, once per
+ * app load; nothing that polls resolves them again.
+ *
  * @param {Request} request
- * @param {Object} env - Worker env (ZOOM_CLIENT_SECRET, SESSION_SIGNING_KEY)
+ * @param {Object} env - Worker env (ZOOM_CLIENT_SECRET, SESSION_SIGNING_KEY,
+ *   FLAGS_FORCE, POSTHOG_API_KEY)
+ * @param {Object} [ctx] - lets the flag answer be cached at the edge
  * @returns {Promise<Response>}
  */
-export async function handleZoomSession(request, env) {
+export async function handleZoomSession(request, env, ctx) {
   if (request.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
   }
@@ -68,19 +75,28 @@ export async function handleZoomSession(request, env) {
     // Either nothing was sent, or what was sent could not be trusted. The
     // client stays anonymous; `isGuest` stays false because we genuinely do not
     // know whether this is a guest or a client that simply told us nothing.
-    return json({ identified: false, isGuest: false });
+    // Flags still come back: the environment-wide answer, with no uid to target.
+    return json({ identified: false, isGuest: false, flags: await resolveFlags(env, {}, ctx) });
   }
 
   // A successful decrypt with no uid is Zoom telling us this is a guest: they
   // are signed out, and no amount of retrying will produce an identity.
   if (!payload.uid) {
-    return json({ identified: false, isGuest: true });
+    return json({ identified: false, isGuest: true, flags: await resolveFlags(env, {}, ctx) });
   }
 
   // Minting is best-effort on purpose. Identity is useful for analytics even
   // before SESSION_SIGNING_KEY exists, so a missing signing key costs the sync
   // features and nothing else — which lets identity ship ahead of storage.
   const token = mintSessionToken(payload.uid, env.SESSION_SIGNING_KEY);
+
+  // Both never throw, and neither needs the other, so neither waits.
+  const [entitlement, flags] = await Promise.all([
+    // Combined with whatever club this device has already joined, so the line
+    // that records it cannot overwrite club-derived Pro with a free plan.
+    resolveAccess(env, { uid: payload.uid, clubId: readClub(request, env)?.clubId ?? null }),
+    resolveFlags(env, { uid: payload.uid }, ctx),
+  ]);
 
   return json({
     identified: true,
@@ -91,9 +107,9 @@ export async function handleZoomSession(request, env) {
     token,
     // What this user may use, resolved here so the app knows on its first
     // paint whether to offer sync or the upgrade path. Never throws.
-    //
-    // Combined with whatever club this device has already joined, so the line
-    // that records it cannot overwrite club-derived Pro with a free plan.
-    entitlement: await resolveAccess(env, { uid: payload.uid, clubId: readClub(request, env)?.clubId ?? null }),
+    entitlement,
+    // Which unreleased features this user can see. Targeted by uid, so a
+    // single account can be switched on in production.
+    flags,
   });
 }

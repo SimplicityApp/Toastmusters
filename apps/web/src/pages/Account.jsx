@@ -4,6 +4,7 @@ import { Sparkles, Check, ExternalLink, LogOut } from 'lucide-react'
 import { refreshEntitlement, createClub } from '@toastmaster-timer/shared'
 import ClubSetupCard from '@toastmaster-timer/ui/ClubSetupCard'
 import { useEntitlement, useWebIdentity } from '../hooks/useEntitlement'
+import { useFlag } from '../hooks/useFlag'
 import { useClub } from '../hooks/useClub'
 import { signInUrl, signOut } from '../utils/webIdentity'
 import { signinFailureMessage } from '../utils/signinFailure'
@@ -41,6 +42,21 @@ async function postJson(path, body) {
 export default function Account() {
   const identity = useWebIdentity()
   const { entitlement, isPro, known } = useEntitlement()
+  // The plan, the prices and "Manage billing" are all doors into Stripe, which
+  // stays dark until pro_billing is released. Hidden until the flags have
+  // landed too, so the section never appears and then vanishes.
+  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing')
+  const showPlan = flagsKnown && billingEnabled
+  // The signed-out card is one pitch for one door, Sign in with Zoom, so the
+  // whole card waits for web_signin. A signed-in visitor is unaffected: their
+  // session is real, and Sign out must always be there.
+  const { enabled: signInEnabled } = useFlag('web_signin')
+  const showSignIn = flagsKnown && signInEnabled
+  // Setting up a club and typing a code are the doors into one, both refused
+  // by the Worker while clubs is dark. A browser already in a club still sees
+  // it, and can still leave it.
+  const { enabled: clubsEnabled } = useFlag('clubs')
+  const showClubDoors = flagsKnown && clubsEnabled
   const { club } = useClub()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -242,52 +258,58 @@ export default function Account() {
           </p>
         )}
 
-        <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
-          <h3 className="text-sm uppercase tracking-wide text-gray-400">Your club</h3>
-          {/* Ahead of the code field: a subscriber with no club has nothing to
-              type, and the code field alone was the whole dead end. */}
-          {(shareCode || canCreateClub) && (
-            <div className="mt-3 border-b border-white/10 pb-6">
-              <ClubSetupCard
-                tone="dark"
-                code={shareCode}
-                shareUrl={shareUrl}
-                busy={clubBusy}
-                error={clubError}
-                onCreate={handleCreateClub}
-                onCopied={(what) => trackEvent('club_invite_copied', { surface: 'web', what })}
-                onManageClub={() => navigate('/club/admin')}
-              />
+        {(showClubDoors || club?.entitled) && (
+          <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6" data-testid="account-club">
+            <h3 className="text-sm uppercase tracking-wide text-gray-400">Your club</h3>
+            {/* Ahead of the code field: a subscriber with no club has nothing to
+                type, and the code field alone was the whole dead end. */}
+            {showClubDoors && (shareCode || canCreateClub) && (
+              <div className="mt-3 border-b border-white/10 pb-6">
+                <ClubSetupCard
+                  tone="dark"
+                  code={shareCode}
+                  shareUrl={shareUrl}
+                  busy={clubBusy}
+                  error={clubError}
+                  onCreate={handleCreateClub}
+                  onCopied={(what) => trackEvent('club_invite_copied', { surface: 'web', what })}
+                  onManageClub={() => navigate('/club/admin')}
+                />
+              </div>
+            )}
+            <div className="mt-4">
+              <ClubCodeSection source="web_account" identified={Boolean(identity?.identified)} />
             </div>
-          )}
-          <div className="mt-4">
-            <ClubCodeSection source="web_account" identified={Boolean(identity?.identified)} />
-          </div>
-        </section>
+          </section>
+        )}
 
         {identity === null ? (
           <p className="mt-6 text-gray-300">Loading…</p>
         ) : !identity.identified ? (
-          <div className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-8">
-            <p className="text-gray-200">
-              Sign in with your Zoom account to see your plan and to have your settings follow you
-              between this browser and the Zoom app. No password: Zoom confirms who you are.
-            </p>
-            <a
-              href={signInUrl('/account')}
-              className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 hover:bg-gray-100 no-underline"
-              data-testid="sign-in-with-zoom"
-            >
-              Sign in with Zoom
-            </a>
-          </div>
+          showSignIn && (
+            <div className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-8" data-testid="account-sign-in">
+              <p className="text-gray-200">
+                Sign in with your Zoom account to see your plan and to have your settings follow you
+                between this browser and the Zoom app. No password: Zoom confirms who you are.
+              </p>
+              <a
+                href={signInUrl('/account')}
+                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-gray-900 hover:bg-gray-100 no-underline"
+                data-testid="sign-in-with-zoom"
+              >
+                Sign in with Zoom
+              </a>
+            </div>
+          )
         ) : (
           <>
-            <section className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-6">
-              <h3 className="text-sm uppercase tracking-wide text-gray-400">Plan</h3>
-              <div className="mt-2">{renderPlan()}</div>
-              {error && <p className="mt-3 text-sm text-red-300" role="alert">{error}</p>}
-            </section>
+            {showPlan && (
+              <section className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-6" data-testid="account-plan">
+                <h3 className="text-sm uppercase tracking-wide text-gray-400">Plan</h3>
+                <div className="mt-2">{renderPlan()}</div>
+                {error && <p className="mt-3 text-sm text-red-300" role="alert">{error}</p>}
+              </section>
+            )}
 
             <section className="mt-6 rounded-2xl bg-black/30 border border-white/10 px-6 py-6">
               <h3 className="text-sm uppercase tracking-wide text-gray-400">Signed in</h3>

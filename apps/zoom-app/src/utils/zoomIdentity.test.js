@@ -40,6 +40,7 @@ describe('resolveZoomIdentity', () => {
         contextType: 'meeting',
         meetingId: 'mid-1',
         entitlement: { plan: 'pro', entitled: true },
+        flags: { pro_billing: true },
       })
     );
 
@@ -53,6 +54,7 @@ describe('resolveZoomIdentity', () => {
       contextType: 'meeting',
       meetingId: 'mid-1',
       entitlement: { plan: 'pro', entitled: true },
+      flags: { pro_billing: true },
     });
     expect(getSessionToken()).toBe('tok-1');
   });
@@ -85,7 +87,7 @@ describe('resolveZoomIdentity', () => {
 
   it('reports a guest as unidentified, with the status that explains why', async () => {
     readZoomUserSummary.mockResolvedValue({ status: 'unauthenticated', role: 'attendee' });
-    vi.stubGlobal('fetch', respondWith({ identified: false, isGuest: true }));
+    vi.stubGlobal('fetch', respondWith({ identified: false, isGuest: true, flags: { pro_billing: false } }));
 
     expect(await resolveZoomIdentity()).toEqual({
       identified: false,
@@ -97,14 +99,23 @@ describe('resolveZoomIdentity', () => {
       contextType: null,
       meetingId: null,
       entitlement: null,
+      // A guest has no entitlement but does get flags: the everyone position.
+      flags: { pro_billing: false },
     });
     expect(getSessionToken()).toBeNull();
   });
 
+  it('carries no flags from a server that sent none', async () => {
+    vi.stubGlobal('fetch', respondWith({ identified: true, uid: 'uid-1', token: 't' }));
+
+    expect((await resolveZoomIdentity()).flags).toBeNull();
+  });
+
+  // Null rather than a guess, which the flag store records as "known, all off".
   it('falls back to anonymous when the endpoint fails', async () => {
     vi.stubGlobal('fetch', respondWith({}, { ok: false, status: 500 }));
 
-    expect(await resolveZoomIdentity()).toMatchObject({ identified: false, uid: null });
+    expect(await resolveZoomIdentity()).toMatchObject({ identified: false, uid: null, flags: null });
   });
 
   it('falls back to anonymous when the network is gone', async () => {
