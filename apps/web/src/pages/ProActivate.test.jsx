@@ -67,7 +67,7 @@ describe('ProActivate — the clubs flag', () => {
 
     expect(await screen.findByText(/You're on Pro in this browser/)).toBeInTheDocument();
     expect(activations()).toHaveLength(1);
-    expect(JSON.parse(activations()[0][1].body)).toEqual({ code: 'DTSP-7K2QM9' });
+    expect(JSON.parse(activations()[0][1].body)).toEqual({ code: 'DTSP-7K2QM9', deviceId: expect.any(String) });
   });
 
   it('activates nothing while the flags are still unknown, then activates once they land', async () => {

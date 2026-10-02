@@ -3,8 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
-import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, setFlags, initClubFromCache, refreshClub, warmClubLogo, drainOutbox } from '@toastmaster-timer/shared'
-import { initPostHog, identifyUser, setUserProperties, registerSessionProperties } from './utils/posthog'
+import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, setFlags, initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter } from '@toastmaster-timer/shared'
+import { initPostHog, identifyUser, setUserProperties, registerSessionProperties, trackEvent } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
 import { PostHogProvider } from '@posthog/react'
@@ -53,6 +53,10 @@ try {
 refreshClub({ getToken: getSessionToken }).catch((error) => {
   console.warn('Failed to refresh the club:', error);
 });
+
+// An upload that does not go out is invisible from here — the device keeps its
+// own copy and the timer sees nothing wrong — so it has to report itself.
+setArchiveReporter(trackEvent);
 
 // Speeches the last session could not hand over — a webview reload mid-meeting
 // is routine here, which is exactly why the queue lives in localStorage.

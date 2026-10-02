@@ -20,6 +20,8 @@
  *   node scripts/club-cli.mjs create  --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]
  *   node scripts/club-cli.mjs rotate  --env dev --club <clubId>
  *   node scripts/club-cli.mjs show    --env dev --club <clubId> | --code DTSP-7K2QM9
+ *   node scripts/club-cli.mjs backfill-admin-index --env dev [--apply]
+ *   node scripts/club-cli.mjs prune-devices --env dev --club <clubId> [--apply]
  */
 
 import { spawnSync } from 'node:child_process';
@@ -28,6 +30,7 @@ import {
   rotateClubCode,
   normalizeCode,
   formatCode,
+  clubAdminOfKey,
   clubByCodeKey,
   clubPendingKey,
   CLUB_PENDING_PREFIX,
@@ -146,6 +149,97 @@ function printClub(clubId, club) {
   );
 }
 
+/**
+ * Write `club-admin-of:zoom:<uid>` for every admin that predates it.
+ *
+ * The console's Zoom door used to need a club token in the same browser, which
+ * *Manage your club* — opening the system browser — can never have. The index
+ * is written beside every admin row from now on; this is the one pass over the
+ * rows that already existed.
+ *
+ * Dry by default. Reading the whole member space is cheap; writing over a
+ * pointer somebody is mid-demotion on is not.
+ */
+async function backfillAdminIndex(store, { apply }) {
+  const { keys } = await store.list({ prefix: 'club-member:' });
+  let written = 0;
+  let skipped = 0;
+  for (const entry of keys ?? []) {
+    const match = /^club-member:([^:]+):zoom:(.+)$/.exec(entry.name);
+    if (!match) continue;
+    const [, clubId, uid] = match;
+    // eslint-disable-next-line no-await-in-loop
+    const member = await store.get(entry.name, 'json');
+    if (member?.role !== 'admin' || member.revokedAt) {
+      skipped += 1;
+      continue;
+    }
+    process.stdout.write(`  ${apply ? 'write' : 'would write'}  ${clubAdminOfKey(uid)} -> ${clubId}\n`);
+    // eslint-disable-next-line no-await-in-loop
+    if (apply) await store.put(clubAdminOfKey(uid), clubId);
+    written += 1;
+  }
+  process.stdout.write(
+    [
+      '',
+      `  ${written} admin${written === 1 ? '' : 's'} ${apply ? 'indexed' : 'to index'}, ` +
+        `${skipped} row${skipped === 1 ? '' : 's'} skipped.`,
+      ...(apply || !written ? [] : ['  Re-run with --apply to write them.']),
+      '',
+    ].join('\n')
+  );
+}
+
+/**
+ * Drop the duplicate device rows a club collected before device ids were stable.
+ *
+ * Every activation used to mint a fresh id, so leaving and rejoining — or
+ * simply re-typing the code — added a row, and a roster read "4 devices · 1
+ * person" for one person with two browsers. Duplicates are rows with the same
+ * label *and* the same person; the most recently seen one survives. A revoked
+ * row is never dropped: it is the record of a decision.
+ */
+async function pruneDevices(store, clubId, { apply }) {
+  const prefix = `club-device:${clubId}:`;
+  const { keys } = await store.list({ prefix });
+  const rows = [];
+  for (const entry of keys ?? []) {
+    // eslint-disable-next-line no-await-in-loop
+    const device = await store.get(entry.name, 'json');
+    if (device) rows.push({ name: entry.name, device });
+  }
+
+  const groups = new Map();
+  for (const row of rows) {
+    if (row.device.revokedAt) continue;
+    const key = `${row.device.uid ?? ''}|${row.device.label ?? ''}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  let dropped = 0;
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => (b.device.lastSeenAt ?? 0) - (a.device.lastSeenAt ?? 0));
+    for (const row of group.slice(1)) {
+      process.stdout.write(`  ${apply ? 'delete' : 'would delete'}  ${row.name}  (${row.device.label})\n`);
+      // eslint-disable-next-line no-await-in-loop
+      if (apply) await store.delete(row.name);
+      dropped += 1;
+    }
+  }
+
+  process.stdout.write(
+    [
+      '',
+      `  ${rows.length} row${rows.length === 1 ? '' : 's'}, ` +
+        `${dropped} duplicate${dropped === 1 ? '' : 's'} ${apply ? 'deleted' : 'to delete'}.`,
+      ...(apply || !dropped ? [] : ['  Re-run with --apply to delete them.']),
+      '',
+    ].join('\n')
+  );
+}
+
 async function main() {
   const { command, flags } = parseArgs(process.argv.slice(2));
   const env = { PROFILES: kvNamespace(flags.env === true ? undefined : flags.env) };
@@ -224,6 +318,17 @@ async function main() {
     return;
   }
 
+  if (command === 'backfill-admin-index') {
+    await backfillAdminIndex(env.PROFILES, { apply: flags.apply === true });
+    return;
+  }
+
+  if (command === 'prune-devices') {
+    if (typeof flags.club !== 'string') throw new Error('--club <clubId> is required');
+    await pruneDevices(env.PROFILES, flags.club, { apply: flags.apply === true });
+    return;
+  }
+
   if (command === 'show') {
     let clubId = typeof flags.club === 'string' ? flags.club : null;
     if (!clubId && typeof flags.code === 'string') {
@@ -245,6 +350,8 @@ async function main() {
       '  node scripts/club-cli.mjs create  --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]',
       '  node scripts/club-cli.mjs rotate  --env dev --club <clubId>',
       '  node scripts/club-cli.mjs show    --env dev --club <clubId> | --code DTSP-7K2QM9',
+      '  node scripts/club-cli.mjs backfill-admin-index --env dev [--apply]',
+      '  node scripts/club-cli.mjs prune-devices --env dev --club <clubId> [--apply]',
       '',
       'Omit --env to act on production.',
       '',

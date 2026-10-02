@@ -148,6 +148,43 @@ export const clubMemberKey = (clubId, uid) => `club-member:${clubId}:zoom:${uid}
 export const clubPresetsKey = (clubId) => `club-presets:${clubId}`;
 
 /**
+ * The club a signed-in person administers, found from their uid alone.
+ *
+ * Member rows are keyed club-first (`club-member:<clubId>:zoom:<uid>`), which
+ * answers "what may this person do *here*" in one read and "which club is this
+ * person an officer of" not at all. The console needs the second question: an
+ * officer who opens *Manage your club* from the Zoom app lands in the system
+ * browser, which has a session but has never typed the club's code and so
+ * carries no club token to name a club with.
+ *
+ * A pointer, never the authority. It is written beside the member row and can
+ * lag it — a demotion that failed to clean up would otherwise silently keep an
+ * ex-officer in the console — so every reader re-checks `readMemberRole()`
+ * against the club it points at. Single-valued: someone who administers two
+ * clubs reaches the second one the way they always did, by opening its code.
+ */
+export const clubAdminOfKey = (uid) => `club-admin-of:zoom:${uid}`;
+
+/**
+ * Point this person's console at this club. Best effort, always: the member row
+ * is what grants the role, and a missing index costs a redirect, not access.
+ */
+export async function writeAdminIndex(store, uid, clubId) {
+  if (!store || !uid || !clubId) return;
+  await store.put(clubAdminOfKey(uid), clubId).catch(() => {});
+}
+
+/**
+ * Drop the pointer when this person stops administering this club — and only
+ * then, so demoting an officer of club A never unhooks their console from B.
+ */
+export async function clearAdminIndex(store, uid, clubId) {
+  if (!store || !uid || !clubId) return;
+  const current = await store.get(clubAdminOfKey(uid)).catch(() => null);
+  if (current === clubId) await store.delete(clubAdminOfKey(uid)).catch(() => {});
+}
+
+/**
  * What a person may change club-wide.
  *
  * Roles live only on member records, never on device records, which is what
@@ -251,6 +288,9 @@ export async function createClubFromPending(env, pending = {}, options = {}) {
       clubMemberKey(clubId, pending.uid),
       JSON.stringify({ role: 'admin', displayName: null, addedAt: now, revokedAt: null })
     );
+    // So the buyer can open the console in a browser that never typed the code
+    // — which is every browser, the first time Zoom opens one for them.
+    await writeAdminIndex(store, pending.uid, clubId);
   }
 
   return { clubId, code, club };

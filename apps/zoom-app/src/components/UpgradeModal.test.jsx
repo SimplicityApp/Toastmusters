@@ -78,7 +78,7 @@ describe('club code entry', () => {
 
     const [path, init] = global.fetch.mock.calls[0];
     expect(path).toBe('/api/club/activate');
-    expect(JSON.parse(init.body)).toEqual({ code: 'dtsp-7k2qm9' });
+    expect(JSON.parse(init.body)).toMatchObject({ code: 'dtsp-7k2qm9' });
     expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true, source: 'club' });
     expect(trackEvent).toHaveBeenCalledWith('club_code_activated', {
       surface: 'zoom',

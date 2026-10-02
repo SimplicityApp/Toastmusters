@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import worker from './index.js';
-import { handleClubActivate, handleClubState, verifiedClubId, deviceLabel } from './club.js';
+import { handleClubActivate, handleClubLeave, handleClubState, verifiedClubId, deviceLabel } from './club.js';
 import { createClubFromPending, rotateClubCode, normalizeCode, formatCode, clubPrefix, mintCode } from './club-admin.js';
 import { mintSessionToken } from './session-token.js';
 import { verifyClubToken } from './club-token.js';
@@ -53,7 +53,7 @@ beforeEach(() => {
   env = { PROFILES: kv, SESSION_SIGNING_KEY: SIGNING_KEY, ENTITLEMENT_ENFORCE: '1' };
 });
 
-const activateReq = (code, { uid, ip = '1.2.3.4', ua } = {}) =>
+const activateReq = (code, { uid, ip = '1.2.3.4', ua, deviceId } = {}) =>
   new Request('https://x/api/club/activate', {
     method: 'POST',
     headers: {
@@ -62,8 +62,11 @@ const activateReq = (code, { uid, ip = '1.2.3.4', ua } = {}) =>
       ...(ua ? { 'user-agent': ua } : {}),
       ...(uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {}),
     },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, ...(deviceId ? { deviceId } : {}) }),
   });
+
+const leaveReq = (clubToken) =>
+  new Request('https://x/api/club/leave', { method: 'POST', headers: { 'x-club': clubToken } });
 
 const stateReq = (clubToken, { uid } = {}) =>
   new Request('https://x/api/club', {
@@ -175,6 +178,47 @@ describe('POST /api/club/activate', () => {
     expect([...kv.store.keys()].filter((key) => key.startsWith(`club-member:${clubId}:`))).toEqual([
       `club-member:${clubId}:zoom:buyer-uid`,
     ]);
+  });
+
+  // A roster that grew a row every time somebody re-typed the code was showing
+  // "4 devices · 1 person" for one person with two browsers, and an admin
+  // cannot revoke a laptop they cannot pick out of a list of ghosts.
+  it('reuses the browser’s own device row rather than minting a second', async () => {
+    const { clubId } = await seedClub();
+    const browser = 'b7f3c1d9e2a44f10b8c6d5e4f3a21098';
+
+    const first = await handleClubActivate(activateReq('DTSP-7K2QM9', { uid: 'timer-uid', deviceId: browser }), env);
+    const second = await handleClubActivate(activateReq('DTSP-7K2QM9', { uid: 'timer-uid', deviceId: browser }), env);
+
+    expect(verifyClubToken((await first.json()).clubToken, SIGNING_KEY).deviceId).toBe(browser);
+    expect(verifyClubToken((await second.json()).clubToken, SIGNING_KEY).deviceId).toBe(browser);
+    expect([...kv.store.keys()].filter((key) => key.startsWith(`club-device:${clubId}:`))).toEqual([
+      `club-device:${clubId}:${browser}`,
+    ]);
+  });
+
+  // Re-typing the code is not an appeal.
+  it('leaves a revoked row revoked when its browser activates again', async () => {
+    const { clubId } = await seedClub();
+    const browser = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
+    const key = `club-device:${clubId}:${browser}`;
+    await kv.put(key, JSON.stringify({ ...(await kv.get(key, 'json')), revokedAt: 1 }));
+
+    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
+
+    expect(await kv.get(key, 'json')).toMatchObject({ revokedAt: 1 });
+  });
+
+  it('mints an id for a browser that cannot keep one', async () => {
+    const { clubId } = await seedClub();
+
+    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: 'nope' }), env);
+
+    const keys = [...kv.store.keys()].filter((key) => key.startsWith(`club-device:${clubId}:`));
+    expect(keys).toHaveLength(1);
+    expect(keys[0].endsWith(':nope')).toBe(false);
   });
 
   // One uniform failure, so probing cannot confirm that a club exists.
@@ -317,6 +361,44 @@ describe('GET /api/club', () => {
       env
     );
     expect(res.status).toBe(405);
+  });
+});
+
+describe('POST /api/club/leave', () => {
+  const browser = 'c0ffee00c0ffee00c0ffee00c0ffee00';
+
+  it('takes this device off the roster, so leaving and rejoining is one row', async () => {
+    const { clubId } = await seedClub();
+    const key = `club-device:${clubId}:${browser}`;
+
+    const joined = await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
+    const { clubToken } = await joined.json();
+
+    expect(await handleClubLeave(leaveReq(clubToken), env)).toMatchObject({ status: 200 });
+    expect(await kv.get(key, 'json')).toBeNull();
+
+    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
+    expect([...kv.store.keys()].filter((k) => k.startsWith(`club-device:${clubId}:`))).toEqual([key]);
+  });
+
+  // The device calls this on its way out of a 403 too, and deleting the row
+  // there would make leaving a way to undo a revocation.
+  it('keeps a revoked row exactly where it is', async () => {
+    const { clubId } = await seedClub();
+    const key = `club-device:${clubId}:${browser}`;
+
+    const joined = await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
+    const { clubToken } = await joined.json();
+    await kv.put(key, JSON.stringify({ ...(await kv.get(key, 'json')), revokedAt: 1 }));
+
+    await handleClubLeave(leaveReq(clubToken), env);
+
+    expect(await kv.get(key, 'json')).toMatchObject({ revokedAt: 1 });
+  });
+
+  it('refuses a request with no club token, and anything but POST', async () => {
+    expect((await handleClubLeave(new Request('https://x/api/club/leave', { method: 'POST' }), env)).status).toBe(401);
+    expect((await handleClubLeave(new Request('https://x/api/club/leave'), env)).status).toBe(405);
   });
 });
 

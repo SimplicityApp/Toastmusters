@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ExternalLink, ShieldCheck, LogOut, Upload, Trash2, RotateCcw } from 'lucide-react'
+import { Users, ExternalLink, ShieldCheck, LogOut, Upload, Trash2, RotateCcw, Pencil } from 'lucide-react'
 import { clubHeaders, refreshClub } from '@toastmaster-timer/shared'
 import { signInUrl } from '../utils/webIdentity'
 import { useFlag } from '../hooks/useFlag'
@@ -131,21 +131,75 @@ function DoorsPanel({ reason }) {
   )
 }
 
-/** One person, and the laptops they time from. */
-function MemberRow({ member, busy, onRole, onDevice }) {
+/**
+ * One person, and the laptops they time from.
+ *
+ * The label is the one piece of this page that had nothing to show. Zoom's
+ * `screenName` is reachable through `getUserContext` and would fill the roster
+ * in by itself, but it is personal data this product has never collected — so
+ * until that is a decision somebody has made, an officer looking at their own
+ * club sees "You", and anyone else is whatever an admin typed. A raw uid is the
+ * fallback, not the answer.
+ */
+function MemberRow({ member, isYou, busy, onRole, onDevice, onName }) {
   const revoked = Boolean(member.revokedAt)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(member.displayName || '')
+  const label = member.displayName || (isYou ? 'You' : member.uid)
+
+  const saveName = async (event) => {
+    event.preventDefault()
+    setEditing(false)
+    await onName(member.uid, draft)
+  }
+
   return (
     <li className="border-t border-white/10 py-4 first:border-t-0">
       <div className="flex flex-wrap items-center gap-3">
-        <span className={`font-semibold ${revoked ? 'text-gray-500 line-through' : 'text-white'}`}>
-          {member.displayName || member.uid}
-        </span>
+        {editing ? (
+          <form onSubmit={saveName} className="flex items-center gap-2">
+            <label className="sr-only" htmlFor={`name-${member.uid}`}>Name for this person</label>
+            <input
+              id={`name-${member.uid}`}
+              value={draft}
+              maxLength={60}
+              autoFocus
+              placeholder="Sarah (VPE)"
+              onChange={(event) => setDraft(event.target.value)}
+              className="rounded-md border border-white/20 bg-black/40 px-2 py-1 text-sm text-white placeholder-gray-500"
+            />
+            <button type="submit" disabled={busy} className="text-xs font-semibold text-blue-300 hover:text-blue-200 disabled:opacity-50">
+              Save
+            </button>
+            <button type="button" onClick={() => { setEditing(false); setDraft(member.displayName || '') }} className="text-xs text-gray-400 hover:text-gray-200">
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <>
+            <span
+              title={member.uid}
+              className={`font-semibold ${revoked ? 'text-gray-500 line-through' : 'text-white'} ${member.displayName || isYou ? '' : 'font-mono text-sm break-all'}`}
+            >
+              {label}
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              disabled={busy}
+              className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-100 disabled:opacity-50"
+            >
+              <Pencil className="h-3 w-3" />
+              {member.displayName ? 'Rename' : 'Name'}
+            </button>
+          </>
+        )}
         <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-gray-300">
           {revoked ? 'No access' : ROLE_LABELS[member.role] ?? member.role}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <label className="sr-only" htmlFor={`role-${member.uid}`}>
-            Role for {member.displayName || member.uid}
+            Role for {label}
           </label>
           <select
             id={`role-${member.uid}`}
@@ -421,6 +475,18 @@ export default function ClubAdmin() {
     await load()
   }
 
+  const handleName = async (uid, name) => {
+    setBusy(true)
+    setError(null)
+    const result = await api(`/api/club/members/${encodeURIComponent(uid)}/name`, { method: 'POST', body: { name } })
+    setBusy(false)
+    if (!result.ok) {
+      setError('Could not save that name. Please try again.')
+      return
+    }
+    await load()
+  }
+
   const handleDevice = async (deviceId, revoked) => {
     setBusy(true)
     setError(null)
@@ -504,7 +570,15 @@ export default function ClubAdmin() {
               <h3 className="text-sm uppercase tracking-wide text-gray-400">Who is in the club</h3>
               <ul className="mt-3">
                 {roster.members.map((member) => (
-                  <MemberRow key={member.uid} member={member} busy={busy} onRole={handleRole} onDevice={handleDevice} />
+                  <MemberRow
+                    key={member.uid}
+                    member={member}
+                    isYou={roster.actor?.type === 'zoom' && roster.actor.uid === member.uid}
+                    busy={busy}
+                    onRole={handleRole}
+                    onDevice={handleDevice}
+                    onName={handleName}
+                  />
                 ))}
               </ul>
 

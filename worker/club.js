@@ -281,10 +281,29 @@ export async function handleClubActivate(request, env) {
   const uid = session?.uid ?? null;
   const now = Date.now();
 
-  const clubToken = await attachDevice(env, request, { clubId, club, uid, now });
+  const clubToken = await attachDevice(env, request, {
+    clubId,
+    club,
+    uid,
+    now,
+    deviceId: readDeviceId(body?.deviceId),
+  });
   if (!clubToken) return notConfigured('Club activation');
 
   return json({ clubToken, ...(await buildClubState(env, clubId, club, access, { uid })) });
+}
+
+/**
+ * A device id this browser minted for itself, if it looks like one of ours.
+ *
+ * Client-chosen on purpose: it has to survive `leaveClub()`, which is exactly
+ * what a server-minted id cannot do. Guessing someone else's id buys nothing
+ * anyone who already holds the club code does not have — the id names a row in
+ * the roster, not a permission — but the shape is still checked, because this
+ * string becomes part of a KV key.
+ */
+export function readDeviceId(raw) {
+  return typeof raw === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(raw) ? raw : null;
 }
 
 /**
@@ -294,15 +313,29 @@ export async function handleClubActivate(request, env) {
  * must end up exactly where a timer who typed the code ends up, rather than
  * being told to go and type a code they were shown two lines above.
  *
+ * The device id is the browser's own, so leaving and rejoining reuses the row
+ * rather than adding a second one — a roster that grew a "macOS" line every
+ * time somebody re-typed the code was showing four devices for one laptop, and
+ * an admin cannot revoke what they cannot recognise. A revoked row is reused
+ * as-is and stays revoked: re-typing the code is not a way out of a revocation.
+ *
  * @returns {Promise<string|null>} the club token, or null when unsignable
  */
-async function attachDevice(env, request, { clubId, club, uid, now }) {
+async function attachDevice(env, request, { clubId, club, uid, now, deviceId: requested }) {
   const store = entitlementStore(env);
-  const deviceId = crypto.randomUUID();
+  const deviceId = requested ?? crypto.randomUUID();
 
+  const existing = requested ? await store.get(clubDeviceKey(clubId, deviceId), 'json').catch(() => null) : null;
   await store.put(
     clubDeviceKey(clubId, deviceId),
-    JSON.stringify({ label: deviceLabel(request), uid, activatedAt: now, lastSeenAt: now, revokedAt: null })
+    JSON.stringify({
+      label: deviceLabel(request),
+      uid,
+      activatedAt: existing?.activatedAt ?? now,
+      lastSeenAt: now,
+      // Carried, never cleared. Activation is a door, not an appeal.
+      revokedAt: existing?.revokedAt ?? null,
+    })
   );
 
   // Access attaches to a device; authorization attaches to a person. A guest
@@ -368,6 +401,7 @@ export async function handleClubCreate(request, env) {
     club,
     uid: session.uid,
     now: Date.now(),
+    deviceId: readDeviceId(body?.deviceId),
   });
   if (!clubToken) return notConfigured('Club creation');
 
@@ -383,6 +417,36 @@ export async function handleClubCreate(request, env) {
     code: formatCode(code),
     shareUrl: shareUrlFor(env, code),
   });
+}
+
+/**
+ * POST /api/club/leave — this device is done with the club.
+ *
+ * The other half of `leaveClub()` on the device. Without it, leaving was purely
+ * local: the row stayed on the roster for ever, and every rejoin added another,
+ * so an admin trying to work out which laptop to revoke was reading a list of
+ * ghosts. Deleted rather than marked, because a device that left is not a device
+ * that was thrown out, and the two must not look the same in the console.
+ *
+ * A revoked row is left exactly where it is. The device calls this on its way
+ * out of a 403 too, and deleting the row there would make re-typing the code a
+ * way to undo a revocation — which is the one thing revocation has to mean.
+ *
+ * Idempotent, and quiet about what it found: the device is leaving either way.
+ */
+export async function handleClubLeave(request, env) {
+  if (request.method !== 'POST') return methodNotAllowed();
+
+  const claims = readClub(request, env);
+  if (!claims?.clubId || !claims?.deviceId) return unauthorized();
+
+  const store = entitlementStore(env);
+  if (!store) return json({ error: 'Club storage is not configured' }, 503);
+
+  const key = clubDeviceKey(claims.clubId, claims.deviceId);
+  const device = await store.get(key, 'json').catch(() => null);
+  if (device && !device.revokedAt) await store.delete(key).catch(() => {});
+  return json({ left: true });
 }
 
 /**
@@ -474,6 +538,7 @@ export async function handleClub(request, url, env, { ctx } = {}) {
   if (route === '') return handleClubState(request, env);
   if (route === 'activate') return handleClubActivate(request, env);
   if (route === 'create') return handleClubCreate(request, env);
+  if (route === 'leave') return handleClubLeave(request, env);
   if (route === 'presets') return handleClubPresets(request, env);
   if (route === 'meetings' || route.startsWith('meetings/')) return handleClubMeetings(request, route, env);
 

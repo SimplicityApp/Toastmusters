@@ -27,6 +27,23 @@ const GAP_OF_HEIGHT = 0.22;
 const PAD_OF_HEIGHT = 0.32;
 const RADIUS_OF_HEIGHT = 0.24;
 
+/**
+ * The canvas renderer's 44% ceiling, re-expressed against the badge's *height*.
+ *
+ * `MAX_WIDTH_FRACTION` in `clubBadge.js` is 44% of the frame's *width*, and the
+ * frame it draws on is the 16:9 video. Here the container is whatever the badge
+ * is previewed in, and the timer tile is `aspect-square` — so the same 44% is a
+ * much smaller number, and a club name that fitted on the video truncated to
+ * "C…" in the preview sitting right beside it.
+ *
+ * In `cqh` the ceiling becomes 44% of a 16:9 frame *of this badge's own height*
+ * — the frame the badge will actually land on — so every preview agrees with
+ * the video. On a square tile that is ~78% of the tile's width, so it still
+ * never runs off the container; every surface this badge is placed on is square
+ * or wider.
+ */
+const MAX_WIDTH_OF_HEIGHT = ((44 * 16) / 9).toFixed(2);
+
 /** The same fractions, re-expressed in `em` once the font size is the anchor. */
 const em = (fraction) => `${(fraction / FONT_OF_HEIGHT).toFixed(3)}em`;
 
@@ -91,9 +108,9 @@ export default function ClubBadge({
       className={`flex items-center shadow-md text-white font-bold overflow-hidden ${className}`}
       style={{
         ...position,
-        // 44% of the card, the same ceiling the canvas renderer enforces: a
-        // long club name truncates rather than running across the artwork.
-        maxWidth: '44%',
+        // The same ceiling the canvas renderer enforces, measured the same way:
+        // a long club name truncates rather than running across the artwork.
+        maxWidth: `calc(${MAX_WIDTH_OF_HEIGHT} * 1cqh)`,
         height: `${scale * 100}cqh`,
         fontSize: `${scale * 100 * FONT_OF_HEIGHT}cqh`,
         borderRadius: em(RADIUS_OF_HEIGHT),

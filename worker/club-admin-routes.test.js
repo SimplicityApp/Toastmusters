@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { handleClub } from './club.js';
-import { handleClubRoster, handleMemberRole, handleDeviceRevoke, handleClubKit } from './club-admin-routes.js';
-import { createClubFromPending, clubDeviceKey, clubMemberKey } from './club-admin.js';
+import { handleClubRoster, handleMemberRole, handleMemberName, handleDeviceRevoke, handleClubKit } from './club-admin-routes.js';
+import { createClubFromPending, clubAdminOfKey, clubDeviceKey, clubMemberKey } from './club-admin.js';
 import { mintSessionToken } from './session-token.js';
 import { mintClubToken } from './club-token.js';
 import { ADMIN_COOKIE, mintAdminSession } from './club-magic.js';
@@ -150,13 +150,54 @@ describe('the two doors', () => {
     expect((await handleClubRoster(rosterReq({}), env)).status).toBe(401);
   });
 
-  it('answers 401 for a session with no club token', async () => {
+  // *Manage your club* opens the system browser, which has the officer's
+  // session and has never typed the club's code. Without a uid → club index
+  // there was no clubId to look the uid up in, and the console was dead for
+  // every Zoom-only officer.
+  it('lets a signed-in admin in with no club token at all', async () => {
     await seedClub();
     const res = await handleClubRoster(
       rosterReq({ authorization: `Bearer ${mintSessionToken('sarah', SIGNING_KEY)}` }),
       env
     );
+    expect(res.status).toBe(200);
+    expect((await res.json()).actor).toEqual({ type: 'zoom', uid: 'sarah' });
+  });
+
+  // The index is a pointer; the member row is the authority.
+  it('refuses a demoted admin whose stale index still points at the club', async () => {
+    await seedClub();
+    await kv.put(
+      clubMemberKey(clubId, 'sarah'),
+      JSON.stringify({ role: 'member', displayName: null, addedAt: 1, revokedAt: null })
+    );
+    // The pointer is deliberately left behind, as a failed cleanup would leave it.
+    expect(await kv.get(clubAdminOfKey('sarah'))).toBe(clubId);
+
+    const res = await handleClubRoster(
+      rosterReq({ authorization: `Bearer ${mintSessionToken('sarah', SIGNING_KEY)}` }),
+      env
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('answers 401 for a session that administers nothing', async () => {
+    await seedClub();
+    const res = await handleClubRoster(
+      rosterReq({ authorization: `Bearer ${mintSessionToken('priya', SIGNING_KEY)}` }),
+      env
+    );
     expect(res.status).toBe(401);
+  });
+
+  it('keeps the index in step with the role', async () => {
+    await seedClub();
+
+    await setRole('james', { role: 'admin' }, zoomDoor('sarah'));
+    expect(await kv.get(clubAdminOfKey('james'))).toBe(clubId);
+
+    await setRole('james', { role: 'editor' }, zoomDoor('sarah'));
+    expect(await kv.get(clubAdminOfKey('james'))).toBe(null);
   });
 
   it('refuses a billing cookie signed with another key', async () => {
@@ -315,6 +356,46 @@ describe('POST /api/club/members/<uid>/role', () => {
   });
 });
 
+describe('POST /api/club/members/<uid>/name', () => {
+  const nameReq = (uid, body, headers) =>
+    new Request(`https://x/api/club/members/${uid}/name`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+  const setName = (uid, body, headers) => handleMemberName(nameReq(uid, body, headers), env, uid);
+
+  // Until this existed the roster labelled people with their raw Zoom uid,
+  // because `displayName` was written null everywhere and nothing ever set it.
+  it('labels a member without touching their role', async () => {
+    await seedClub();
+
+    const res = await setName('priya', { name: '  Priya (VPE) ' }, zoomDoor('sarah'));
+
+    expect(res.status).toBe(200);
+    expect(await kv.get(clubMemberKey(clubId, 'priya'), 'json')).toMatchObject({
+      role: 'member',
+      displayName: 'Priya (VPE)',
+    });
+  });
+
+  it('clears the name again when the field is emptied', async () => {
+    await seedClub();
+    await setName('priya', { name: 'Priya' }, zoomDoor('sarah'));
+
+    await setName('priya', { name: '  ' }, zoomDoor('sarah'));
+
+    expect(await kv.get(clubMemberKey(clubId, 'priya'), 'json')).toMatchObject({ displayName: null });
+  });
+
+  it('refuses an essay, and anyone who is not an admin', async () => {
+    await seedClub();
+
+    expect((await setName('priya', { name: 'x'.repeat(61) }, zoomDoor('sarah'))).status).toBe(400);
+    expect((await setName('priya', { name: 'Priya' }, zoomDoor('james'))).status).toBe(403);
+  });
+});
+
 describe('POST /api/club/devices/<id>/revoke', () => {
   it('marks exactly one row', async () => {
     await seedClub();
@@ -467,6 +548,13 @@ describe('dispatch', () => {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...billingDoor() },
         body: JSON.stringify({ role: 'editor' }),
+      })).status
+    ).toBe(200);
+    expect(
+      (await call('/api/club/members/priya/name', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...billingDoor() },
+        body: JSON.stringify({ name: 'Priya' }),
       })).status
     ).toBe(200);
     expect(
