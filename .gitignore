@@ -41,3 +41,6 @@ apps/web/public/content-pages.css
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
+
+# Intro video work-in-progress clips (large; kept out of git and the deploy via apps/web/public/.assetsignore)
+apps/web/public/video/tmp/

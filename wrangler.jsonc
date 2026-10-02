@@ -179,7 +179,7 @@
       // PostHog round trip.
       "vars": {
         "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
-        "ENTITLEMENT_ENFORCE": "0",
+        "ENTITLEMENT_ENFORCE": "1",
         "STRIPE_AUTOMATIC_TAX": "0",
         "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com",
         "FLAGS_FORCE": "1"

@@ -1,0 +1,19 @@
+{
+  "disabled": false,
+  "pathTemplate": "~/.humanlayer/workspaces/{{ TASKSLUG }}/{{ REPOBASENAME }}",
+  "branchTemplate": "{{ TASKSLUG }}",
+  "repos": [
+    {
+      "localPath": ".",
+      "description": "Toastmusters monorepo (worker, packages/shared, apps/zoom-app, apps/web)",
+      "sourceRef": "HEAD",
+      "setupCommand": "npm install && npm run install:zoom && npm run install:web",
+      "copyGlobs": [
+        ".env*",
+        ".claude/settings.local.json",
+        "CLAUDE.local.md",
+        ".humanlayer/workspace.local.json"
+      ]
+    }
+  ]
+}
