@@ -48,21 +48,21 @@ describe('the Footer\'s Pro button', () => {
   });
 
   it('shows nothing while the plan is still unknown, even with the flag on', () => {
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
     renderFooter();
     expect(upgradeButton()).toBeNull();
   });
 
-  it('stays hidden when pro_billing is off', () => {
+  it('stays hidden when pro is off', () => {
     setEntitlement({ plan: 'free' });
-    setFlags({ pro_billing: false });
+    setFlags({ pro: false });
     renderFooter();
     expect(upgradeButton()).toBeNull();
   });
 
-  it('stays hidden for a Pro user too when pro_billing is off', () => {
+  it('stays hidden for a Pro user too when pro is off', () => {
     setEntitlement(PRO);
-    setFlags({ pro_billing: false });
+    setFlags({ pro: false });
     renderFooter();
     expect(proButton()).toBeNull();
   });
@@ -77,7 +77,7 @@ describe('the Footer\'s Pro button', () => {
 
   it('offers the upgrade to a free user once the flag is on', () => {
     setEntitlement({ plan: 'free' });
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
     renderFooter();
     expect(upgradeButton()).toBeInTheDocument();
     expect(screen.getByText('Upgrade')).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('the Footer\'s Pro button', () => {
 
   it('shows the Pro badge to a Pro user once the flag is on', () => {
     setEntitlement(PRO);
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
     renderFooter();
     expect(proButton()).toBeInTheDocument();
     expect(upgradeButton()).toBeNull();
@@ -97,14 +97,14 @@ describe('the Footer\'s Pro button', () => {
 
     act(() => {
       setEntitlement({ plan: 'free' });
-      setFlags({ pro_billing: true });
+      setFlags({ pro: true });
     });
     expect(upgradeButton()).toBeInTheDocument();
   });
 
   it('leaves the other footer buttons alone whatever the flag says', () => {
     setEntitlement({ plan: 'free' });
-    setFlags({ pro_billing: false });
+    setFlags({ pro: false });
     renderFooter();
     expect(screen.getByRole('button', { name: /provide feedback/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /leave a review/i })).toBeInTheDocument();

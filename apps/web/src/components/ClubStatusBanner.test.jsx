@@ -75,7 +75,7 @@ describe('ClubStatusBanner', () => {
   });
 
   it('offers billing to an admin', () => {
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
     localStorage.setItem(
       CLUB_STORAGE_KEY,
       cache({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: Date.now() + DAY, role: 'admin' })
@@ -86,11 +86,11 @@ describe('ClubStatusBanner', () => {
     expect(screen.getByRole('button', { name: /manage billing/i })).toBeInTheDocument();
   });
 
-  // The portal answers 404 while pro_billing is off, so the button would do
+  // The portal answers 404 while pro is off, so the button would do
   // nothing. The warning itself still reaches the admin.
   it.each([
     ['the flags are still unknown', () => {}],
-    ['pro_billing is off', () => setFlags({ pro_billing: false })],
+    ['pro is off', () => setFlags({ pro: false })],
   ])('warns an admin but offers no billing while %s', (_, seed) => {
     seed();
     localStorage.setItem(

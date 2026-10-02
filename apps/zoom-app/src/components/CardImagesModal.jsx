@@ -102,9 +102,9 @@ function CardSetRow({ label, selected, onSelect, thumbSrc, onDelete }) {
 export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
   const { showToast } = useToast();
   const { isPro, known } = useEntitlement();
-  // The Upgrade link opens the purchase, which stays dark until pro_billing is
+  // The Upgrade link opens the purchase, which stays dark until pro is
   // released. Until then the note reads as it does while the plan is unknown.
-  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing');
+  const { enabled: proEnabled, known: flagsKnown } = useFlag('pro');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [settings, setSettings] = useState(() => getCardImageSettings());
   // The set being assembled in the uploader row, color -> {blob, url}. Kept
@@ -293,7 +293,7 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
         <p className="text-xs text-gray-500 mt-4">
           {isPro ? (
             <>Custom images are backed up and follow you to your other devices. </>
-          ) : known && flagsKnown && billingEnabled ? (
+          ) : known && flagsKnown && proEnabled ? (
             <>
               Custom images are stored only in this browser.{' '}
               <button

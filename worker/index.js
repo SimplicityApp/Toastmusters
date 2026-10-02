@@ -138,7 +138,7 @@ export default {
     // Club activation and the daily club refresh. Ahead of the www redirect
     // like every other POST, and ahead of host routing so the Zoom app can
     // reach it from the zoom.<domain> host. The doors into a club (activate,
-    // create, the admin link) sit behind the clubs flag; the refresh never does.
+    // create, the admin link) sit behind the pro flag; the refresh never does.
     if (pathname === '/api/club' || pathname.startsWith('/api/club/')) {
       return handleClub(request, url, env, { ctx });
     }
@@ -162,7 +162,7 @@ export default {
     // Sign in with Zoom (web). The callback shares /oauth/redirect with the
     // Marketplace install flow: only a request carrying a state we signed is a
     // sign-in; everything else falls through to the SPA's install-success page.
-    // Both sit behind the web_signin flag; logout never does.
+    // Both sit behind the pro flag; logout never does.
     if (pathname === '/api/auth/zoom/start') {
       return handleAuthStart(request, url, env, { ctx });
     }

@@ -20,7 +20,7 @@ import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
  * One identity namespace, two doors. A subscription bought in Zoom is therefore
  * the same subscription on the web with nothing to link.
  *
- * The web door sits behind the `web_signin` release flag (worker/flags.js):
+ * The web door sits behind the `pro` release flag (worker/flags.js):
  * while it is off, the start answers a bare 404 and the callback falls through
  * to the install page. Logout is never gated, so signing out always works.
  */
@@ -234,16 +234,17 @@ function canonicalStartUrl(url, env, returnTo) {
 }
 
 /**
- * Whether web sign-in is released for this caller.
+ * Whether Pro is released for this caller, for a gate that may run before
+ * anyone has signed in (web sign-in, the doors into a club).
  *
- * Usually nobody is signed in yet, so this is the anonymous position. A caller
- * who already holds a session (an officer refused as a non-admin on
- * /club/admin, signing in again as someone else) is asked for by uid, the same
- * way /api/me?flags=1 asked when it decided to show them the link.
+ * By uid when a session rides along (a Zoom app bearer, or a web cookie), the
+ * same way /api/me?flags=1 asked when it decided what to show; otherwise the
+ * anonymous position, which is what a signed-out browser, a guest device or a
+ * mailed link gets.
  */
-async function signInReleased(request, env, ctx) {
+export async function proReleased(request, env, ctx) {
   const uid = readSession(request, env)?.uid ?? null;
-  return flagEnabled(env, 'web_signin', { uid }, ctx);
+  return flagEnabled(env, 'pro', { uid }, ctx);
 }
 
 /**
@@ -261,8 +262,8 @@ async function signInReleased(request, env, ctx) {
 export async function handleAuthStart(request, url, env, { now = Date.now(), ctx } = {}) {
   // Ahead of every other answer, so a dark sign-in cannot be told apart from a
   // mistyped URL — not even by a 405 or a "not configured" 503.
-  if (!(await signInReleased(request, env, ctx))) {
-    console.log('flag off: web_signin', 'start');
+  if (!(await proReleased(request, env, ctx))) {
+    console.log('flag off: pro', 'signin start');
     return notFound();
   }
 
@@ -294,7 +295,7 @@ export async function handleAuthStart(request, url, env, { now = Date.now(), ctx
  * set without a valid state; otherwise an attacker could complete an install
  * with their own code and log the victim's browser in as them.
  *
- * While web_signin is off this is null too, rather than a 404: the install flow
+ * While pro is off this is null too, rather than a 404: the install flow
  * shares the URL, and a real install redirect has to keep working while
  * sign-in is dark. Checked after the state, so an install never costs a flag
  * lookup.
@@ -307,8 +308,8 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
   const payload = verifyState(state, env.SESSION_SIGNING_KEY, now);
   if (!payload || payload.purpose !== 'signin') return null;
 
-  if (!(await signInReleased(request, env, ctx))) {
-    console.log('flag off: web_signin', 'callback');
+  if (!(await proReleased(request, env, ctx))) {
+    console.log('flag off: pro', 'signin callback');
     return null;
   }
 

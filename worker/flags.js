@@ -25,9 +25,10 @@
 // that deletes the flag from the code. worker/flags.test.js fails if this list
 // and the code's flagEnabled/useFlag references drift apart in either direction.
 export const FLAG_FALLBACKS = Object.freeze({
-  pro_billing: false, // Stripe checkout, portal, and the Upgrade path. removeBy: 2026-12-31
-  web_signin: false, // Sign in to the web app with Zoom. removeBy: 2026-12-31
-  clubs: false, // Joining, creating and administering a club (the doors only). removeBy: 2026-12-31
+  // Everything Pro: Stripe checkout and the portal, the Upgrade path, web
+  // sign-in, and the doors into a club (joining, creating, administering).
+  // removeBy: 2026-12-31
+  pro: false,
 });
 
 // The ingestion host, called directly rather than through the browser's

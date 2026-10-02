@@ -108,12 +108,12 @@ describe('GET /api/me?flags=1', () => {
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       const { distinct_id: id } = JSON.parse(init.body);
       asked.push(id);
-      return new Response(JSON.stringify({ flags: { pro_billing: { key: 'pro_billing', enabled: id === 'zoom:u1' } } }));
+      return new Response(JSON.stringify({ flags: { pro: { key: 'pro', enabled: id === 'zoom:u1' } } }));
     }));
     const env = { ...baseEnv(), POSTHOG_API_KEY: 'phc_test' };
 
-    expect((await (await handleMe(req({ uid: 'u1', query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: true });
-    expect((await (await handleMe(req({ query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro_billing: false });
+    expect((await (await handleMe(req({ uid: 'u1', query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro: true });
+    expect((await (await handleMe(req({ query: '?flags=1' }), env, ctx)).json()).flags).toEqual({ ...FLAG_FALLBACKS, pro: false });
     expect(asked).toEqual(['zoom:u1', 'anonymous']);
   });
 

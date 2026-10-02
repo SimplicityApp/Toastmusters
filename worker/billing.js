@@ -19,7 +19,7 @@ import { json, unauthorized, notFound, methodNotAllowed, notConfigured } from '.
  * Prices are found by lookup key (`pro_monthly`, `pro_yearly`), so the same
  * code runs against test and live accounts; only the secret differs.
  *
- * Checkout and the portal sit behind the `pro_billing` release flag
+ * Checkout and the portal sit behind the `pro` release flag
  * (worker/flags.js): while it is off for a caller, both answer a bare 404.
  */
 
@@ -148,11 +148,11 @@ export async function handleBilling(request, url, env, deps = {}) {
   const session = readSession(request, env);
   if (!session) return unauthorized();
 
-  // Until pro_billing is released, checkout and the portal do not exist. After
-  // the session check, so an unauthenticated caller still gets 401 as before;
+  // Until pro is released, checkout and the portal do not exist. After the
+  // session check, so an unauthenticated caller still gets 401 as before;
   // checkout-status above stays open because Stripe's success page polls it.
-  if (!(await flagEnabled(env, 'pro_billing', { uid: session.uid }, deps.ctx))) {
-    console.log('flag off: pro_billing', route);
+  if (!(await flagEnabled(env, 'pro', { uid: session.uid }, deps.ctx))) {
+    console.log('flag off: pro', route);
     return notFound();
   }
 

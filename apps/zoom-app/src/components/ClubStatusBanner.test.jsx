@@ -55,13 +55,13 @@ beforeEach(() => {
 
 /**
  * The Zoom app's wiring of the grace banner. "Manage billing" is a door into
- * Stripe, which stays dark until pro_billing is released: while it is off the
+ * Stripe, which stays dark until pro is released: while it is off the
  * portal answers 404, and the button would do nothing at all.
  */
 describe('ClubStatusBanner — Manage billing', () => {
-  it('opens the portal in the system browser once pro_billing is on', async () => {
+  it('opens the portal in the system browser once pro is on', async () => {
     const user = userEvent.setup();
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
     render(<ClubStatusBanner />);
 
     await user.click(manageBilling());
@@ -74,7 +74,7 @@ describe('ClubStatusBanner — Manage billing', () => {
 
   it.each([
     ['the flags are still unknown', () => {}],
-    ['pro_billing is off', () => setFlags({ pro_billing: false })],
+    ['pro is off', () => setFlags({ pro: false })],
   ])('still warns the admin, but offers no billing, while %s', (_, seed) => {
     seed();
     render(<ClubStatusBanner />);

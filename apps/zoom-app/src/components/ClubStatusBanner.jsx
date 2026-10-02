@@ -17,7 +17,7 @@ import { useFlag } from '../hooks/useFlag';
  * Renders nothing at all unless a club is inside its grace window, so a free
  * device and a healthy club device are both pixel-identical to before.
  *
- * "Manage billing" is offered only once pro_billing is known and on. While it
+ * "Manage billing" is offered only once pro is known and on. While it
  * is off the portal answers 404, and this button would do nothing at all.
  */
 export default function ClubStatusBanner() {
@@ -25,8 +25,8 @@ export default function ClubStatusBanner() {
   // Bumped by a dismissal so the memo below re-asks; the answer itself lives in
   // localStorage, which is what makes the reminder come back tomorrow.
   const [dismissals, setDismissals] = useState(0);
-  const { enabled: billingEnabled, known: flagsKnown } = useFlag('pro_billing');
-  const canOpenPortal = flagsKnown && billingEnabled;
+  const { enabled: proEnabled, known: flagsKnown } = useFlag('pro');
+  const canOpenPortal = flagsKnown && proEnabled;
 
   const reminder = useMemo(() => clubGraceReminder(), [club, dismissals]);
 

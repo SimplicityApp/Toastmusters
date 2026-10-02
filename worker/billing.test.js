@@ -35,7 +35,7 @@ let stripe;
 
 beforeEach(() => {
   kv = makeKv();
-  // pro_billing forced on: these cases are about billing itself. The flag-off
+  // pro forced on: these cases are about billing itself. The flag-off
   // position of every billing route is asserted in flags.test.js.
   env = { PROFILES: kv, SESSION_SIGNING_KEY: SIGNING_KEY, STRIPE_SECRET_KEY: 'sk_test', WEB_ORIGIN: 'https://www.example.test', FLAGS_FORCE: '1' };
   stripe = fakeStripe();
@@ -148,7 +148,7 @@ describe('POST /api/billing/checkout', () => {
   });
 });
 
-describe('pro_billing off', () => {
+describe('pro off', () => {
   it('hides checkout and the portal behind a bare 404, after the session check', async () => {
     env.FLAGS_FORCE = '0';
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -160,7 +160,7 @@ describe('pro_billing off', () => {
       expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
       expect(stripe.createPortalSession).not.toHaveBeenCalled();
       // The reason is in the log only, never on the wire.
-      expect(log).toHaveBeenCalledWith('flag off: pro_billing', 'checkout');
+      expect(log).toHaveBeenCalledWith('flag off: pro', 'checkout');
     } finally {
       log.mockRestore();
     }

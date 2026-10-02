@@ -10,8 +10,8 @@ ZOOM_CLIENT_SECRET=
 POSTHOG_API_KEY=
 # Release flags (docs/FEATURE_FLAGS.md). `npm run cf:dev` runs without --env dev,
 # so it reads the production block, where FLAGS_FORCE is "" and PostHog is
-# asked. With no key above, that hides every gated feature (Pro billing, web
-# sign-in, clubs). "1" turns every flag on, "0" turns every flag off, and empty
+# asked. With no key above, that hides everything behind the `pro` flag (billing,
+# web sign-in, clubs). "1" turns every flag on, "0" turns every flag off, and empty
 # asks PostHog. A value here overrides wrangler.jsonc.
 FLAGS_FORCE=1
 # Personal API key (phx_…) with "Query read" scope, for /api/stats.

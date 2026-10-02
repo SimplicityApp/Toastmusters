@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Users } from 'lucide-react'
 import { trackEvent } from '../utils/posthog'
-import { useFlag } from '../hooks/useFlag'
-import NotFoundView from '../components/NotFoundView'
 
 /**
  * /club/manage?t=<token> — the page a mailed admin link lands on.
@@ -15,10 +13,6 @@ import NotFoundView from '../components/NotFoundView'
  *
  * The Worker still answers a plain GET on /api/club/manage with a redirect, so
  * a pasted API URL works — this page just makes the mailed one safe.
- *
- * Behind the `clubs` release flag, like the console it opens. The token is not
- * spent until the flags have landed, and while clubs is off the page is the
- * not-found view and spends nothing.
  */
 
 const ERRORS = {
@@ -32,15 +26,13 @@ export default function ClubMagicLink() {
   const navigate = useNavigate()
   const token = params.get('t')
   const queryError = params.get('error')
-  const { enabled: clubsEnabled, known: flagsKnown } = useFlag('clubs')
-  const clubsReleased = flagsKnown && clubsEnabled
   const [error, setError] = useState(queryError ? ERRORS[queryError] || ERRORS.invalid_link : null)
   // Spending a token is a write, and React 18's StrictMode double-invokes
   // effects in development — the second call would always report "already used".
   const startedRef = useRef(false)
 
   useEffect(() => {
-    if (!clubsReleased || !token || startedRef.current) return
+    if (!token || startedRef.current) return
     startedRef.current = true
 
     fetch(`/api/club/manage?t=${encodeURIComponent(token)}`, {
@@ -58,9 +50,7 @@ export default function ClubMagicLink() {
         navigate('/club/admin', { replace: true })
       })
       .catch(() => setError(ERRORS.network))
-  }, [clubsReleased, token, navigate])
-
-  if (flagsKnown && !clubsEnabled) return <NotFoundView />
+  }, [token, navigate])
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -75,7 +65,7 @@ export default function ClubMagicLink() {
 
       <main className="mx-auto max-w-2xl px-4 py-12">
         <section className="rounded-2xl border border-white/10 bg-black/30 px-6 py-8">
-          {error && clubsReleased ? (
+          {error ? (
             <>
               <h2 className="text-2xl font-bold">That link didn&apos;t work</h2>
               <p className="mt-3 text-gray-300" role="alert">{error}</p>

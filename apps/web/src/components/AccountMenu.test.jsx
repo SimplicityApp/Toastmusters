@@ -7,7 +7,7 @@ import AccountMenu from './AccountMenu';
 /**
  * The header's sign-in door, on the landing page and the timer's top bar.
  *
- * Sign-in is behind the web_signin release flag. The link waits for the flags
+ * Sign-in is behind the pro release flag. The link waits for the flags
  * as well as the identity, so it never appears and then vanishes; a signed-in
  * visitor keeps their account link whatever the flag says.
  */
@@ -44,21 +44,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('AccountMenu: the web_signin flag', () => {
+describe('AccountMenu: the pro flag', () => {
   it('offers no sign-in while the flags are still unknown, and offers it once they land on', async () => {
     stubMe(...SIGNED_OUT);
     await renderMenu();
     expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
 
     act(() => {
-      setFlags({ web_signin: true });
+      setFlags({ pro: true });
     });
     expect(screen.getByTestId('sign-in-with-zoom')).toBeInTheDocument();
   });
 
   it('offers no sign-in when the flag is off', async () => {
     stubMe(...SIGNED_OUT);
-    setFlags({ web_signin: false });
+    setFlags({ pro: false });
     await renderMenu();
 
     expect(screen.queryByTestId('sign-in-with-zoom')).toBeNull();
@@ -67,7 +67,7 @@ describe('AccountMenu: the web_signin flag', () => {
 
   it('links sign-in back to the page it was pressed on when the flag is on', async () => {
     stubMe(...SIGNED_OUT);
-    setFlags({ web_signin: true });
+    setFlags({ pro: true });
     await renderMenu('/app?tab=agenda');
 
     await waitFor(() =>
@@ -81,7 +81,7 @@ describe('AccountMenu: the web_signin flag', () => {
   // The session is real, so the way to the account page (and Sign out) stays.
   it('keeps the account link for a signed-in visitor when the flag is off', async () => {
     stubMe(...SIGNED_IN);
-    setFlags({ web_signin: false });
+    setFlags({ pro: false });
     await renderMenu();
 
     expect(await screen.findByTestId('account-link')).toBeInTheDocument();

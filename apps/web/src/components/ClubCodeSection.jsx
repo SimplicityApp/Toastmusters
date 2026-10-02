@@ -32,9 +32,9 @@ export function useClub() {
 export default function ClubCodeSection({ source = 'web_account', identified = false, onActivated }) {
   const club = useClub()
   const { entitlement } = useEntitlement()
-  // The code field is a door into a club, refused by the Worker while clubs is
+  // The code field is a door into a club, refused by the Worker while pro is
   // dark. The joined view below is not: a browser already in a club keeps it.
-  const { enabled: clubsEnabled, known: flagsKnown } = useFlag('clubs')
+  const { enabled: proEnabled, known: flagsKnown } = useFlag('pro')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -106,7 +106,7 @@ export default function ClubCodeSection({ source = 'web_account', identified = f
     )
   }
 
-  if (!flagsKnown || !clubsEnabled) return null
+  if (!flagsKnown || !proEnabled) return null
 
   return (
     <form onSubmit={handleActivate}>

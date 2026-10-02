@@ -106,7 +106,7 @@ describe('resolveFlags', () => {
   });
 
   it('keeps a declared key at its fallback when PostHog sends a non-boolean for it', async () => {
-    vi.stubGlobal('fetch', respondWith({ flags: { pro_billing: { key: 'pro_billing', enabled: 'yes' } } }));
+    vi.stubGlobal('fetch', respondWith({ flags: { pro: { key: 'pro', enabled: 'yes' } } }));
 
     expect(await resolveFlags(env, { uid: 'abc' }, ctx)).toEqual({ ...FLAG_FALLBACKS });
   });
@@ -147,7 +147,7 @@ describe('resolveFlags', () => {
     });
 
     it('the body is malformed', async () => {
-      for (const body of ['not json', {}, { flags: null }, { flags: [] }, { flags: 'pro_billing' }, []]) {
+      for (const body of ['not json', {}, { flags: null }, { flags: [] }, { flags: 'pro' }, []]) {
         vi.stubGlobal('fetch', respondWith(body));
         expect(await resolveFlags(env, { uid: 'abc' }, ctx)).toEqual(FLAG_FALLBACKS);
       }
@@ -510,7 +510,7 @@ async function runClubDoor(env, { uid, path, body, prepare }) {
  */
 const GATED = [
   {
-    flag: 'pro_billing',
+    flag: 'pro',
     name: 'POST /api/billing/checkout',
     env: billingEnv,
     run: (env, caller) => runBilling(env, { path: '/api/billing/checkout', body: { interval: 'monthly' }, ...caller }, (s) => s.createCheckoutSession),
@@ -520,7 +520,7 @@ const GATED = [
     noSession: 401,
   },
   {
-    flag: 'pro_billing',
+    flag: 'pro',
     name: 'POST /api/billing/portal',
     env: billingEnv,
     run: (env, caller) => runBilling(env, { path: '/api/billing/portal', ...caller }, (s) => s.createPortalSession),
@@ -530,7 +530,7 @@ const GATED = [
     noSession: 401,
   },
   {
-    flag: 'web_signin',
+    flag: 'pro',
     name: 'GET /api/auth/zoom/start',
     env: authEnv,
     run: runSignInStart,
@@ -539,7 +539,7 @@ const GATED = [
     needsSession: false,
   },
   {
-    flag: 'web_signin',
+    flag: 'pro',
     name: 'GET /oauth/redirect?state',
     env: authEnv,
     run: runSignInCallback,
@@ -550,7 +550,7 @@ const GATED = [
   // Only the doors into a club. The refresh, presets, meetings and the admin
   // routes stay open, and are asserted to below.
   {
-    flag: 'clubs',
+    flag: 'pro',
     name: 'POST /api/club/activate',
     env: clubEnv,
     run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/activate', body: { code: 'DTSP-7K2QM9' }, prepare: withClub }),
@@ -559,7 +559,7 @@ const GATED = [
     needsSession: false,
   },
   {
-    flag: 'clubs',
+    flag: 'pro',
     name: 'POST /api/club/create',
     env: clubEnv,
     run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/create', body: { clubName: 'Downtown Speakers' }, prepare: seedSubscriber }),
@@ -569,7 +569,7 @@ const GATED = [
     noSession: 404,
   },
   {
-    flag: 'clubs',
+    flag: 'pro',
     name: 'POST /api/club/magic-link',
     env: clubEnv,
     run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/magic-link', body: { email: BILLING_EMAIL }, prepare: withClub }),
@@ -578,7 +578,7 @@ const GATED = [
     needsSession: false,
   },
   {
-    flag: 'clubs',
+    flag: 'pro',
     name: 'POST /api/club/manage',
     env: clubEnv,
     run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/manage', prepare: seedMagicToken }),
@@ -687,7 +687,7 @@ describe('gated endpoints', () => {
   });
 
   // Signing out must always work, including for someone who signed in while
-  // web_signin was on and is still holding the cookie after it went off.
+  // pro was on and is still holding the cookie after it went off.
   it('leaves POST /api/auth/logout ungated', async () => {
     const res = await worker.fetch(
       new Request('https://www.example.test/api/auth/logout', {
@@ -702,14 +702,14 @@ describe('gated endpoints', () => {
   });
 
   /**
-   * The clubs flag closes the doors and nothing else. Two clients read a 404
+   * The pro flag closes the doors and nothing else. Two clients read a 404
    * from inside a club as final: refreshClub leaves the club on a 404 from
    * GET /api/club, and drainOutbox drops a queued speech on any 4xx. So a
-   * device that joined while clubs was on has to keep working, unchanged, once
+   * device that joined while pro was on has to keep working, unchanged, once
    * it goes off — these are what stop a future edit from evicting club devices.
    */
-  describe('the clubs flag leaves a device already in a club alone', () => {
-    /** One store; a device joins while clubs is on, then the flag moves. */
+  describe('the pro flag leaves a device already in a club alone', () => {
+    /** One store; a device joins while pro is on, then the flag moves. */
     async function joined() {
       const store = makeKv();
       const envAt = (FLAGS_FORCE) => clubEnv({ PROFILES: store, FLAGS_FORCE });
@@ -733,7 +733,7 @@ describe('gated endpoints', () => {
       );
     };
 
-    it('answers the daily refresh, GET /api/club, with 200 while clubs is off', async () => {
+    it('answers the daily refresh, GET /api/club, with 200 while pro is off', async () => {
       const { clubToken, envAt } = await joined();
 
       const res = await call(envAt('0'), '/api/club', { headers: { 'x-club': clubToken } });
@@ -741,7 +741,7 @@ describe('gated endpoints', () => {
       expect(await res.json()).toMatchObject({ club: { name: 'Downtown Speakers' }, entitled: true });
     });
 
-    it('still takes a queued speech while clubs is off', async () => {
+    it('still takes a queued speech while pro is off', async () => {
       const { clubToken, envAt } = await joined();
 
       const res = await call(envAt('0'), '/api/club/meetings/20260929/speeches', {
@@ -802,6 +802,7 @@ const REFERENCE_PATTERNS = [
   /\bflagEnabled\(\s*env\s*,\s*['"]([a-z0-9_]+)['"]/g,
   /\buseFlag\(\s*['"]([a-z0-9_]+)['"]\s*\)/g,
   /\bisFlagOn\(\s*['"]([a-z0-9_]+)['"]\s*\)/g,
+  /<FlagGate\s+flag=['"]([a-z0-9_]+)['"]/g,
 ];
 
 function referencedFlags() {
@@ -844,11 +845,9 @@ describe('the declared flags', () => {
 
   // A guard on the scan itself: a broken pattern would otherwise make the
   // bidirectional check pass by finding nothing on either side. Each flag is
-  // expected wherever it has a gate; web sign-in has no Zoom-app surface.
+  // expected wherever it has a gate.
   it.each([
-    ['pro_billing', ['worker', join('apps', 'zoom-app'), join('apps', 'web')]],
-    ['web_signin', ['worker', join('apps', 'web')]],
-    ['clubs', ['worker', join('apps', 'zoom-app'), join('apps', 'web')]],
+    ['pro', ['worker', join('apps', 'zoom-app'), join('apps', 'web')]],
   ])('sees the server gate and the UI gates for %s', (key, places) => {
     const files = [...(referencedFlags().get(key) ?? [])];
     for (const place of places) {

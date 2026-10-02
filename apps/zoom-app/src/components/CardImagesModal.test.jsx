@@ -49,24 +49,24 @@ beforeEach(() => {
 
 /**
  * The note under the uploaders. For a free user it points at Pro, but the
- * purchase is dark until pro_billing is released, so until then it reads the
+ * purchase is dark until pro is released, so until then it reads the
  * way it does while the plan is still unknown: the fact, and no link.
  */
 describe('the card images storage note', () => {
-  it('links to the upgrade once the plan is free and pro_billing is on', async () => {
+  it('links to the upgrade once the plan is free and pro is on', async () => {
     setEntitlement({ plan: 'free' });
-    setFlags({ pro_billing: true });
+    setFlags({ pro: true });
     await renderModal();
 
     expect(upgradeLink()).toBeInTheDocument();
   });
 
   it.each([
-    ['the plan is still unknown', () => setFlags({ pro_billing: true })],
+    ['the plan is still unknown', () => setFlags({ pro: true })],
     ['the flags are still unknown', () => setEntitlement({ plan: 'free' })],
-    ['pro_billing is off', () => {
+    ['pro is off', () => {
       setEntitlement({ plan: 'free' });
-      setFlags({ pro_billing: false });
+      setFlags({ pro: false });
     }],
   ])('says the images stay in this browser, with no link, while %s', async (_, seed) => {
     seed();
@@ -78,7 +78,7 @@ describe('the card images storage note', () => {
 
   it('tells a Pro user their images follow them, whatever the flag says', async () => {
     setEntitlement({ plan: 'pro', status: 'active', entitled: true, source: 'subscription' });
-    setFlags({ pro_billing: false });
+    setFlags({ pro: false });
     await renderModal();
 
     expect(screen.getByText(/backed up and follow you to your other devices/)).toBeInTheDocument();
