@@ -253,6 +253,44 @@ const FEATURES = [
   },
 ]
 
+// Rendered as the FAQ section. Keep each entry word for word in step with the
+// FAQPage JSON-LD in index.html: Google only honours structured data that
+// matches what the rendered page shows.
+const FAQS = [
+  {
+    q: "What is the Timer Role in Toastmasters?",
+    a: "The Timer is one of the most important meeting roles in Toastmasters. The Timer tracks how long each speaker talks and signals them using colored lights — green, yellow, and red — so they stay within their allotted time. Keeping speeches on time ensures the meeting runs smoothly and every speaker gets a fair chance to practice.",
+  },
+  {
+    q: "What are the standard Toastmasters timing rules?",
+    a: "Each speech type has its own time range. Standard Speech (5–7 min): green at 5:00, yellow at 6:00, red at 7:00. Table Topics (1–2 min): green at 1:00, yellow at 1:30, red at 2:00. Evaluation (2–3 min): green at 2:00, yellow at 2:30, red at 3:00. Longer Speech (7–9 min): green at 7:00, yellow at 8:00, red at 9:00.",
+  },
+  {
+    q: "How does the Toastmasters timer app work in Zoom?",
+    a: "Toastmusters Timer integrates with Zoom as a Zoom app. When timing speeches in a Zoom meeting, the app automatically changes your virtual background color to green, yellow, or red to signal the speaker — no physical cards or screen sharing needed.",
+  },
+  {
+    q: "Is the Toastmasters timer free?",
+    a: "Yes, Toastmusters Timer is completely free to use. No account or sign-up is needed — just open it in any modern browser and start timing speeches immediately. The Zoom app integration is also free.",
+  },
+  {
+    q: "Can I use a timer for online Toastmasters meetings?",
+    a: "Yes. Toastmusters Timer has a dedicated Zoom app that automatically changes your virtual background color to green, yellow, or red as the speaker reaches each time threshold. This replaces the need for physical colored cards in virtual meetings.",
+  },
+  {
+    q: "What colors does the Toastmasters timer use?",
+    a: "Toastmasters uses a traffic-light system: green means the speaker has reached the minimum time, yellow signals the midpoint of the time range, and red indicates the speaker has reached the maximum allowed time. Speakers should wrap up before or at the red signal.",
+  },
+  {
+    q: "How long is a Table Topics speech in Toastmasters?",
+    a: "A Table Topics speech in Toastmasters is 1 to 2 minutes long. The green signal shows at 1:00 (minimum time reached), yellow at 1:30 (midpoint), and red at 2:00 (maximum time). Speakers who go over 2 minutes and 30 seconds may be disqualified from awards.",
+  },
+  {
+    q: "What happens if a Toastmasters speaker goes over time?",
+    a: "After the red signal, speakers have a 30-second grace period. If they exceed the maximum time plus 30 seconds, they may be disqualified from winning the Best Speaker, Best Table Topics, or Best Evaluator award for that meeting. Toastmusters Timer tracks the exact overage so the Timer can report precise times.",
+  },
+]
+
 // The sticky header's anchors, in page order. Short labels on purpose — they
 // sit in one row and share it with the CTA.
 const NAV_LINKS = [
@@ -567,7 +605,7 @@ export default function Landing() {
                 can't go stale. */}
             <HeroStats />
             <h1 className="mt-7 font-display text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold tracking-tight leading-[1.1] max-w-4xl mx-auto">
-              Free Online Toastmasters Speech Timer – Run the Timer Role Easily
+              Toastmasters Timer – Free Online Speech Timer for the Timer Role
             </h1>
             <p className="mt-6 text-lg sm:text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">
               Toastmasters Timer helps you run the Timer role in Toastmasters meetings.
@@ -788,7 +826,7 @@ export default function Landing() {
 
           <h2 className="font-display text-2xl font-extrabold tracking-tight mb-3">Standard Toastmasters timing rules</h2>
           <p className="text-stone-600 leading-relaxed mb-6">
-            Each speech type has its own time range. The timer shows green when the minimum time is reached, yellow at the midpoint, and red at the maximum. Speakers who finish before green or after red may be disqualified from awards.
+            Each speech type has its own time range. The timer shows green when the minimum time is reached, yellow at the midpoint, and red at the maximum. In contests, finishing more than 30 seconds under the minimum or over the maximum disqualifies a speaker (Table Topics: under 1:00 or over 2:30), and clubs set their own rule for meeting awards.
           </p>
           <ul className="rounded-3xl border border-stone-200 bg-white shadow-sm divide-y divide-stone-100 overflow-hidden">
             <li className="flex flex-col sm:flex-row sm:justify-between gap-1 px-6 py-4">
@@ -811,6 +849,19 @@ export default function Landing() {
           <p className="text-sm text-stone-500 mt-4">
             Toastmasters Timer is pre-loaded with these rules so you can start timing immediately — no manual setup required.
           </p>
+        </section>
+
+        {/* ——— FAQ ——— */}
+        <section id="faq" className="scroll-mt-24 max-w-3xl mx-auto px-4 sm:px-6 pb-20">
+          <h2 className="font-display text-3xl font-extrabold tracking-tight mb-8">Frequently asked questions</h2>
+          <div className="space-y-8">
+            {FAQS.map((faq) => (
+              <div key={faq.q}>
+                <h3 className="font-display text-lg font-bold mb-2">{faq.q}</h3>
+                <p className="text-stone-600 leading-relaxed">{faq.a}</p>
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* ——— Closing CTA ——— */}
