@@ -9,11 +9,23 @@
 export const ZOOM_MARKETPLACE_REVIEW_URL =
   'https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw';
 
-/** Canonical entry point of the web timer (the "Time this" deep-link target). */
-export const TIMER_APP_URL = 'https://www.timer.toastmusters.com/app';
+/**
+ * The same listing as the place to learn about the app before adding it: the
+ * small "See it on the Zoom Marketplace" link beside every "Add to Zoom", and
+ * where /add-to-zoom falls back to when a deployment has no install link.
+ */
+export const ZOOM_MARKETPLACE_LISTING_URL = ZOOM_MARKETPLACE_REVIEW_URL;
 
 /**
- * Every tool in the Toastmusters suite, one subdomain each. Footers and nav
+ * Canonical entry point of the web timer: the "Time this" deep-link target,
+ * and the Zoom app's "use the browser timer" fallback. The Zoom app opens it
+ * with zoomSdk.openUrl, which needs its domain on the Marketplace allow list
+ * (toastmusters.com was added in the review submitted 2026-10).
+ */
+export const TIMER_APP_URL = 'https://www.toastmusters.com/timer/app';
+
+/**
+ * Every tool in the Toastmusters suite, each a path on www.toastmusters.com. Footers and nav
  * render from this list so a new tool is one entry here. URLs have no
  * trailing slash.
  */
@@ -21,13 +33,13 @@ export const TOOLS = [
   {
     slug: 'timer',
     name: 'Toastmusters Timer',
-    url: 'https://www.timer.toastmusters.com',
+    url: 'https://www.toastmusters.com',
     tagline: 'Green, yellow and red timing signals for every speech, in the browser or as a Zoom app.',
   },
   {
     slug: 'table-topics',
     name: 'Table Topics Generator',
-    url: 'https://www.tabletopics.toastmusters.com',
+    url: 'https://www.toastmusters.com/tabletopics',
     tagline: 'Fresh Table Topics questions for every meeting, with a one-click timer.',
   },
 ];

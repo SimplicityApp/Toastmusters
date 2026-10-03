@@ -1,10 +1,13 @@
 # Table Topics Generator (`apps/table-topics`)
 
 Random Table Topics questions for Toastmasters meetings, served at
-**https://www.tabletopics.toastmusters.com** by its own Cloudflare Worker
-(`toastmusters-tabletopics`). First sibling of the timer in the Toastmusters
-suite: one subdomain per tool, cross-linked through `TOOLS` in
-`packages/shared/appLinks.js`.
+**https://www.toastmusters.com/tabletopics/** by its own Cloudflare Worker
+(`toastmusters-tabletopics`), which the timer Worker reaches over its
+`TABLETOPICS` service binding. First sibling of the timer in the Toastmusters
+suite: one path per tool on `www.toastmusters.com`, cross-linked through
+`TOOLS` in `packages/shared/appLinks.js`. The old host,
+`www.tabletopics.toastmusters.com`, 301s every URL to the same page under
+`/tabletopics` (see [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md)).
 
 ## How it works
 
@@ -41,14 +44,23 @@ suite: one subdomain per tool, cross-linked through `TOOLS` in
   dev`), assets, `/404.html` with a real 404, CSP without `unsafe-inline` for
   scripts, HSTS, `X-Robots-Tag: noindex` on `-dev.` hosts, immutable caching for
   `/assets/*`, one hour for `/questions.json`.
+- **Zoom pitch.** The home, Today and category pages carry one line,
+  `zoomPitch()` in `src/templates/layout.mjs`, pointing Zoom meetings at the
+  timer's Zoom app (`www.toastmusters.com/add-to-zoom`), the suite's main
+  product.
 - **Analytics.** `src/analytics.js` loads posthog-js from the proxy
   `e.simple-tech.app` (same key as the timer, read from the repo-root `.env` or
   `VITE_PUBLIC_POSTHOG_*`). Events: `tt_set_shown {question_ids, category, source, count}`,
   `tt_question_shown {question_id, category, source, position}`, `tt_category_selected`, `tt_question_copied`,
   `tt_share_copied`, `tt_timer_deeplink_clicked`, `tt_print_clicked`,
-  `tt_today_viewed {date, swapped}`, `tt_list_expanded`.
+  `tt_today_viewed {date, swapped}`, `tt_list_expanded`. Clicks on any element
+  with `data-cta` send `cta_clicked {cta, location, page}`, the same event as
+  the timer site (see [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md#calls-to-action-and-analytics)).
 
 ## URL map
+
+Paths are under `/tabletopics` on `www.toastmusters.com` (`/` below is
+`www.toastmusters.com/tabletopics/`).
 
 | Path | Page | JSON-LD |
 | --- | --- | --- |
@@ -64,7 +76,9 @@ and `WebSite` nodes.
 
 ## Timer deep link
 
-"Time this" opens `https://www.timer.toastmusters.com/app?role=Table%20Topics%20Speech&name=<question>`.
+"Time this" opens `https://www.toastmusters.com/timer/app?role=Table%20Topics%20Speech&name=<question>`
+(`TIMER_APP_URL`). The link is `rel="nofollow"` and the timer answers these URLs
+with `X-Robots-Tag: noindex`, so the one-per-question deep links stay out of search.
 The web timer (`apps/web/src/utils/speakerDeepLink.js`, used by `LiveTab.jsx`)
 reads `role` and `name` on first mount when no speaker is set, selects the
 role, fills the name, and strips the params. The role must be the exact rules
@@ -78,11 +92,13 @@ npm run validate:tabletopics       # content check
 npm run build:tabletopics          # -> apps/table-topics/dist
 npm run dev:tabletopics            # build + wrangler dev on :8789 (launch.json: tabletopics-worker)
 npx vitest run --root apps/table-topics   # app only; root `npm test` also covers it once every app is installed
-npm run cf:deploy:tabletopics:dev  # www.tabletopics-dev.toastmusters.com (noindex)
+npm run cf:deploy:tabletopics:dev  # www.tabletopics-dev.toastmusters.com/tabletopics/ (noindex)
 npm run cf:deploy:tabletopics:prod
 ```
 
-Env for the build: `SITE_ORIGIN` (default prod), `BUILD_DATE`, `QUESTIONS_FILE`,
+Env for the build: `SITE_ORIGIN` (default `https://www.toastmusters.com/tabletopics`;
+its path becomes the base path every page, asset and link is built under),
+`BUILD_DATE`, `QUESTIONS_FILE`,
 `VITE_PUBLIC_POSTHOG_KEY`, `VITE_PUBLIC_POSTHOG_HOST`.
 
 ## Automation
@@ -98,7 +114,10 @@ Env for the build: `SITE_ORIGIN` (default prod), `BUILD_DATE`, `QUESTIONS_FILE`,
   smoke test. Secrets `CLOUDFLARE_API_TOKEN` (Workers Scripts:Edit, Account
   Settings:Read, Zone DNS:Edit + Workers Routes:Edit on `toastmusters.com`) and
   `CLOUDFLARE_ACCOUNT_ID`; variables `VITE_PUBLIC_POSTHOG_KEY/HOST`. The timer
-  Worker is never deployed by CI.
+  Worker is never deployed by CI. Since the move to `/tabletopics`, a build
+  that redirects the old host needs the timer Worker's `TABLETOPICS` binding
+  live first: deploy the timer Worker before such a change reaches `master`
+  ([TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md#deploying-step-1-order-matters)).
 
 ## Known trade-offs
 

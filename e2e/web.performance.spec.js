@@ -23,12 +23,12 @@ const cwvInitScript = () => {
 
 test.describe('Web App — Functional Checks', () => {
   test('page loads with timer display', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/timer/app');
     await expect(page.getByText(/^\d{2}:\d{2}$/)).toBeVisible();
   });
 
   test('role selection updates timing rules', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/timer/app');
     const roleSelect = page.locator('select');
     await expect(roleSelect).toHaveValue('Standard Speech');
 
@@ -37,7 +37,7 @@ test.describe('Web App — Functional Checks', () => {
   });
 
   test('start → timer ticks, stop → CONTINUE appears', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/timer/app');
 
     await page.getByRole('button', { name: /START/i }).click();
     await page.getByTitle('Show control panel').click();
@@ -52,7 +52,7 @@ test.describe('Web App — Functional Checks', () => {
   });
 
   test('tab switching preserves timer state', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/timer/app');
 
     // Start and let timer run
     await page.getByRole('button', { name: /START/i }).click();
@@ -69,14 +69,14 @@ test.describe('Web App — Functional Checks', () => {
   });
 
   test('feedback modal opens', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/timer/app');
     await page.getByRole('button', { name: /Send Us Feedback/i }).click();
     // Lazy-loaded FeedbackModal should appear with heading
     await expect(page.getByRole('heading', { name: /Send Us Feedback/i })).toBeVisible();
   });
 
   test('reset returns timer to 00:00', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/timer/app');
 
     // Start, wait, then finish
     await page.getByRole('button', { name: /START/i }).click();
@@ -93,7 +93,7 @@ test.describe('Web App — Functional Checks', () => {
 test.describe('Web App — Performance @performance', () => {
   test('FCP and LCP within thresholds', async ({ page }) => {
     await page.addInitScript(cwvInitScript);
-    await page.goto('/app');
+    await page.goto('/timer/app');
 
     // Wait for LCP to settle
     await page.waitForTimeout(2000);
@@ -107,7 +107,7 @@ test.describe('Web App — Performance @performance', () => {
 
   test('INP/TBT within threshold after interactions', async ({ page }) => {
     await page.addInitScript(cwvInitScript);
-    await page.goto('/app');
+    await page.goto('/timer/app');
     await page.waitForTimeout(500);
 
     // Perform several interactions to generate event timing entries

@@ -1,4 +1,4 @@
-import { page, esc, attr } from './layout.mjs';
+import { page, esc, attr, zoomPitch } from './layout.mjs';
 import { widget, questionList, LIST_VISIBLE } from './widget.mjs';
 import { article, breadcrumb, itemList } from './seo.mjs';
 
@@ -26,7 +26,8 @@ ${widget(config, { categories: bank.categories, categorySlug: category.slug, ini
         <h2>All ${n} ${esc(category.name.toLowerCase())} questions</h2>
 ${questionList(config, path, questions, { collapsible: true, id: 'tt-list' })}
         ${n > LIST_VISIBLE ? `<p class="tt-show-all-row"><button type="button" class="tt-btn tt-btn-ghost" data-tt-show-all="tt-list" hidden>Show all ${n} questions</button></p>` : ''}
-        <p><a class="static-inline-cta" href="${attr(config.timerAppUrl)}?role=Table%20Topics%20Speech" rel="noopener">Open the Table Topics timer &rarr;</a></p>
+        <p><a class="static-inline-cta" href="${attr(config.timerAppUrl)}?role=Table%20Topics%20Speech" rel="noopener" data-cta="web_timer" data-cta-location="category">Open the Table Topics timer &rarr;</a></p>
+        ${zoomPitch(config, 'category')}
       </section>
       <section class="static-card static-content">
         <h2>More categories</h2>

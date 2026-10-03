@@ -22,6 +22,13 @@
   },
 
   // ── Production ────────────────────────────────────────────────────────────
+  // The site lives at www.toastmusters.com/tabletopics (served through the
+  // timer Worker's TABLETOPICS binding). These hosts only redirect there now:
+  // the Worker 301s each URL to ROOT_ORIGIN/tabletopics/<same path>. `vars`
+  // are not inherited by environments; dev has no path-based host yet, so it
+  // leaves ROOT_ORIGIN unset and keeps serving the site on its own hosts.
+  "vars": { "ROOT_ORIGIN": "https://www.toastmusters.com" },
+
   "routes": [
     { "pattern": "tabletopics.toastmusters.com", "custom_domain": true },
     { "pattern": "www.tabletopics.toastmusters.com", "custom_domain": true }

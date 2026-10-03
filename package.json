@@ -33,7 +33,7 @@
     "validate:tabletopics": "node apps/table-topics/scripts/validate-questions.mjs",
     "build:tabletopics": "node apps/table-topics/scripts/build.mjs",
     "dev:tabletopics": "npm run build:tabletopics && wrangler dev -c apps/table-topics/wrangler.jsonc --port 8789",
-    "cf:deploy:tabletopics:dev": "SITE_ORIGIN=https://www.tabletopics-dev.toastmusters.com npm run build:tabletopics && wrangler deploy -c apps/table-topics/wrangler.jsonc --env dev",
+    "cf:deploy:tabletopics:dev": "SITE_ORIGIN=https://www.tabletopics-dev.toastmusters.com/tabletopics npm run build:tabletopics && wrangler deploy -c apps/table-topics/wrangler.jsonc --env dev",
     "cf:deploy:tabletopics:prod": "npm run build:tabletopics && wrangler deploy -c apps/table-topics/wrangler.jsonc"
   },
   "devDependencies": {

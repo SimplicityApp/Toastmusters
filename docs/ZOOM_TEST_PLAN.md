@@ -181,13 +181,13 @@ and no sign-in at all, which is Step P4 and the claim most worth checking.
 
 ## Step P1: Sign in with Zoom on the website
 
-1. In a browser, open `https://www.timer-dev.simple-tech.app/app`.
+1. In a browser, open `https://www.timer-dev.simple-tech.app/timer/app`.
 2. Top bar → **Sign in with Zoom** → **Allow**.
-   - Expected: you land back on `/app`, the top bar now reads **Account** (or
+   - Expected: you land back on `/timer/app`, the top bar now reads **Account** (or
      **Pro**), and `GET /api/me` returns `200` with your Zoom user id.
    - This is the only thing `user:read:user` is used for. We read and store the
      Zoom **user id** and nothing else — no name, no email address.
-3. Repeat starting from `https://timer-dev.simple-tech.app/app` (no `www.`).
+3. Repeat starting from `https://timer-dev.simple-tech.app/timer/app` (no `www.`).
    - Expected: identical result. Sign-in begun on any host this app serves is
      handed to the canonical host first, so it completes wherever it started.
 4. Decline the Zoom consent screen instead of allowing it.

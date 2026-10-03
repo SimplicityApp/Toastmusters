@@ -64,10 +64,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy -c apps/table-topics/wrangler.jsonc
 
+      # The site is served at www.toastmusters.com/tabletopics through the timer
+      # Worker's TABLETOPICS binding; the old host only redirects there.
       - name: Smoke test
         run: |
           set -e
           sleep 10
-          code=$(curl -s -o /dev/null -w '%{http_code}' https://www.tabletopics.toastmusters.com/)
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://www.toastmusters.com/tabletopics/)
           test "$code" = "200" || { echo "home returned $code"; exit 1; }
-          curl -sf https://www.tabletopics.toastmusters.com/questions.json | head -c 200 >/dev/null
+          curl -sf https://www.toastmusters.com/tabletopics/questions.json | head -c 200 >/dev/null
+          location=$(curl -s -o /dev/null -w '%{redirect_url}' https://www.tabletopics.toastmusters.com/topics/)
+          test "$location" = "https://www.toastmusters.com/tabletopics/topics/" || { echo "old host redirected to '$location'"; exit 1; }

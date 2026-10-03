@@ -2,7 +2,11 @@
 // Render the whole site from content/questions.json into ./dist.
 //
 //   node scripts/build.mjs            # uses content/questions.json
-//   SITE_ORIGIN=https://www.tabletopics-dev.toastmusters.com node scripts/build.mjs
+//   SITE_ORIGIN=https://www.timer-dev.toastmusters.com/tabletopics node scripts/build.mjs
+//
+// SITE_ORIGIN may carry a path. The site then lives under it: every page,
+// asset and root-relative link is prefixed, so www.toastmusters.com can serve
+// it at /tabletopics through the timer Worker.
 //
 // Env (all optional): SITE_ORIGIN, BUILD_DATE (YYYY-MM-DD), QUESTIONS_FILE,
 // VITE_PUBLIC_POSTHOG_KEY, VITE_PUBLIC_POSTHOG_HOST (fall back to the repo-root .env).
@@ -22,7 +26,7 @@ import { notFoundPage } from '../src/templates/notFound.mjs';
 
 const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = resolve(APP_ROOT, '../..');
-const DEFAULT_ORIGIN = 'https://www.tabletopics.toastmusters.com';
+const DEFAULT_ORIGIN = 'https://www.toastmusters.com/tabletopics';
 
 // Copied from apps/web/public/robots.txt: AI answer engines are an acquisition
 // channel for a free tool, so they are allow-listed explicitly.
@@ -53,7 +57,7 @@ export function longDate(dateStr) {
  * lib modules are inlined above generator.js with `import`/`export` stripped.
  * Returns { 'generator.js': code, 'analytics.js': code, 'tabletopics.css': css, 'content-pages.css': css }.
  */
-export function buildAssets({ posthogKey, posthogHost, timerAppUrl }) {
+export function buildAssets({ posthogKey, posthogHost, timerAppUrl, basePath = '' }) {
   const read = (p) => readFileSync(p, 'utf8');
   const strip = (code) =>
     code
@@ -61,7 +65,9 @@ export function buildAssets({ posthogKey, posthogHost, timerAppUrl }) {
       .replace(/^export\s+(function|const|let|class)\s/gm, '$1 ')
       .replace(/^export\s*\{[^}]*\};?\s*$/gm, '');
   const libs = ['rng.js', 'picker.js', 'links.js'].map((f) => strip(read(join(APP_ROOT, 'src/lib', f))));
-  const gen = strip(read(join(APP_ROOT, 'src/generator.js'))).replace('__TIMER_APP_URL__', timerAppUrl);
+  const gen = strip(read(join(APP_ROOT, 'src/generator.js')))
+    .replace('__TIMER_APP_URL__', timerAppUrl)
+    .replace('__BASE_PATH__', basePath);
   const generator = `// Built from src/lib/{rng,picker,links}.js + src/generator.js\n${libs.join('\n')}\n${gen}`;
   const analytics = read(join(APP_ROOT, 'src/analytics.js')).replace('__POSTHOG_KEY__', posthogKey || '').replace('__POSTHOG_HOST__', posthogHost || '');
   return {
@@ -76,6 +82,22 @@ export function hashedName(name, content) {
   const hash = createHash('sha1').update(content).digest('hex').slice(0, 8);
   const ext = extname(name);
   return `/assets/${basename(name, ext)}.${hash}${ext}`;
+}
+
+/**
+ * Move a rendered site under `basePath`: every output path, and every
+ * root-relative href/src in its HTML (the templates write "/topics/…"). A
+ * protocol-relative "//host" is left alone, and so are absolute URLs, which
+ * already carry the base through siteOrigin.
+ */
+export function applyBasePath(out, basePath) {
+  if (!basePath) return out;
+  const moved = new Map();
+  for (const [path, content] of out) {
+    const body = path.endsWith('.html') ? content.replace(/\b(href|src)="\/(?!\/)/g, `$1="${basePath}/`) : content;
+    moved.set(`${basePath}${path}`, body);
+  }
+  return moved;
 }
 
 /** Pure: bank + config -> Map of output path -> file contents. */
@@ -124,7 +146,7 @@ export function renderSite(bank, config) {
     '/llms.txt',
     `# Table Topics Generator\n\n> Free random Table Topics question generator for Toastmasters meetings: ${total} open-ended impromptu speaking prompts in ${bank.categories.length} categories, each answerable in 1–2 minutes, with a one-click timer. Independent tool, not affiliated with Toastmasters International.\n\n## Pages\n\n- [Generator](${config.siteOrigin}/): draw a random question, filter by category, copy, share, or time it.\n- [Today's set](${config.siteOrigin}/today/): ten questions for today, one per category where possible.\n- [All categories](${config.siteOrigin}/topics/)\n\n## Categories\n\n${bank.categories.map((c) => `- [${c.name}](${config.siteOrigin}/topics/${c.slug}/): ${c.description} (${c.questions.length} questions)`).join('\n')}\n\n## Data\n\n- [questions.json](${config.siteOrigin}/questions.json): the full bank as JSON.\n- Related: [Toastmusters Timer](${config.tools.find((t) => t.slug === 'timer')?.url ?? ''}/) for timing speeches.\n`
   );
-  return out;
+  return applyBasePath(out, config.basePath);
 }
 
 export function loadConfig(env = process.env) {
@@ -134,12 +156,14 @@ export function loadConfig(env = process.env) {
   const posthogKey = env.VITE_PUBLIC_POSTHOG_KEY ?? dotenv.VITE_PUBLIC_POSTHOG_KEY ?? '';
   const posthogHost = env.VITE_PUBLIC_POSTHOG_HOST ?? dotenv.VITE_PUBLIC_POSTHOG_HOST ?? 'https://e.simple-tech.app';
   const siteOrigin = (env.SITE_ORIGIN || DEFAULT_ORIGIN).replace(/\/$/, '');
+  const basePath = new URL(siteOrigin).pathname.replace(/\/$/, '');
   const buildDate = env.BUILD_DATE || utcDateString();
   return {
     siteOrigin,
+    basePath,
     rootOrigin: 'https://www.toastmusters.com',
     timerAppUrl: TIMER_APP_URL,
-    timerOrigin: TOOLS.find((t) => t.slug === 'timer')?.url ?? 'https://www.timer.toastmusters.com',
+    timerOrigin: TOOLS.find((t) => t.slug === 'timer')?.url ?? 'https://www.toastmusters.com',
     tools: TOOLS,
     posthogKey,
     posthogHost,
@@ -162,9 +186,11 @@ export function build({ questionsFile, distDir, env = process.env } = {}) {
   const assets = buildAssets(config);
   for (const [name, content] of Object.entries(assets)) config.assets[name] = hashedName(name, content);
 
+  // config.assets stays root-relative: the templates link to it, and
+  // applyBasePath prefixes those links along with every other one.
   rmSync(dist, { recursive: true, force: true });
-  mkdirSync(join(dist, 'assets'), { recursive: true });
-  for (const [name, content] of Object.entries(assets)) writeFileSync(join(dist, config.assets[name]), content);
+  mkdirSync(join(dist, config.basePath, 'assets'), { recursive: true });
+  for (const [name, content] of Object.entries(assets)) writeFileSync(join(dist, config.basePath, config.assets[name]), content);
 
   const pages = renderSite(bank, config);
   for (const [path, content] of pages) {
@@ -173,7 +199,15 @@ export function build({ questionsFile, distDir, env = process.env } = {}) {
     writeFileSync(target, content);
   }
   const pub = join(APP_ROOT, 'public');
-  if (existsSync(pub)) cpSync(pub, dist, { recursive: true });
+  if (existsSync(pub)) {
+    const target = join(dist, config.basePath);
+    cpSync(pub, target, { recursive: true });
+    // The manifest's start_url and icons are root-relative too.
+    const manifest = join(target, 'site.webmanifest');
+    if (config.basePath && existsSync(manifest)) {
+      writeFileSync(manifest, readFileSync(manifest, 'utf8').replace(/"(start_url|src)": "\/(?!\/)/g, `"$1": "${config.basePath}/`));
+    }
+  }
 
   return { pages: pages.size, assets: Object.keys(assets).length, dist, publicFiles: existsSync(pub) ? readdirSync(pub).length : 0, config };
 }

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import SignInFailureNotice from './components/SignInFailureNotice'
 import FlagGate from './components/FlagGate'
 import './App.css'
@@ -24,6 +24,16 @@ const spinner = (
   </div>
 );
 
+/**
+ * The web timer moved from /app to /timer/app. The Worker 301s /app before the
+ * SPA loads; this covers the dev server and any in-app link still on the old
+ * path, keeping the query (a Table Topics deep link carries its question there).
+ */
+function LegacyAppRoute() {
+  const { search, hash } = useLocation()
+  return <Navigate to={`/timer/app${search}${hash}`} replace />
+}
+
 /** A page that does not exist until the `pro` release flag is on. */
 const pro = (page) => <FlagGate flag="pro" fallback={spinner}>{page}</FlagGate>;
 
@@ -36,7 +46,11 @@ function App() {
     <Suspense fallback={spinner}>
       <Routes>
         <Route path="/" element={<Landing />} />
-        <Route path="/app" element={<TimerApp />} />
+        <Route path="/timer/app" element={<TimerApp />} />
+        {/* Reserved for a timer landing page if / ever becomes a suite home.
+            Until then it points at the landing page, which lives at /. */}
+        <Route path="/timer" element={<Navigate to="/" replace />} />
+        <Route path="/app" element={<LegacyAppRoute />} />
         <Route path="/oauth/redirect" element={<OAuthRedirect />} />
         <Route path="/billing/success" element={<BillingSuccess />} />
         <Route path="/billing/cancel" element={<BillingCancel />} />

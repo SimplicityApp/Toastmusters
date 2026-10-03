@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('report generation and clear', async ({ page }) => {
-  await page.goto('/app');
+  await page.goto('/timer/app');
 
   const nameInput = page.getByPlaceholder('Type speaker name...');
 

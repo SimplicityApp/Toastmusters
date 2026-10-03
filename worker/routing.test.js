@@ -153,11 +153,152 @@ describe('canonical host redirect', () => {
   });
 });
 
+describe('the old toastmusters.com timer hosts move to www.toastmusters.com', () => {
+  const prod = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' });
+
+  it.each([
+    ['https://timer.toastmusters.com/', 'https://www.toastmusters.com/'],
+    ['https://www.timer.toastmusters.com/', 'https://www.toastmusters.com/'],
+    ['https://www.timer.toastmusters.com/toastmasters-timing-chart', 'https://www.toastmusters.com/toastmasters-timing-chart'],
+    ['https://www.timer.toastmusters.com/app?role=Table%20Topics%20Speech&name=Q', 'https://www.toastmusters.com/timer/app?role=Table%20Topics%20Speech&name=Q'],
+    ['https://www.timer.toastmusters.com/web', 'https://www.toastmusters.com/timer/app'],
+    ['https://www.timer.toastmusters.com/r/ABCDEFGHJKMNPQRS', 'https://www.toastmusters.com/r/ABCDEFGHJKMNPQRS'],
+  ])('301s %s to %s in one hop', async (from, to) => {
+    const env = prod();
+    const res = await worker.fetch(get(from), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(to);
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('never redirects an API call, whose POST body a 301 would drop', async () => {
+    const env = prod();
+    const res = await worker.fetch(get('https://www.timer.toastmusters.com/api/stats'), env, ctx);
+
+    expect(res.status).not.toBe(301);
+  });
+
+  // zoom.timer.toastmusters.com may become the Zoom app's home; a cached 301
+  // there would outlive any change of plan.
+  it.each([
+    'https://www.timer.simple-tech.app/',
+    'https://zoom.timer.simple-tech.app/',
+    'https://zoom.timer.toastmusters.com/',
+    'https://www.toastmusters.com/',
+  ])('leaves %s alone', async (url) => {
+    const res = await worker.fetch(get(url), prod(), ctx);
+
+    expect(res.status).not.toBe(301);
+  });
+
+  it('does nothing without ROOT_ORIGIN (dev) or over http (wrangler dev)', async () => {
+    const dev = await worker.fetch(get('https://www.timer.toastmusters.com/'), makeEnv(['/index.html']), ctx);
+    const local = await worker.fetch(get('http://www.timer.toastmusters.com/'), prod(), ctx);
+
+    expect(dev.status).toBe(200);
+    expect(local.status).toBe(200);
+  });
+});
+
+describe('/add-to-zoom', () => {
+  it("sends people to this deployment's Zoom install screen", async () => {
+    const env = { ...makeEnv([]), ZOOM_CLIENT_ID: 'client-123', WEB_ORIGIN: 'https://www.timer.simple-tech.app' };
+    const res = await worker.fetch(get('https://www.toastmusters.com/add-to-zoom'), env, ctx);
+
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get('location'));
+    expect(location.origin + location.pathname).toBe('https://zoom.us/oauth/authorize');
+    expect(location.searchParams.get('client_id')).toBe('client-123');
+    expect(location.searchParams.get('redirect_uri')).toBe('https://www.timer.simple-tech.app/oauth/redirect');
+    expect(res.headers.get('x-robots-tag')).toBe('noindex');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('falls back to the Marketplace listing when no install link is configured', async () => {
+    const res = await worker.fetch(get('https://www.toastmusters.com/add-to-zoom'), makeEnv([]), ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw');
+  });
+});
+
+describe('/tabletopics is handed to the Table Topics Worker', () => {
+  const withTableTopics = () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+    env.TABLETOPICS = { fetch: vi.fn(async () => new Response('table topics', { status: 200 })) };
+    return env;
+  };
+
+  it.each(['/tabletopics', '/tabletopics/', '/tabletopics/topics/humor/', '/tabletopics/questions.json'])(
+    'forwards %s untouched',
+    async (path) => {
+      const env = withTableTopics();
+      const res = await worker.fetch(get(`https://www.toastmusters.com${path}`), env, ctx);
+
+      expect(await res.text()).toBe('table topics');
+      expect(env.TABLETOPICS.fetch).toHaveBeenCalledTimes(1);
+      expect(new URL(env.TABLETOPICS.fetch.mock.calls[0][0].url).pathname).toBe(path);
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('leaves look-alike paths and the Zoom host alone', async () => {
+    const env = withTableTopics();
+    await worker.fetch(get('https://www.toastmusters.com/tabletopics-old'), env, ctx);
+    await worker.fetch(get('https://zoom.timer.simple-tech.app/tabletopics/'), env, ctx);
+
+    expect(env.TABLETOPICS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('is a plain 404 when the binding is absent (local dev)', async () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+    const res = await worker.fetch(get('https://www.toastmusters.com/tabletopics/'), env, ctx);
+
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('the web timer moved from /app to /timer/app', () => {
+  it('301s /app to /timer/app and keeps the query', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(
+      get('https://www.timer.simple-tech.app/app?role=Table%20Topics%20Speech&name=Test'),
+      env,
+      ctx
+    );
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(
+      'https://www.timer.simple-tech.app/timer/app?role=Table%20Topics%20Speech&name=Test'
+    );
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('sends /web straight to /timer/app in one hop', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/web'), env, ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer/app');
+  });
+
+  // /timer is held for a timer landing page should / become a suite home; a
+  // 302 is not cached, so the URL stays free to change its answer later.
+  it.each(['/timer', '/timer/'])('points %s at the landing page with a 302', async (path) => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(get(`https://www.toastmusters.com${path}`), env, ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.toastmusters.com/');
+  });
+});
+
 describe('404 handling', () => {
   it('serves the SPA shell with 200 for real app routes', async () => {
     const env = makeEnv(['/index.html']);
 
-    for (const path of ['/', '/app', '/oauth/redirect', '/club/admin', '/club/manage']) {
+    for (const path of ['/', '/timer/app', '/oauth/redirect', '/club/admin', '/club/manage']) {
       const res = await worker.fetch(
         get(`https://www.timer.simple-tech.app${path}`),
         env,
@@ -303,6 +444,20 @@ describe('indexing headers', () => {
     expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
   });
 
+  it('marks web timer deep links noindex, but not bare /timer/app', async () => {
+    const env = makeEnv(['/index.html']);
+    const deep = await worker.fetch(
+      get('https://www.timer.simple-tech.app/timer/app?role=Table%20Topics%20Speech&name=Test'),
+      env,
+      ctx
+    );
+    const bare = await worker.fetch(get('https://www.timer.simple-tech.app/timer/app'), env, ctx);
+
+    expect(deep.status).toBe(200);
+    expect(deep.headers.get('x-robots-tag')).toBe('noindex');
+    expect(bare.headers.get('x-robots-tag')).toBeNull();
+  });
+
   it('does not mark ordinary pages noindex', async () => {
     const env = makeEnv(['/index.html']);
     const res = await worker.fetch(
@@ -408,7 +563,7 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
 
   it('starts sign-in from /api/auth/zoom/start and completes it on the callback', async () => {
     const env = authEnv();
-    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), env, ctx);
+    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Ftimer%2Fapp'), env, ctx);
     expect(started.status).toBe(302);
     const location = new URL(started.headers.get('location'));
     expect(location.hostname).toBe('zoom.us');
@@ -427,7 +582,7 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       });
       const res = await worker.fetch(cb, env, ctx);
       expect(res.status).toBe(302);
-      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/app');
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer/app');
       expect(res.headers.get('set-cookie')).toMatch(/tt_session=/);
     } finally {
       globalThis.fetch = realFetch;
@@ -439,13 +594,13 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
   // with no code exchange and no session.
   it('404s the start and serves the SPA for a signed callback while pro is off', async () => {
     const off = authEnv('0');
-    const start = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), off, ctx);
+    const start = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Ftimer%2Fapp'), off, ctx);
     expect(start.status).toBe(404);
     expect(await start.json()).toEqual({ error: 'Not found' });
     expect(start.headers.get('set-cookie')).toBeNull();
 
     // A state minted while sign-in was on, spent after it went off.
-    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), authEnv('1'), ctx);
+    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Ftimer%2Fapp'), authEnv('1'), ctx);
     const state = new URL(started.headers.get('location')).searchParams.get('state');
     const nonce = started.headers.get('set-cookie').match(/tt_oauth=([^;]+)/)[1];
 

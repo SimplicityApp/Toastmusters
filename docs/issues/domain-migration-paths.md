@@ -10,6 +10,25 @@ Move from one subdomain per product to paths on one domain, then move the timer 
 
 This replaces the subdomain-per-tool approach in `docs/DOMAIN_MIGRATION.md` (decided 2026-09-02). Update or archive that doc as part of Phase 0.
 
+## Status (2026-10-03)
+
+Step 1 is built on branch `feat/seo-and-domain-migration` (PR #82), not yet
+deployed. The live URL map, configuration, deploy order and the open step 2
+decisions are in [`docs/TOASTMUSTERS_PATHS.md`](../TOASTMUSTERS_PATHS.md),
+which supersedes the target map below where they differ. Decisions changed
+since this issue was written:
+
+| Topic | This issue said | Decided |
+| --- | --- | --- |
+| Phase 2 (`simple-tech.app/timer`) | Keep it | **Dropped.** Each old URL moves once, straight to its final page; `simple-tech.app` is not touched at all. |
+| Web timer path | `/timer` | **`/timer/app`**, its final URL. `/timer` is held for a timer landing page should `/` ever become a suite home (302 → `/` until then). |
+| Root page | Timer marketing page, 200 | Unchanged: the landing page stays at `/` while the timer is the main product. |
+| `timer.toastmusters.com/*` | 301 → `www.toastmusters.com/timer/*` | 301 → the same path on `www.toastmusters.com` (`/app` → `/timer/app`). Its homepage maps onto `/`. |
+| `zoom.timer.toastmusters.com/*` | 301 → `www.toastmusters.com/zoom/*` | **Not redirected.** The Zoom app will move to a subdomain (`zoom.toastmusters.com` or `zoom.timer.toastmusters.com`, decided at that time), not a path; a cached 301 there would get in the way. |
+| Web users' saved data | One-time carry-over | Deferred to step 2 and to be measured first. Step 1 redirects `www.timer.toastmusters.com` without one (3 web-timer users there in 90 days). |
+| Calls to action | — | The Zoom app is the product: every CTA leads with Add to Zoom, and every CTA click is tracked (`cta_clicked`). |
+| Zoom allow list | Untouched | A Zoom review adding `toastmusters.com` was submitted; it gates merging PR #82, because the Zoom app's browser-timer fallback now opens `www.toastmusters.com/timer/app`. |
+
 ## Decisions
 
 | Decision | Choice |
@@ -35,6 +54,8 @@ This replaces the subdomain-per-tool approach in `docs/DOMAIN_MIGRATION.md` (dec
 - **Real Zoom traffic** (`ZoomApps/1.0` user agent) arrives only on simple-tech.app. `zoom.timer.toastmusters.com` only gets crawlers and scanners.
 
 ## Target URL map
+
+> Superseded where it differs from [`docs/TOASTMUSTERS_PATHS.md`](../TOASTMUSTERS_PATHS.md); see Status above.
 
 Same as the runbook. Each row is mapped on its own, not with one wildcard rule. Query strings are kept, with one trailing-slash policy throughout. The rows apply equally to each host's `www` alias.
 

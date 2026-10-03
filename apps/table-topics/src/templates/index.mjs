@@ -1,4 +1,4 @@
-import { page, esc, attr } from './layout.mjs';
+import { page, esc, attr, zoomPitch } from './layout.mjs';
 import { widget } from './widget.mjs';
 import { webApp, faq, breadcrumb } from './seo.mjs';
 
@@ -49,6 +49,7 @@ ${widget(config, { categories: bank.categories, categorySlug: '', initial, showC
           <li><strong>Favor guests and quiet members.</strong> Table Topics is the easiest way for a guest to speak for the first time. Keep an icebreaker question ready for them.</li>
           <li><strong>Keep spares.</strong> Have two more questions than speakers. <a href="/today/">Today&rsquo;s set</a> gives you ten in one place.</li>
         </ol>
+        ${zoomPitch(config, 'home')}
       </section>
       <section class="static-card static-content" id="faq">
         <h2>Frequently asked questions</h2>

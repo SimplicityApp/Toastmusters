@@ -1,5 +1,11 @@
 # Migration: `timer.simple-tech.app` → `timer.toastmusters.com`
 
+> **Superseded (2026-10-03).** The suite moved from one subdomain per tool to
+> paths on `www.toastmusters.com` (#81). The current URL map, deploy order and
+> remaining steps are in [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md). This
+> document is kept for its Zoom analysis (why the Zoom host moves last, and
+> the measured storage data behind dropping the bridge).
+
 Moves the site and the Zoom app to a new root domain. `toastmusters.com` will
 host a suite of tools, **one subdomain per tool** (`timer.`, `tabletopics.`, …),
 so the timer keeps its old host shape under the new root. Companion to

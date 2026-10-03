@@ -2,7 +2,7 @@
 
 The Zoom app never shows a sign-in: Zoom hands it an encrypted app context and
 the Worker reads the user's `uid` from that. A plain browser has no such
-context, so the web app at `/app` signs in **with Zoom** (OAuth). The Worker
+context, so the web app at `/timer/app` signs in **with Zoom** (OAuth). The Worker
 exchanges the code, reads the same Zoom user id, and mints the same kind of
 session token into an HttpOnly cookie. One identity, two doors: a Pro plan
 bought inside Zoom is Pro on the web with nothing to link.
@@ -10,14 +10,14 @@ bought inside Zoom is Pro on the web with nothing to link.
 ## Flow
 
 ```
-/api/auth/zoom/start?returnTo=/app
+/api/auth/zoom/start?returnTo=/timer/app
   → signed state (nonce, purpose, returnTo, 10-min expiry) + tt_oauth nonce cookie
   → 302 https://zoom.us/oauth/authorize?...&redirect_uri=<WEB_ORIGIN>/oauth/redirect&state=…
 Zoom consent → 302 /oauth/redirect?code=…&state=…
   Worker: state verified + nonce cookie matches → POST zoom.us/oauth/token
         → GET api.zoom.us/v2/users/me → id → 30-day session token
         → Set-Cookie tt_session (HttpOnly; Secure; SameSite=Lax; host-only)
-        → 302 <WEB_ORIGIN>/app
+        → 302 <WEB_ORIGIN>/timer/app
 /api/me re-issues the cookie when it is older than a day (sliding session).
 POST /api/auth/logout clears it.
 ```
@@ -77,9 +77,9 @@ When the domain migration makes `timer.toastmusters.com` canonical, change
 
 ## Testing on dev
 
-1. Deploy dev, open `https://www.timer-dev.simple-tech.app/app`, click
+1. Deploy dev, open `https://www.timer-dev.simple-tech.app/timer/app`, click
    **Sign in with Zoom** in the top bar, allow.
-2. You land back on `/app`; the top bar shows **Account** (or **Pro**).
+2. You land back on `/timer/app`; the top bar shows **Account** (or **Pro**).
    PostHog now shows the person `zoom:<uid>` with `surface: web`.
 3. Change a timing rule; `wrangler tail --env dev` shows `PUT /api/profile`
    (200 if Pro or unenforced, 402 otherwise). Open the Zoom app on dev: the rule

@@ -4,6 +4,7 @@ import {
   FEEDBACK_SURVEY_ID,
   REVIEW_PROMPT,
   REVIEW_SURVEY_ID,
+  ZOOM_MARKETPLACE_LISTING_URL,
   ZOOM_MARKETPLACE_REVIEW_URL,
   markPromptAnswered,
 } from '@toastmaster-timer/shared';
@@ -11,7 +12,8 @@ import { trackEvent } from '../utils/posthog';
 const FeedbackModal = lazy(() => import('./FeedbackModal'));
 
 export default memo(function Footer() {
-  const ADD_TO_ZOOM_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT;
+  // A build without the install link sends people to the Marketplace listing.
+  const ADD_TO_ZOOM_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_MARKETPLACE_LISTING_URL;
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
   const handleFeedbackClick = () => {
@@ -42,6 +44,7 @@ export default memo(function Footer() {
           href={ADD_TO_ZOOM_URL}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => trackEvent('cta_clicked', { cta: 'add_to_zoom', location: 'timer-footer', page: '/timer/app' })}
           className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors"
         >
           <ExternalLink className="w-4 h-4" />

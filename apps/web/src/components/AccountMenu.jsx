@@ -24,7 +24,7 @@ export default function AccountMenu({ compact = false }) {
 
   if (!identity) return null
 
-  const returnTo = `${location.pathname}${location.search}` || '/app'
+  const returnTo = `${location.pathname}${location.search}` || '/timer/app'
   const base = compact
     ? 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors'
     : 'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors'

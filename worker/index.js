@@ -5,6 +5,7 @@ import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
 import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
+import { ZOOM_MARKETPLACE_LISTING_URL } from '../packages/shared/appLinks.js';
 import { handleBilling } from './billing.js';
 import { handleClub } from './club.js';
 import { handleClubAsset } from './club-assets.js';
@@ -39,12 +40,34 @@ const ROOT_TO_ZOOM_REWRITES = {
 // later phase. The bare toastmusters.com root is parked here for now too.
 const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|toastmusters\.com)$/;
 
+// The toastmusters.com subdomain the timer used to live on. With ROOT_ORIGIN
+// set, each of its URLs 301s to the same page on the main site in one hop
+// (the web timer's old /app becomes /timer/app). zoom.timer.toastmusters.com
+// is not on this list: it may become the Zoom app's home when the Zoom app
+// moves, and a cached 301 would get in the way. Nor is timer.simple-tech.app,
+// which keeps serving until its own redirect step (#81).
+const LEGACY_TIMER_HOST_PATTERN = /^(www\.)?timer\.toastmusters\.com$/;
+
+/** The main-site URL for a request to the old timer.toastmusters.com host. */
+export function legacyTimerTarget(url, rootOrigin) {
+  let { pathname, search } = url;
+  if (pathname === '/app' || pathname === '/app/') {
+    pathname = '/timer/app';
+  } else if (pathname === '/web') {
+    pathname = '/timer/app';
+    search = '';
+  }
+  const target = new URL(pathname, rootOrigin);
+  target.search = search;
+  return target.toString();
+}
+
 // Paths the root SPA (apps/web) owns via react-router. Anything else that
 // misses the asset lookup is a genuine 404 — serving index.html with HTTP 200
 // for unknown URLs creates soft 404s that waste crawl budget.
 const SPA_ROUTES = new Set([
   '/',
-  '/app',
+  '/timer/app',
   '/oauth/redirect',
   '/billing/success',
   '/billing/cancel',
@@ -174,6 +197,14 @@ export default {
       if (signedIn) return signedIn;
     }
 
+    // 2a. The old toastmusters.com timer hosts move to the main site. After
+    //     every API route above (a 301 would drop a POST body) and before the
+    //     apex rule below, so timer.toastmusters.com takes one hop, not two.
+    //     https only, for the same wrangler dev reason as the apex rule.
+    if (url.protocol === 'https:' && env.ROOT_ORIGIN && LEGACY_TIMER_HOST_PATTERN.test(url.hostname)) {
+      return Response.redirect(legacyTimerTarget(url, env.ROOT_ORIGIN), 301);
+    }
+
     // 2. Canonical host: apex -> www (301). The zoom.<domain> host is a
     //    separate app and is left alone.
     //
@@ -195,6 +226,18 @@ export default {
       });
     }
 
+    // 3a. Table Topics lives at /tabletopics, served by its own Worker over the
+    //     TABLETOPICS service binding. That Worker answers the whole path,
+    //     including its own 404s and security headers, so the response goes
+    //     back untouched. Not on the zoom.<domain> host, which is the Zoom app.
+    if (
+      env.TABLETOPICS &&
+      !host.startsWith('zoom.') &&
+      (pathname === '/tabletopics' || pathname.startsWith('/tabletopics/'))
+    ) {
+      return env.TABLETOPICS.fetch(request);
+    }
+
     // 3b. A shared meeting report. Worker-rendered HTML rather than an SPA
     //     route, because a link-preview crawler does not run JavaScript: the
     //     OG tags have to be in the bytes this returns. Placed after the apex
@@ -204,10 +247,31 @@ export default {
       return withSecurityHeaders(await handleSharedReport(request, url, env), request, url);
     }
 
-    // 4. Redirect (was `redirects` in vercel.json): /web -> /app (302).
-    //    Return early — Response.redirect() responses are immutable.
-    if (pathname === '/web') {
-      return Response.redirect(new URL('/app', url.origin).toString(), 302);
+    // 4. The web timer lives at /timer/app. /app (its old path) moves
+    //    permanently, keeping the query so a Table Topics deep link still opens
+    //    its question; /web, an older alias, goes straight there in one hop.
+    //    /timer itself is held for a timer landing page should / ever become a
+    //    suite home, so for now it points at the landing page with a 302,
+    //    which browsers do not cache. Return early — Response.redirect()
+    //    responses are immutable.
+    if (pathname === '/app' || pathname === '/app/' || pathname === '/web') {
+      const target = new URL(`/timer/app${pathname === '/web' ? '' : url.search}`, url.origin);
+      return Response.redirect(target.toString(), pathname === '/web' ? 302 : 301);
+    }
+    if (pathname === '/timer' || pathname === '/timer/') {
+      return Response.redirect(new URL('/', url.origin).toString(), 302);
+    }
+
+    // 4b. "Add to Zoom" from the static pages, which cannot know which Zoom app
+    //     this deployment installs. Straight to Zoom's install screen for the
+    //     deployment's app; to the Marketplace listing when it has no install
+    //     link configured. Not a page: noindex, never cached.
+    if (pathname === '/add-to-zoom') {
+      const target = zoomAuthorizeUrl(env)?.toString() ?? ZOOM_MARKETPLACE_LISTING_URL;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: target, 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
+      });
     }
 
     // 5. Serve the right asset (host-based routing + SPA fallback), then
@@ -342,6 +406,13 @@ function withSecurityHeaders(response, request, url) {
   // crawling it; this also keeps the URL itself out of the index.
   if (url.pathname.startsWith('/oauth/')) {
     headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
+
+  // Deep links like /timer/app?role=…&name=… (one per Table Topics question)
+  // are app state, not pages. Keep them out of the index; bare /timer/app is
+  // unaffected.
+  if (url.pathname === '/timer/app' && url.search) {
+    headers.set('X-Robots-Tag', 'noindex');
   }
 
   // Immutable caching for background images (was /zoom/backgrounds/(.*)).

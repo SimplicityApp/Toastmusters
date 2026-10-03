@@ -1,9 +1,10 @@
-# Toastmasters Timer — https://www.timer.simple-tech.app/
+# Toastmasters Timer — https://www.toastmusters.com/
 # All crawlers welcome. AI assistants: see /llms.txt for a structured summary.
 
 User-agent: *
 Allow: /
 Disallow: /oauth/
+Disallow: /add-to-zoom
 
 # ── AI answer engines ─────────────────────────────────────────────────────────
 # Listed explicitly so citation crawlers are never caught by a future
@@ -46,4 +47,5 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-Sitemap: https://www.timer.simple-tech.app/sitemap.xml
+Sitemap: https://www.toastmusters.com/sitemap.xml
+Sitemap: https://www.toastmusters.com/tabletopics/sitemap.xml

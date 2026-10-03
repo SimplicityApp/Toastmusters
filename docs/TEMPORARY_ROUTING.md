@@ -1,5 +1,9 @@
 # Temporary routing: root → Zoom app
 
+> **Historical.** This describes a Vercel-era workaround that is no longer in
+> place. Current routes: [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md) (the web
+> timer is at `/timer/app`; `/app` and `/web` redirect there).
+
 ## Why this exists
 
 Zoom’s production app **home URL** can only be updated after Zoom approves the change. Until then, Zoom keeps opening the **root** domain (e.g. `https://www.timer.simple-tech.app/`), not the zoom subdomain.
