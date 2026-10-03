@@ -79,9 +79,16 @@ Verify a deployment in one line — the stamp is applied with or without the
 curl -s https://zoom.timer-dev.simple-tech.app/ | grep -o '<meta name="zoom-install-url"[^>]*>'
 ```
 
-The marketing site's "Add to Zoom" (`Landing.jsx`, `Footer.jsx`,
-`ReviewPromptModal.jsx`) still reads `VITE_ZOOM_OAUTH_REDIRECT` at build time
-and is **not** stamped.
+The marketing site's "Add to Zoom" is not stamped either:
+
+- `Landing.jsx` and the web timer's `Footer.jsx` read `VITE_ZOOM_OAUTH_REDIRECT`
+  at build time and fall back to the Marketplace listing
+  (`ZOOM_MARKETPLACE_LISTING_URL`) when a build has none.
+  `ReviewPromptModal.jsx` reads it too and hides its button without it.
+- The static guide pages link to **`/add-to-zoom`**, which the Worker answers
+  with a 302 to `zoomAuthorizeUrl(env)` (the same `ZOOM_CLIENT_ID` +
+  `WEB_ORIGIN` as the stamp), or to the Marketplace listing when those are
+  unset. So the guides always install the deploying environment's app.
 
 ## What forces users to re-consent — and what does not
 

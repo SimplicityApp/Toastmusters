@@ -3,8 +3,9 @@
 Every tool in the suite is a path on **`www.toastmusters.com`**, the main
 site. This replaces the one-subdomain-per-tool plan in
 [DOMAIN_MIGRATION.md](DOMAIN_MIGRATION.md) and tracks issue #81.
+Keyword targets and content rules are in [SEO.md](SEO.md).
 
-Three decisions shape it:
+Four decisions shape it:
 
 - **No detour through `simple-tech.app/timer`.** Each old URL moves once,
   straight to its final page. The `simple-tech.app` portfolio is not touched.
@@ -20,6 +21,10 @@ Three decisions shape it:
   the landing page moves to `/timer`, which is held for it (302 → `/`, which
   browsers do not cache). The web app is already at its final URL,
   `/timer/app`, because that is the URL other things link to.
+- **The Zoom app is the product; the web timer complements it.** Every call
+  to action leads with "Add to Zoom" and offers the browser timer and the
+  Marketplace listing as quieter choices. See
+  [Calls to action and analytics](#calls-to-action-and-analytics).
 
 ## URL map
 
@@ -29,6 +34,7 @@ Three decisions shape it:
 | `www.toastmusters.com/timer/app` | Web timer, 200 (`?role=…&name=…` deep links are `noindex`) | step 1 |
 | `www.toastmusters.com/timer` | 302 → `/` (held for a future timer landing page) | step 1 |
 | `www.toastmusters.com/app` | 301 → `/timer/app`, query kept | step 1 |
+| `www.toastmusters.com/add-to-zoom` | 302 → this deployment's Zoom install screen, or the Marketplace listing if it has none (`noindex`, not cached) | step 1 |
 | `www.toastmusters.com/<guide>` | The timer guides (`/toastmasters-timing-chart` etc.), 200 | unchanged |
 | `www.toastmusters.com/tabletopics/…` | Table Topics, via the `TABLETOPICS` service binding | step 1 |
 | `www.toastmusters.com/zoom/…` | Zoom app shell in a browser (not the Zoom URL) | unchanged |
@@ -49,6 +55,47 @@ Canonical tags, `og:url`, JSON-LD, sitemaps and `llms.txt` all name
 `https://www.toastmusters.com/…`. The one exception is the Zoom OAuth
 `redirect_uri`, which stays `https://www.timer.simple-tech.app/oauth/redirect`
 because it must match the Marketplace registration byte for byte.
+
+`apps/web/public/sitemap.xml` is generated: `npm run build` runs
+`scripts/generate-sitemap.mjs`, which sets the origin and takes each `lastmod`
+from git. Change the origin there, not in the XML.
+
+## Calls to action and analytics
+
+**Where each call to action goes**
+
+| Where | Main action | Quieter choices |
+| --- | --- | --- |
+| Landing page (hero, header, closing band, footer) | Add to Zoom | Use in Browser, See it on the Zoom Marketplace, Open in Zoom |
+| Guide pages (`apps/web/public/*.html`) | Add to Zoom (`/add-to-zoom`) | use it in your browser · See it on the Zoom Marketplace |
+| In-copy mentions of the app on guide pages | The landing page `/`, which leads with Zoom | — |
+| Web timer footer | Add to Zoom | (plus its periodic "Add to Zoom" prompt) |
+| Table Topics home, Today and category pages | One line: "Meeting on Zoom? Add Toastmusters Timer to Zoom…" | "Time this" still opens the web timer with the question filled in |
+| Zoom app, connection lost | Re-add / Approve in Zoom | "Use the browser timer instead" (`TIMER_APP_URL`) |
+
+The React pages link to `VITE_ZOOM_OAUTH_REDIRECT` (the build's install
+screen) and fall back to `ZOOM_MARKETPLACE_LISTING_URL`. The static pages
+cannot know the build's Zoom app, so they link to `/add-to-zoom` and let the
+Worker answer from `ZOOM_CLIENT_ID` + `WEB_ORIGIN`.
+
+**One event for every click.** Each call to action sends PostHog
+`cta_clicked` with:
+
+- `cta`: `add_to_zoom`, `web_timer`, `marketplace` or `open_in_zoom`
+- `location`: `hero`, `header`, `closing`, `footer`, `content`,
+  `install-steps`, `troubleshooting`, `timer-footer`, or the Table Topics page
+  (`home`, `today`, `category`)
+- `page`: the path it was clicked on
+
+On the React pages it comes from `trackCta()` in `Landing.jsx` and
+`Footer.jsx`. On static pages, any element with `data-cta` (and optionally
+`data-cta-location`) is tracked by `apps/web/public/site-analytics.js`, which
+also records their page views; the web build fills in its PostHog key
+(`fillSiteAnalytics` in `apps/web/vite.config.js`). Table Topics'
+`src/analytics.js` handles `data-cta` the same way. Events use `sendBeacon`
+because most of these links leave the page. `apps/web/src/staticPages.test.js`
+fails if a guide page drops the script, loses its tracked Add to Zoom, or
+links into the web timer without `data-cta`.
 
 ## Configuration
 
@@ -100,7 +147,12 @@ curl -s https://www.timer.simple-tech.app/ | grep -o '<link rel="canonical"[^>]*
 curl -sI https://zoom.timer.simple-tech.app/ | head -1                             # 200, unchanged
 ```
 
-Then launch the Zoom app once from the client and confirm it behaves as before.
+```bash
+curl -sI https://www.toastmusters.com/add-to-zoom | grep -i location               # zoom.us/oauth/authorize?…client_id=…
+```
+
+Then launch the Zoom app once from the client and confirm it behaves as before,
+and check PostHog for `cta_clicked` events and page views on a guide page.
 
 ### Roll back
 
@@ -126,5 +178,8 @@ page on `www.toastmusters.com`. Before building it, decide:
 - **Web users' saved data.** Browser storage is per host, so web-timer users
   arrive at the new host empty. #81 proposes a one-time hand-off; measure
   first, as DOMAIN_MIGRATION.md did for the Zoom origin (web users with
-  custom rules, roles or saved reports on `timer.simple-tech.app`).
+  custom rules, roles or saved reports on `timer.simple-tech.app`). For
+  scale: over the 90 days to 2026-10-03, 51 people opened the web timer on
+  any host, 3 of them on `www.timer.toastmusters.com` (which step 1
+  redirects without a hand-off), against 203 Zoom installs.
 - **A path-based dev host** to rehearse it on.
