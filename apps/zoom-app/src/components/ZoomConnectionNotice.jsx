@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ExternalLink, X } from 'lucide-react';
-import { ZOOM_INSTALL_URL, ZOOM_RECONNECT_HELP_URL, ZOOM_BROWSER_TIMER_URL } from '@toastmaster-timer/shared';
+import { ZOOM_INSTALL_URL, ZOOM_RECONNECT_HELP_URL, TIMER_APP_URL } from '@toastmaster-timer/shared';
 import {
   initializeZoomSdk,
   openExternalUrl,
@@ -222,7 +222,7 @@ export default function ZoomConnectionNotice() {
     state === CONNECTION_UNAUTHORIZED
       ? approveInZoom()
       : handOff(installUrl(), 'zoom_reconnect_clicked', { returning_user: returning });
-  const browserTimer = () => handOff(ZOOM_BROWSER_TIMER_URL, 'browser_timer_fallback_clicked');
+  const browserTimer = () => handOff(TIMER_APP_URL, 'browser_timer_fallback_clicked');
   const why = () => handOff(ZOOM_RECONNECT_HELP_URL, 'zoom_reconnect_help_clicked');
 
   if (!needsAttention(state)) return null;

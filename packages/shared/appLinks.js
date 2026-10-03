@@ -9,16 +9,13 @@
 export const ZOOM_MARKETPLACE_REVIEW_URL =
   'https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw';
 
-/** Canonical entry point of the web timer (the "Time this" deep-link target). */
-export const TIMER_APP_URL = 'https://www.toastmusters.com/timer';
-
 /**
- * The web timer as the Zoom app links to it (the "use the browser timer"
- * fallback). zoomSdk.openUrl only opens domains on the Marketplace allow list,
- * so this stays on the host the shipped app has always used until the Zoom
- * cutover; the Worker 301s it to TIMER_APP_URL once the browser has it.
+ * Canonical entry point of the web timer: the "Time this" deep-link target,
+ * and the Zoom app's "use the browser timer" fallback. The Zoom app opens it
+ * with zoomSdk.openUrl, which needs its domain on the Marketplace allow list
+ * (toastmusters.com was added in the review submitted 2026-10).
  */
-export const ZOOM_BROWSER_TIMER_URL = 'https://www.timer.toastmusters.com/app';
+export const TIMER_APP_URL = 'https://www.toastmusters.com/timer';
 
 /**
  * Every tool in the Toastmusters suite, each a path on www.toastmusters.com. Footers and nav

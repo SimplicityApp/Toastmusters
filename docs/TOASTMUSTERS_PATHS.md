@@ -56,6 +56,12 @@ because it must match the Marketplace registration byte for byte.
 
 ## Deploying step 1 (order matters)
 
+**Gate: the Zoom review that adds `toastmusters.com` to the app's domain
+allow list must be approved first.** The Zoom app's "use the browser timer"
+fallback opens `TIMER_APP_URL` (`https://www.toastmusters.com/timer`) with
+`zoomSdk.openUrl`, which only opens allow-listed domains. Check that the
+approved entry covers the `www.` host.
+
 The Table Topics Worker deploys itself from CI on every push to `master` that
 touches it; the timer Worker is deployed by hand. Its new build redirects the
 old host to `www.toastmusters.com/tabletopics`, which only exists once the

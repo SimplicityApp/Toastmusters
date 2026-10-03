@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ZoomConnectionNotice from './ZoomConnectionNotice';
 import { ToastProvider } from '../context/ToastContext';
-import { ZOOM_INSTALL_URL, ZOOM_BROWSER_TIMER_URL } from '@toastmaster-timer/shared';
+import { ZOOM_INSTALL_URL, TIMER_APP_URL } from '@toastmaster-timer/shared';
 import {
   initializeZoomSdk,
   openExternalUrl,
@@ -173,7 +173,7 @@ describe('ZoomConnectionNotice', () => {
 
     await user.click(modal.getByRole('button', { name: /use the browser timer/i }));
 
-    expect(openExternalUrl).toHaveBeenCalledWith(ZOOM_BROWSER_TIMER_URL);
+    expect(openExternalUrl).toHaveBeenCalledWith(TIMER_APP_URL);
   });
 
   // The Zoom client refuses openUrl until the capability is live, and a plain
