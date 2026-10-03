@@ -19,23 +19,52 @@ const CSP = [
   "form-action 'self'",
 ].join('; ');
 
-// Bare apex hosts 301 to their www counterpart so there is one indexable
-// origin. The https guard keeps `wrangler dev` (which rewrites Host to the
-// first route) from bouncing localhost requests to production.
-const APEX_HOST_PATTERN = /^tabletopics(-dev)?\.toastmusters\.com$/;
+// The site is built under this path (see scripts/build.mjs) and served there
+// on www.toastmusters.com, which reaches this Worker through the timer
+// Worker's TABLETOPICS service binding.
+const BASE_PATH = '/tabletopics';
+
+// The subdomain the site used to live on. With ROOT_ORIGIN set, each of its
+// URLs 301s to the same page under ROOT_ORIGIN/tabletopics, in one hop.
+// Without it (the dev deployment, until a path-based dev host exists) the
+// host keeps serving the site itself, under the same path. The https guard
+// keeps `wrangler dev` (which rewrites Host to the first route) from bouncing
+// localhost requests to production.
+const LEGACY_HOST_PATTERN = /^(www\.)?tabletopics(-dev)?\.toastmusters\.com$/;
+
+const onBasePath = (pathname) => pathname === BASE_PATH || pathname.startsWith(`${BASE_PATH}/`);
+
+/** Where a path from before the move lives now: "/topics/x/" -> "/tabletopics/topics/x/". */
+export function basePathFor(pathname) {
+  return onBasePath(pathname) ? pathname : `${BASE_PATH}${pathname}`;
+}
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.protocol === 'https:' && APEX_HOST_PATTERN.test(url.hostname)) {
-      url.hostname = `www.${url.hostname}`;
+    if (url.protocol === 'https:' && LEGACY_HOST_PATTERN.test(url.hostname)) {
+      if (env.ROOT_ORIGIN) {
+        const target = new URL(basePathFor(url.pathname), env.ROOT_ORIGIN);
+        target.search = url.search;
+        return Response.redirect(target.toString(), 301);
+      }
+      if (!url.hostname.startsWith('www.')) {
+        url.hostname = `www.${url.hostname}`;
+        return Response.redirect(url.toString(), 301);
+      }
+    }
+
+    // A root-level URL from before the move, on a host that still serves the
+    // site: send it under the base path.
+    if (!onBasePath(url.pathname)) {
+      url.pathname = basePathFor(url.pathname);
       return Response.redirect(url.toString(), 301);
     }
 
     let response = await env.ASSETS.fetch(request);
     if (response.status === 404) {
-      const notFound = await env.ASSETS.fetch(new Request(new URL('/404.html', url.origin), { method: 'GET' }));
+      const notFound = await env.ASSETS.fetch(new Request(new URL(`${BASE_PATH}/404.html`, url.origin), { method: 'GET' }));
       response = new Response(notFound.body, { status: 404, statusText: 'Not Found', headers: notFound.headers });
     }
     return withSecurityHeaders(response, url);
@@ -55,10 +84,10 @@ export function withSecurityHeaders(response, url) {
     headers.set('X-Robots-Tag', 'noindex, nofollow');
   }
 
-  if (url.pathname.startsWith('/assets/')) {
+  if (url.pathname.startsWith(`${BASE_PATH}/assets/`)) {
     // Content-hashed by the build.
     headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-  } else if (url.pathname === '/questions.json') {
+  } else if (url.pathname === `${BASE_PATH}/questions.json`) {
     headers.set('Cache-Control', 'public, max-age=3600');
   }
 

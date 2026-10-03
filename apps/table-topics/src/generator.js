@@ -5,6 +5,9 @@ import { drawSet, flattenQuestions, todaySet, utcDateString } from './lib/picker
 import { timerDeepLink, shareLink } from './lib/links.js';
 
 const TIMER_APP_URL = '__TIMER_APP_URL__';
+// The path the site is served under ('' at a host root, '/tabletopics' on
+// www.toastmusters.com). Set by the build, like TIMER_APP_URL.
+const BASE_PATH = '__BASE_PATH__';
 const SEEN_KEY = 'tt_seen_v1';
 const SEEN_MAX = 2000;
 const LIST_VISIBLE = 40;
@@ -37,7 +40,7 @@ function track(name, props) {
 let bankPromise = null;
 function loadBank() {
   if (!bankPromise) {
-    bankPromise = fetch('/questions.json', { cache: 'force-cache' })
+    bankPromise = fetch(`${BASE_PATH}/questions.json`, { cache: 'force-cache' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`questions.json ${r.status}`))))
       .catch((err) => {
         console.warn('Table Topics: could not load questions', err);
@@ -75,7 +78,7 @@ function renderItem(q, index) {
     <div class="tt-set-body">
       <p class="tt-question" data-tt-text>${escapeHtml(q.text)}</p>
       <p class="tt-set-meta">
-        <a href="/topics/${escapeHtml(q.category)}/" data-tt-category-link>${escapeHtml(q.categoryName)}</a>
+        <a href="${BASE_PATH}/topics/${escapeHtml(q.category)}/" data-tt-category-link>${escapeHtml(q.categoryName)}</a>
         <span aria-hidden="true">·</span>
         <a class="tt-set-time" data-tt-time href="${escapeHtml(timerDeepLink(q.text, TIMER_APP_URL))}" rel="nofollow noopener">Time this (1–2 min)</a>
       </p>
@@ -228,7 +231,7 @@ function initToday(root) {
       actions.className = 'tt-list-actions';
       const cat = document.createElement('a');
       cat.className = 'tt-list-cat';
-      cat.href = `/topics/${q.category}/`;
+      cat.href = `${BASE_PATH}/topics/${q.category}/`;
       cat.textContent = q.categoryName;
       const time = document.createElement('a');
       time.className = 'tt-list-time';

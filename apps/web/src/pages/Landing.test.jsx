@@ -119,7 +119,7 @@ describe('Landing footer tools', () => {
     );
 
     for (const tool of TOOLS.filter((entry) => entry.slug !== 'timer')) {
-      expect(screen.getByRole('link', { name: tool.name })).toHaveAttribute('href', tool.url);
+      expect(screen.getByRole('link', { name: tool.name })).toHaveAttribute('href', `${tool.url}/`);
     }
     expect(screen.getByText(/Toastmusters Timer \(this site\)/)).toBeInTheDocument();
   });

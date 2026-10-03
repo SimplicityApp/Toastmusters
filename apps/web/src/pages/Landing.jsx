@@ -940,7 +940,7 @@ export default function Landing() {
                   {tool.slug === 'timer' ? (
                     <span className="text-sm text-stone-500">{tool.name} (this site)</span>
                   ) : (
-                    <a href={tool.url} className="text-sm text-stone-500 hover:text-ink transition-colors">{tool.name}</a>
+                    <a href={`${tool.url}/`} className="text-sm text-stone-500 hover:text-ink transition-colors">{tool.name}</a>
                   )}
                 </li>
               ))}

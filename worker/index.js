@@ -195,6 +195,18 @@ export default {
       });
     }
 
+    // 3a. Table Topics lives at /tabletopics, served by its own Worker over the
+    //     TABLETOPICS service binding. That Worker answers the whole path,
+    //     including its own 404s and security headers, so the response goes
+    //     back untouched. Not on the zoom.<domain> host, which is the Zoom app.
+    if (
+      env.TABLETOPICS &&
+      !host.startsWith('zoom.') &&
+      (pathname === '/tabletopics' || pathname.startsWith('/tabletopics/'))
+    ) {
+      return env.TABLETOPICS.fetch(request);
+    }
+
     // 3b. A shared meeting report. Worker-rendered HTML rather than an SPA
     //     route, because a link-preview crawler does not run JavaScript: the
     //     OG tags have to be in the bytes this returns. Placed after the apex

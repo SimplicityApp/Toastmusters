@@ -153,6 +153,42 @@ describe('canonical host redirect', () => {
   });
 });
 
+describe('/tabletopics is handed to the Table Topics Worker', () => {
+  const withTableTopics = () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+    env.TABLETOPICS = { fetch: vi.fn(async () => new Response('table topics', { status: 200 })) };
+    return env;
+  };
+
+  it.each(['/tabletopics', '/tabletopics/', '/tabletopics/topics/humor/', '/tabletopics/questions.json'])(
+    'forwards %s untouched',
+    async (path) => {
+      const env = withTableTopics();
+      const res = await worker.fetch(get(`https://www.toastmusters.com${path}`), env, ctx);
+
+      expect(await res.text()).toBe('table topics');
+      expect(env.TABLETOPICS.fetch).toHaveBeenCalledTimes(1);
+      expect(new URL(env.TABLETOPICS.fetch.mock.calls[0][0].url).pathname).toBe(path);
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('leaves look-alike paths and the Zoom host alone', async () => {
+    const env = withTableTopics();
+    await worker.fetch(get('https://www.toastmusters.com/tabletopics-old'), env, ctx);
+    await worker.fetch(get('https://zoom.timer.simple-tech.app/tabletopics/'), env, ctx);
+
+    expect(env.TABLETOPICS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('is a plain 404 when the binding is absent (local dev)', async () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+    const res = await worker.fetch(get('https://www.toastmusters.com/tabletopics/'), env, ctx);
+
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('the web timer moved from /app to /timer', () => {
   it('301s /app to /timer and keeps the query', async () => {
     const env = makeEnv(['/index.html']);

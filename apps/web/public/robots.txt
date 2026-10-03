@@ -47,3 +47,4 @@ User-agent: CCBot
 Allow: /
 
 Sitemap: https://www.toastmusters.com/sitemap.xml
+Sitemap: https://www.toastmusters.com/tabletopics/sitemap.xml

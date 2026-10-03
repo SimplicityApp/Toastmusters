@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { renderSite, buildAssets, hashedName, parseDotEnv, build } from '../scripts/build.mjs';
+import { renderSite, applyBasePath, buildAssets, hashedName, parseDotEnv, build } from '../scripts/build.mjs';
 import { validateBank } from '../src/lib/validate.js';
 import { fixtureBank, fixtureConfig } from './fixtures.js';
 
@@ -159,5 +159,49 @@ describe('build (end to end into a temp dir)', () => {
     bad.categories[0].questions[0].text = 'no question mark';
     writeFileSync(q, JSON.stringify(bad));
     expect(() => build({ questionsFile: q, distDir: dist, env: {} })).toThrow(/problem/);
+  });
+});
+
+describe('serving under a base path (www.toastmusters.com/tabletopics)', () => {
+  it('moves every output path and root-relative link, and leaves absolute URLs alone', () => {
+    const moved = applyBasePath(
+      new Map([
+        ['/index.html', '<a href="/topics/">x</a><img src="/logo.png"><a href="//cdn.test/a">c</a><a href="https://www.toastmusters.com/">t</a>'],
+        ['/questions.json', '{"href":"/topics/"}'],
+      ]),
+      '/tabletopics'
+    );
+    expect([...moved.keys()]).toEqual(['/tabletopics/index.html', '/tabletopics/questions.json']);
+    expect(moved.get('/tabletopics/index.html')).toBe(
+      '<a href="/tabletopics/topics/">x</a><img src="/tabletopics/logo.png"><a href="//cdn.test/a">c</a><a href="https://www.toastmusters.com/">t</a>'
+    );
+    expect(moved.get('/tabletopics/questions.json')).toBe('{"href":"/topics/"}');
+  });
+
+  it('builds the default site under /tabletopics with canonicals on www.toastmusters.com', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tt-build-base-'));
+    const q = join(dir, 'q.json');
+    writeFileSync(q, JSON.stringify(bank));
+    const dist = join(dir, 'dist');
+    const r = build({ questionsFile: q, distDir: dist, env: { BUILD_DATE: '2026-09-02', VITE_PUBLIC_POSTHOG_KEY: '' } });
+    expect(r.config.basePath).toBe('/tabletopics');
+    expect(existsSync(join(dist, 'index.html'))).toBe(false);
+
+    const home = readFileSync(join(dist, 'tabletopics/index.html'), 'utf8');
+    expect(home).toContain('<link rel="canonical" href="https://www.toastmusters.com/tabletopics/" />');
+    expect(home).toContain('href="/tabletopics/topics/"');
+    expect(home).toMatch(/src="\/tabletopics\/assets\/generator\.[0-9a-f]{8}\.js"/);
+    expect(home).not.toMatch(/(href|src)="\/(?!tabletopics\/|\/)/);
+
+    const assetFiles = readdirSync(join(dist, 'tabletopics/assets'));
+    const generator = assetFiles.find((f) => /^generator\.[0-9a-f]{8}\.js$/.test(f));
+    expect(readFileSync(join(dist, 'tabletopics/assets', generator), 'utf8')).toContain("const BASE_PATH = '/tabletopics';");
+
+    const sitemap = readFileSync(join(dist, 'tabletopics/sitemap.xml'), 'utf8');
+    expect(sitemap).toContain('<loc>https://www.toastmusters.com/tabletopics/topics/</loc>');
+
+    const manifest = JSON.parse(readFileSync(join(dist, 'tabletopics/site.webmanifest'), 'utf8'));
+    expect(manifest.start_url).toBe('/tabletopics/');
+    expect(manifest.icons.every((i) => i.src.startsWith('/tabletopics/'))).toBe(true);
   });
 });

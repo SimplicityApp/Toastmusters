@@ -13,7 +13,7 @@ export const ZOOM_MARKETPLACE_REVIEW_URL =
 export const TIMER_APP_URL = 'https://www.toastmusters.com/timer';
 
 /**
- * Every tool in the Toastmusters suite, one subdomain each. Footers and nav
+ * Every tool in the Toastmusters suite, each a path on www.toastmusters.com. Footers and nav
  * render from this list so a new tool is one entry here. URLs have no
  * trailing slash.
  */
@@ -27,7 +27,7 @@ export const TOOLS = [
   {
     slug: 'table-topics',
     name: 'Table Topics Generator',
-    url: 'https://www.tabletopics.toastmusters.com',
+    url: 'https://www.toastmusters.com/tabletopics',
     tagline: 'Fresh Table Topics questions for every meeting, with a one-click timer.',
   },
 ];

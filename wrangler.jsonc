@@ -84,6 +84,12 @@
   // is the only one that is throttled. Entropy and throttling both stay because
   // they fail differently: entropy does nothing against a leaked code, and
   // throttling does nothing against a short one.
+  // Table Topics is its own Worker (apps/table-topics). www.toastmusters.com
+  // serves it at /tabletopics by handing those requests over this binding,
+  // so the one host answers for both sites. Bindings are not inherited by
+  // environments; dev repeats it, pointing at the dev Table Topics Worker.
+  "services": [{ "binding": "TABLETOPICS", "service": "toastmusters-tabletopics" }],
+
   // `period` must be 10 or 60; namespace_id is a per-Worker identifier, not an
   // account resource, so nothing has to be created before deploying.
   "unsafe": {
@@ -163,6 +169,7 @@
       // or not the send succeeds, so an un-onboarded dev domain shows up only
       // in the Worker log.
       "send_email": [{ "name": "EMAIL" }],
+      "services": [{ "binding": "TABLETOPICS", "service": "toastmusters-tabletopics-dev" }],
       // `unsafe` is not inherited by environments; repeated here so dev throttles too.
       "unsafe": {
         "bindings": [
