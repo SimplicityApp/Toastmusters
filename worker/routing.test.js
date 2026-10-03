@@ -153,6 +153,53 @@ describe('canonical host redirect', () => {
   });
 });
 
+describe('the old toastmusters.com timer hosts move to www.toastmusters.com', () => {
+  const prod = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' });
+
+  it.each([
+    ['https://timer.toastmusters.com/', 'https://www.toastmusters.com/'],
+    ['https://www.timer.toastmusters.com/', 'https://www.toastmusters.com/'],
+    ['https://www.timer.toastmusters.com/toastmasters-timing-chart', 'https://www.toastmusters.com/toastmasters-timing-chart'],
+    ['https://www.timer.toastmusters.com/app?role=Table%20Topics%20Speech&name=Q', 'https://www.toastmusters.com/timer?role=Table%20Topics%20Speech&name=Q'],
+    ['https://www.timer.toastmusters.com/web', 'https://www.toastmusters.com/timer'],
+    ['https://www.timer.toastmusters.com/r/ABCDEFGHJKMNPQRS', 'https://www.toastmusters.com/r/ABCDEFGHJKMNPQRS'],
+    ['https://zoom.timer.toastmusters.com/', 'https://www.toastmusters.com/zoom/'],
+    ['https://zoom.timer.toastmusters.com/zoom/privacy', 'https://www.toastmusters.com/zoom/privacy'],
+  ])('301s %s to %s in one hop', async (from, to) => {
+    const env = prod();
+    const res = await worker.fetch(get(from), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(to);
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('never redirects an API call, whose POST body a 301 would drop', async () => {
+    const env = prod();
+    const res = await worker.fetch(get('https://www.timer.toastmusters.com/api/stats'), env, ctx);
+
+    expect(res.status).not.toBe(301);
+  });
+
+  it.each([
+    'https://www.timer.simple-tech.app/',
+    'https://zoom.timer.simple-tech.app/',
+    'https://www.toastmusters.com/',
+  ])('leaves %s alone', async (url) => {
+    const res = await worker.fetch(get(url), prod(), ctx);
+
+    expect(res.status).not.toBe(301);
+  });
+
+  it('does nothing without ROOT_ORIGIN (dev) or over http (wrangler dev)', async () => {
+    const dev = await worker.fetch(get('https://www.timer.toastmusters.com/'), makeEnv(['/index.html']), ctx);
+    const local = await worker.fetch(get('http://www.timer.toastmusters.com/'), prod(), ctx);
+
+    expect(dev.status).toBe(200);
+    expect(local.status).toBe(200);
+  });
+});
+
 describe('/tabletopics is handed to the Table Topics Worker', () => {
   const withTableTopics = () => {
     const env = makeEnv(['/index.html', '/404.html']);

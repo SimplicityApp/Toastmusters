@@ -39,6 +39,29 @@ const ROOT_TO_ZOOM_REWRITES = {
 // later phase. The bare toastmusters.com root is parked here for now too.
 const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|toastmusters\.com)$/;
 
+// The toastmusters.com subdomains the timer used to live on. With ROOT_ORIGIN
+// set, each of their URLs 301s to its page on the main site in one hop: the
+// timer hosts path for path (the web timer's old /app becomes /timer), the
+// Zoom host under /zoom. timer.simple-tech.app is not on this list; it keeps
+// serving until its own redirect step (#81).
+const LEGACY_TIMER_HOST_PATTERN = /^(www\.|zoom\.)?timer\.toastmusters\.com$/;
+
+/** The main-site URL for a request to an old toastmusters.com timer host. */
+export function legacyTimerTarget(url, rootOrigin) {
+  let { pathname, search } = url;
+  if (url.hostname.startsWith('zoom.')) {
+    if (pathname !== '/zoom' && !pathname.startsWith('/zoom/')) pathname = `/zoom${pathname}`;
+  } else if (pathname === '/app' || pathname === '/app/') {
+    pathname = '/timer';
+  } else if (pathname === '/web') {
+    pathname = '/timer';
+    search = '';
+  }
+  const target = new URL(pathname, rootOrigin);
+  target.search = search;
+  return target.toString();
+}
+
 // Paths the root SPA (apps/web) owns via react-router. Anything else that
 // misses the asset lookup is a genuine 404 — serving index.html with HTTP 200
 // for unknown URLs creates soft 404s that waste crawl budget.
@@ -172,6 +195,14 @@ export default {
     if (pathname === '/oauth/redirect' && url.searchParams.has('state')) {
       const signedIn = await handleOAuthCallback(request, url, env, { ctx });
       if (signedIn) return signedIn;
+    }
+
+    // 2a. The old toastmusters.com timer hosts move to the main site. After
+    //     every API route above (a 301 would drop a POST body) and before the
+    //     apex rule below, so timer.toastmusters.com takes one hop, not two.
+    //     https only, for the same wrangler dev reason as the apex rule.
+    if (url.protocol === 'https:' && env.ROOT_ORIGIN && LEGACY_TIMER_HOST_PATTERN.test(url.hostname)) {
+      return Response.redirect(legacyTimerTarget(url, env.ROOT_ORIGIN), 301);
     }
 
     // 2. Canonical host: apex -> www (301). The zoom.<domain> host is a

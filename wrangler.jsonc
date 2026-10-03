@@ -26,6 +26,10 @@
   //    toastmusters.com`, which auto-provisions SPF and DKIM; DMARC is not
   //    auto-added and should be set alongside it). Dev needs its own onboarded
   //    domain, since env.dev serves the *-dev hosts.
+  //  - ROOT_ORIGIN: the main site (www.toastmusters.com). The old
+  //    toastmusters.com subdomains 301 there, path for path. Dev leaves it
+  //    unset until it has a path-based host of its own, so its hosts keep
+  //    serving as they are.
   //  - FLAGS_FORCE: short-circuits the release flags (worker/flags.js). "1"
   //    turns every flag on, "0" turns every flag off, anything else asks
   //    PostHog. Production leaves it "" and always asks. Never "1" here: that
@@ -33,6 +37,7 @@
   //    fails if it is.
   "vars": {
     "WEB_ORIGIN": "https://www.timer.simple-tech.app",
+    "ROOT_ORIGIN": "https://www.toastmusters.com",
     "ENTITLEMENT_ENFORCE": "1",
     "STRIPE_AUTOMATIC_TAX": "0",
     "MAGIC_LINK_FROM": "no-reply@toastmusters.com",
