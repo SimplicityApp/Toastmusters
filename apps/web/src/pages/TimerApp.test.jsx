@@ -42,7 +42,7 @@ function joinClub(over) {
 
 const renderApp = () =>
   render(
-    <MemoryRouter initialEntries={['/timer']}>
+    <MemoryRouter initialEntries={['/timer/app']}>
       <TimerApp />
     </MemoryRouter>
   );

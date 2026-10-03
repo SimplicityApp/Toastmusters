@@ -39,7 +39,7 @@ Toastmasters International.
 
 - [Toastmasters Timer (home)](https://www.toastmusters.com/): What the tool
   does, the three display modes, and the standard timing rules.
-- [Open the timer](https://www.toastmusters.com/timer): The timer itself.
+- [Open the timer](https://www.toastmusters.com/timer/app): The timer itself.
 - [Timer Role Guide](https://www.toastmusters.com/toastmasters-timer-role-guide):
   What the Timer does before, during, and after a meeting; step-by-step
   instructions, tips, and common mistakes.

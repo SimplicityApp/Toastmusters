@@ -15,7 +15,7 @@ export const ZOOM_MARKETPLACE_REVIEW_URL =
  * with zoomSdk.openUrl, which needs its domain on the Marketplace allow list
  * (toastmusters.com was added in the review submitted 2026-10).
  */
-export const TIMER_APP_URL = 'https://www.toastmusters.com/timer';
+export const TIMER_APP_URL = 'https://www.toastmusters.com/timer/app';
 
 /**
  * Every tool in the Toastmusters suite, each a path on www.toastmusters.com. Footers and nav

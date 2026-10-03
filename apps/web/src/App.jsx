@@ -25,13 +25,13 @@ const spinner = (
 );
 
 /**
- * The web timer moved from /app to /timer. The Worker 301s /app before the SPA
- * loads; this covers the dev server and any in-app link still on the old path,
- * keeping the query (a Table Topics deep link carries its question there).
+ * The web timer moved from /app to /timer/app. The Worker 301s /app before the
+ * SPA loads; this covers the dev server and any in-app link still on the old
+ * path, keeping the query (a Table Topics deep link carries its question there).
  */
 function LegacyAppRoute() {
   const { search, hash } = useLocation()
-  return <Navigate to={`/timer${search}${hash}`} replace />
+  return <Navigate to={`/timer/app${search}${hash}`} replace />
 }
 
 /** A page that does not exist until the `pro` release flag is on. */
@@ -46,7 +46,10 @@ function App() {
     <Suspense fallback={spinner}>
       <Routes>
         <Route path="/" element={<Landing />} />
-        <Route path="/timer" element={<TimerApp />} />
+        <Route path="/timer/app" element={<TimerApp />} />
+        {/* Reserved for a timer landing page if / ever becomes a suite home.
+            Until then it points at the landing page, which lives at /. */}
+        <Route path="/timer" element={<Navigate to="/" replace />} />
         <Route path="/app" element={<LegacyAppRoute />} />
         <Route path="/oauth/redirect" element={<OAuthRedirect />} />
         <Route path="/billing/success" element={<BillingSuccess />} />

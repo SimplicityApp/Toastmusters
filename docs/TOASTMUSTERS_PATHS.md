@@ -4,27 +4,37 @@ Every tool in the suite is a path on **`www.toastmusters.com`**, the main
 site. This replaces the one-subdomain-per-tool plan in
 [DOMAIN_MIGRATION.md](DOMAIN_MIGRATION.md) and tracks issue #81.
 
-Two decisions shape it:
+Three decisions shape it:
 
 - **No detour through `simple-tech.app/timer`.** Each old URL moves once,
   straight to its final page. The `simple-tech.app` portfolio is not touched.
 - **The Zoom app stays on `zoom.timer.simple-tech.app`** until everything else
   is settled. The main site sends people to it; nothing here changes how it
-  launches, signs in or bills.
+  launches, signs in or bills. When it moves, it moves to a subdomain
+  (`zoom.toastmusters.com` or `zoom.timer.toastmusters.com`, decided then),
+  not a path: the Zoom app is `noindex`, so a path adds no search value, and a
+  host of its own keeps website rules away from it.
+- **The timer's landing page stays at `/`** while the timer is the main
+  product: the strongest URL carries the page that converts. New products get
+  their own path, as Table Topics did. Should `/` ever become a suite home,
+  the landing page moves to `/timer`, which is held for it (302 → `/`, which
+  browsers do not cache). The web app is already at its final URL,
+  `/timer/app`, because that is the URL other things link to.
 
 ## URL map
 
 | URL | What it does | Since |
 | --- | --- | --- |
 | `www.toastmusters.com/` | Timer landing page, 200 | step 1 |
-| `www.toastmusters.com/timer` | Web timer, 200 (`?role=…&name=…` deep links are `noindex`) | step 1 |
-| `www.toastmusters.com/app` | 301 → `/timer`, query kept | step 1 |
+| `www.toastmusters.com/timer/app` | Web timer, 200 (`?role=…&name=…` deep links are `noindex`) | step 1 |
+| `www.toastmusters.com/timer` | 302 → `/` (held for a future timer landing page) | step 1 |
+| `www.toastmusters.com/app` | 301 → `/timer/app`, query kept | step 1 |
 | `www.toastmusters.com/<guide>` | The timer guides (`/toastmasters-timing-chart` etc.), 200 | unchanged |
 | `www.toastmusters.com/tabletopics/…` | Table Topics, via the `TABLETOPICS` service binding | step 1 |
 | `www.toastmusters.com/zoom/…` | Zoom app shell in a browser (not the Zoom URL) | unchanged |
 | `toastmusters.com/*` | 301 → `www.toastmusters.com/*` | unchanged |
-| `timer.toastmusters.com/*`, `www.timer.toastmusters.com/*` | 301 → `www.toastmusters.com/*` (`/app`, `/web` → `/timer`) | step 1 |
-| `zoom.timer.toastmusters.com/*` | 301 → `www.toastmusters.com/zoom/*` (only crawlers used it) | step 1 |
+| `timer.toastmusters.com/*`, `www.timer.toastmusters.com/*` | 301 → `www.toastmusters.com/*` (`/app`, `/web` → `/timer/app`) | step 1 |
+| `zoom.timer.toastmusters.com/*` | **Unchanged.** May become the Zoom app's home | — |
 | `tabletopics.toastmusters.com/*`, `www.tabletopics…/*` | 301 → `www.toastmusters.com/tabletopics/*` | step 1 |
 | `timer.simple-tech.app/*`, `www.timer.simple-tech.app/*` | Still serve, but every canonical names `www.toastmusters.com` | step 1 |
 | `zoom.timer.simple-tech.app/*` | **Unchanged.** The Zoom app | — |
@@ -58,7 +68,7 @@ because it must match the Marketplace registration byte for byte.
 
 **Gate: the Zoom review that adds `toastmusters.com` to the app's domain
 allow list must be approved first.** The Zoom app's "use the browser timer"
-fallback opens `TIMER_APP_URL` (`https://www.toastmusters.com/timer`) with
+fallback opens `TIMER_APP_URL` (`https://www.toastmusters.com/timer/app`) with
 `zoomSdk.openUrl`, which only opens allow-listed domains. Check that the
 approved entry covers the `www.` host.
 
@@ -81,8 +91,8 @@ timer Worker with the binding is live. So:
 ### Verify
 
 ```bash
-curl -sI https://www.toastmusters.com/timer | head -1                              # 200
-curl -sI "https://www.toastmusters.com/app?role=x" | grep -i location              # /timer?role=x
+curl -sI https://www.toastmusters.com/timer/app | head -1                          # 200
+curl -sI "https://www.toastmusters.com/app?role=x" | grep -i location              # /timer/app?role=x
 curl -sI https://www.toastmusters.com/tabletopics/ | head -1                       # 200
 curl -sI https://www.tabletopics.toastmusters.com/topics/ | grep -i location       # www.toastmusters.com/tabletopics/topics/
 curl -sI https://www.timer.toastmusters.com/toastmasters-timing-chart | grep -i location  # www.toastmusters.com/toastmasters-timing-chart

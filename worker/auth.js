@@ -166,8 +166,8 @@ export function verifyState(state, secret, now = Date.now()) {
   return payload;
 }
 
-/** Only same-site paths: "/timer", "/account?x=1". Never a full URL or "//host". */
-export function sanitizeReturnTo(value, fallback = '/timer') {
+/** Only same-site paths: "/timer/app", "/account?x=1". Never a full URL or "//host". */
+export function sanitizeReturnTo(value, fallback = '/timer/app') {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
     return fallback;
   }

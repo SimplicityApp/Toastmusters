@@ -109,7 +109,7 @@ export default function ProActivate() {
               </div>
 
               <Link
-                to="/timer"
+                to="/timer/app"
                 className="mt-6 inline-flex rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white no-underline hover:bg-blue-600"
               >
                 Open the timer

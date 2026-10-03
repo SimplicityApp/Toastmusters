@@ -1,6 +1,6 @@
 /**
  * "Time this" deep links: another tool (the Table Topics generator, say)
- * opens /timer?role=Table%20Topics%20Speech&name=<question> and the Live tab
+ * opens /timer/app?role=Table%20Topics%20Speech&name=<question> and the Live tab
  * starts with that speaker loaded. The role must match one of the timer's
  * role names exactly; nothing is guessed from free text.
  */

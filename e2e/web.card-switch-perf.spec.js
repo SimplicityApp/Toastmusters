@@ -49,7 +49,7 @@ function logAndAssert(setLabel, results) {
 test.describe('Web App — Card Switch Performance @performance', () => {
   for (const set of DEFAULT_CARD_SETS) {
     test(`${set.label} set: cold and warm decode per card`, async ({ page }) => {
-      await page.goto('/timer');
+      await page.goto('/timer/app');
       const urlsByColor = Object.fromEntries(
         CARD_COLORS.map((color) => [color, `/zoom/backgrounds/${set.files[color]}?v=${CARD_ASSET_VERSION}`])
       );
@@ -58,7 +58,7 @@ test.describe('Web App — Card Switch Performance @performance', () => {
   }
 
   test('Custom set: cold and warm decode per card', async ({ page }) => {
-    await page.goto('/timer');
+    await page.goto('/timer/app');
 
     // Seed a realistic custom set straight into the stores the app reads:
     // 1280x720 JPEGs (the size uploads are re-encoded to) in IndexedDB, and
@@ -159,7 +159,7 @@ test.describe('Web App — Card Switch Performance @performance', () => {
   });
 
   test('after startup, every card of the selected set is pre-warmed', async ({ page }) => {
-    await page.goto('/timer');
+    await page.goto('/timer/app');
     // Give initCardImages + preloadCardImages time to warm the caches.
     await page.waitForTimeout(1500);
 
@@ -187,7 +187,7 @@ test.describe('Web App — Card Switch Performance @performance', () => {
             window.__maxEventDuration = e.duration;
       }).observe({ type: 'event', buffered: true, durationThreshold: 0 });
     });
-    await page.goto('/timer');
+    await page.goto('/timer/app');
     await page.waitForTimeout(1000);
 
     // The four preview swatches drive the same code path a live status

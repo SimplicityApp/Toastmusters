@@ -12,7 +12,7 @@ const at = (path) =>
 
 describe('SignInFailureNotice', () => {
   it('names the reason on whatever page the sign-in came back to', () => {
-    at('/timer?signin=failed&reason=state_mismatch');
+    at('/timer/app?signin=failed&reason=state_mismatch');
     expect(screen.getByRole('alert')).toHaveTextContent('had expired');
   });
 
@@ -22,7 +22,7 @@ describe('SignInFailureNotice', () => {
   });
 
   it('stays out of the way when nothing failed', () => {
-    at('/timer');
+    at('/timer/app');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 

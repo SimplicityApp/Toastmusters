@@ -39,22 +39,21 @@ const ROOT_TO_ZOOM_REWRITES = {
 // later phase. The bare toastmusters.com root is parked here for now too.
 const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|toastmusters\.com)$/;
 
-// The toastmusters.com subdomains the timer used to live on. With ROOT_ORIGIN
-// set, each of their URLs 301s to its page on the main site in one hop: the
-// timer hosts path for path (the web timer's old /app becomes /timer), the
-// Zoom host under /zoom. timer.simple-tech.app is not on this list; it keeps
-// serving until its own redirect step (#81).
-const LEGACY_TIMER_HOST_PATTERN = /^(www\.|zoom\.)?timer\.toastmusters\.com$/;
+// The toastmusters.com subdomain the timer used to live on. With ROOT_ORIGIN
+// set, each of its URLs 301s to the same page on the main site in one hop
+// (the web timer's old /app becomes /timer/app). zoom.timer.toastmusters.com
+// is not on this list: it may become the Zoom app's home when the Zoom app
+// moves, and a cached 301 would get in the way. Nor is timer.simple-tech.app,
+// which keeps serving until its own redirect step (#81).
+const LEGACY_TIMER_HOST_PATTERN = /^(www\.)?timer\.toastmusters\.com$/;
 
-/** The main-site URL for a request to an old toastmusters.com timer host. */
+/** The main-site URL for a request to the old timer.toastmusters.com host. */
 export function legacyTimerTarget(url, rootOrigin) {
   let { pathname, search } = url;
-  if (url.hostname.startsWith('zoom.')) {
-    if (pathname !== '/zoom' && !pathname.startsWith('/zoom/')) pathname = `/zoom${pathname}`;
-  } else if (pathname === '/app' || pathname === '/app/') {
-    pathname = '/timer';
+  if (pathname === '/app' || pathname === '/app/') {
+    pathname = '/timer/app';
   } else if (pathname === '/web') {
-    pathname = '/timer';
+    pathname = '/timer/app';
     search = '';
   }
   const target = new URL(pathname, rootOrigin);
@@ -67,7 +66,7 @@ export function legacyTimerTarget(url, rootOrigin) {
 // for unknown URLs creates soft 404s that waste crawl budget.
 const SPA_ROUTES = new Set([
   '/',
-  '/timer',
+  '/timer/app',
   '/oauth/redirect',
   '/billing/success',
   '/billing/cancel',
@@ -247,13 +246,19 @@ export default {
       return withSecurityHeaders(await handleSharedReport(request, url, env), request, url);
     }
 
-    // 4. The web timer lives at /timer. /app (its old path) moves permanently,
-    //    keeping the query so a Table Topics deep link still opens its question.
-    //    /web is an older alias still; it goes straight to /timer, one hop.
-    //    Return early — Response.redirect() responses are immutable.
+    // 4. The web timer lives at /timer/app. /app (its old path) moves
+    //    permanently, keeping the query so a Table Topics deep link still opens
+    //    its question; /web, an older alias, goes straight there in one hop.
+    //    /timer itself is held for a timer landing page should / ever become a
+    //    suite home, so for now it points at the landing page with a 302,
+    //    which browsers do not cache. Return early — Response.redirect()
+    //    responses are immutable.
     if (pathname === '/app' || pathname === '/app/' || pathname === '/web') {
-      const target = new URL(`/timer${pathname === '/web' ? '' : url.search}`, url.origin);
+      const target = new URL(`/timer/app${pathname === '/web' ? '' : url.search}`, url.origin);
       return Response.redirect(target.toString(), pathname === '/web' ? 302 : 301);
+    }
+    if (pathname === '/timer' || pathname === '/timer/') {
+      return Response.redirect(new URL('/', url.origin).toString(), 302);
     }
 
     // 5. Serve the right asset (host-based routing + SPA fallback), then
@@ -390,9 +395,10 @@ function withSecurityHeaders(response, request, url) {
     headers.set('X-Robots-Tag', 'noindex, nofollow');
   }
 
-  // Deep links like /timer?role=…&name=… (one per Table Topics question) are
-  // app state, not pages. Keep them out of the index; bare /timer is unaffected.
-  if (url.pathname === '/timer' && url.search) {
+  // Deep links like /timer/app?role=…&name=… (one per Table Topics question)
+  // are app state, not pages. Keep them out of the index; bare /timer/app is
+  // unaffected.
+  if (url.pathname === '/timer/app' && url.search) {
     headers.set('X-Robots-Tag', 'noindex');
   }
 

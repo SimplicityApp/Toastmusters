@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('timer basic flow', async ({ page }) => {
-  await page.goto('/timer');
+  await page.goto('/timer/app');
 
   // Verify default role is "Standard Speech"
   const roleSelect = page.locator('select');

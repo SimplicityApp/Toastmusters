@@ -237,7 +237,7 @@ export default function Account() {
             <img src="/Toastmasters-Timer-logo.jpg" alt="Toastmusters Timer" className="h-10 w-10 rounded-xl object-cover shadow-sm ring-1 ring-white/20" />
             <h1 className="text-xl font-semibold">Toastmusters Timer</h1>
           </Link>
-          <Link to="/timer" className="ml-auto text-sm text-gray-300 hover:text-white">Open the timer</Link>
+          <Link to="/timer/app" className="ml-auto text-sm text-gray-300 hover:text-white">Open the timer</Link>
         </div>
       </header>
 

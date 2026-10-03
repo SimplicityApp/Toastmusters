@@ -25,7 +25,7 @@ export default function NotFoundView() {
           <h2 className="text-2xl font-bold">Page not found</h2>
           <p className="mt-3 text-gray-300">There is nothing at this address.</p>
           <Link
-            to="/timer"
+            to="/timer/app"
             className="mt-6 inline-flex rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white no-underline hover:bg-blue-600"
           >
             Open the timer
