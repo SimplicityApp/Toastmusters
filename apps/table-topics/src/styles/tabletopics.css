@@ -53,6 +53,7 @@
 .tt-card span { font-size: 0.88rem; color: var(--body-text); }
 .tt-card em { font-style: normal; font-size: 0.78rem; color: var(--muted); }
 .tt-today-teaser { margin-top: 1.5rem; }
+.tt-zoom-pitch { margin-top: 1rem; font-size: 0.95rem; color: #57534e; }
 
 .tt-list { padding-left: 1.4rem; margin: 1rem 0; }
 .tt-list li { padding: 0.55rem 0; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; align-items: baseline; justify-content: space-between; }
@@ -71,7 +72,7 @@
 .tt-related li span { color: var(--faint); font-size: 0.82rem; margin-left: 0.25rem; }
 
 @media print {
-  .static-header, .static-footer, .static-breadcrumb, .tt-actions, .tt-chips, .tt-status, .tt-list-actions, .tt-set-time, .tt-today-teaser, .tt-related { display: none !important; }
+  .static-header, .static-footer, .static-breadcrumb, .tt-actions, .tt-chips, .tt-status, .tt-list-actions, .tt-set-time, .tt-today-teaser, .tt-zoom-pitch, .tt-related { display: none !important; }
   .static-card { box-shadow: none; border: 0; page-break-inside: avoid; }
   .tt-list li { border-bottom: 1px solid #ddd; }
   body { background: #fff; }

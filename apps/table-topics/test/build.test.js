@@ -104,6 +104,12 @@ describe('renderSite', () => {
     expect(JSON.parse(html('/questions.json')).categories).toHaveLength(3);
   });
 
+  it('points Zoom meetings at the timer Zoom app, tracked', () => {
+    for (const page of ['/index.html', '/today/index.html', '/topics/icebreakers/index.html']) {
+      expect(html(page)).toContain('href="https://www.toastmusters.com/add-to-zoom" data-cta="add_to_zoom"');
+    }
+  });
+
   it('footer renders the tools registry and cross-origin legal links', () => {
     const doc = html('/index.html');
     expect(doc).toContain('href="https://www.timer.toastmusters.com/"');

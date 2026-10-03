@@ -5,6 +5,7 @@ import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
 import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
+import { ZOOM_MARKETPLACE_LISTING_URL } from '../packages/shared/appLinks.js';
 import { handleBilling } from './billing.js';
 import { handleClub } from './club.js';
 import { handleClubAsset } from './club-assets.js';
@@ -259,6 +260,18 @@ export default {
     }
     if (pathname === '/timer' || pathname === '/timer/') {
       return Response.redirect(new URL('/', url.origin).toString(), 302);
+    }
+
+    // 4b. "Add to Zoom" from the static pages, which cannot know which Zoom app
+    //     this deployment installs. Straight to Zoom's install screen for the
+    //     deployment's app; to the Marketplace listing when it has no install
+    //     link configured. Not a page: noindex, never cached.
+    if (pathname === '/add-to-zoom') {
+      const target = zoomAuthorizeUrl(env)?.toString() ?? ZOOM_MARKETPLACE_LISTING_URL;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: target, 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
+      });
     }
 
     // 5. Serve the right asset (host-based routing + SPA fallback), then

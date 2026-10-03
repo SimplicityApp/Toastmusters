@@ -10,7 +10,7 @@ import {
   Camera,
 } from 'lucide-react'
 import { trackEvent } from '../utils/posthog'
-import { TOOLS } from '@toastmaster-timer/shared'
+import { TOOLS, ZOOM_MARKETPLACE_LISTING_URL } from '@toastmaster-timer/shared'
 import YouTubePlayer from '../components/YouTubePlayer'
 import AccountMenu from '../components/AccountMenu'
 
@@ -539,8 +539,16 @@ function HeroTimerMock() {
 const BTN_PRIMARY = 'inline-flex items-center justify-center rounded-full bg-ink px-7 py-3 text-base font-semibold text-white hover:bg-stone-700 transition-colors'
 const BTN_SECONDARY = 'inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-7 py-3 text-base font-semibold text-ink hover:border-stone-400 hover:bg-stone-50 transition-colors'
 
+// One event for every call to action on the page, so installs can be traced
+// to the button that started them. `cta` is what it does (add_to_zoom,
+// web_timer, marketplace, open_in_zoom); `location` is where it sits. The
+// static guide pages send the same event (public/site-analytics.js).
+const trackCta = (cta, location) => () => trackEvent('cta_clicked', { cta, location, page: '/' })
+
 export default function Landing() {
-  const ADD_TO_ZOOM_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT
+  // Straight to Zoom's install screen for this build's Zoom app; a build
+  // without one sends people to the Marketplace listing instead.
+  const ADD_TO_ZOOM_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_MARKETPLACE_LISTING_URL
   // The screenshot being viewed full size, or null. One at a time, so it lives
   // here rather than in each Shot.
   const [zoomedShot, setZoomedShot] = useState(null)
@@ -568,7 +576,7 @@ export default function Landing() {
             ))}
           </nav>
           <div className="ml-auto md:ml-0 flex items-center gap-2">
-            <Link to="/timer/app" className="hidden sm:inline-flex rounded-full px-4 py-2 text-sm font-semibold text-ink hover:bg-stone-900/5 transition-colors">
+            <Link to="/timer/app" onClick={trackCta('web_timer', 'header')} className="hidden sm:inline-flex rounded-full px-4 py-2 text-sm font-semibold text-ink hover:bg-stone-900/5 transition-colors">
               Use in Browser
             </Link>
             <span className="hidden sm:inline-flex">
@@ -578,6 +586,7 @@ export default function Landing() {
               href={ADD_TO_ZOOM_URL}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={trackCta('add_to_zoom', 'header')}
               className="inline-flex items-center rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700 transition-colors"
             >
               Add to Zoom
@@ -609,19 +618,20 @@ export default function Landing() {
             </h1>
             <p className="mt-6 text-lg sm:text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">
               Toastmasters Timer helps you run the Timer role in Toastmasters meetings.
-              Use it in your browser or add it to Zoom for automatic virtual backgrounds.
+              Add it to Zoom for automatic virtual backgrounds, or use it in your browser.
             </p>
             <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
-              <a href={ADD_TO_ZOOM_URL} target="_blank" rel="noopener noreferrer" className={BTN_PRIMARY}>
+              <a href={ADD_TO_ZOOM_URL} target="_blank" rel="noopener noreferrer" onClick={trackCta('add_to_zoom', 'hero')} className={BTN_PRIMARY}>
                 Add to Zoom
               </a>
-              <Link to="/timer/app" className={BTN_SECONDARY}>
+              <Link to="/timer/app" onClick={trackCta('web_timer', 'hero')} className={BTN_SECONDARY}>
                 Use in Browser &rarr;
               </Link>
             </div>
             <p className="mt-5 text-sm text-stone-500">
-              Already use the Zoom app?{' '}
-              <a href={ZOOM_APP_URL} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Open in Zoom</a>
+              <a href={ZOOM_MARKETPLACE_LISTING_URL} target="_blank" rel="noopener noreferrer" onClick={trackCta('marketplace', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">See it on the Zoom Marketplace</a>
+              {' · '}Already use the Zoom app?{' '}
+              <a href={ZOOM_APP_URL} onClick={trackCta('open_in_zoom', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Open in Zoom</a>
             </p>
 
             <HeroTimerMock />
@@ -877,19 +887,21 @@ export default function Landing() {
               Ready for your next meeting?
             </h2>
             <p className="mt-4 text-lg text-stone-300 max-w-xl mx-auto">
-              Open it in your browser right now, or add it to Zoom before the next club night.
+              Add it to Zoom before the next club night, or open it in your browser right now.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
               <a
                 href={ADD_TO_ZOOM_URL}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={trackCta('add_to_zoom', 'closing')}
                 className="inline-flex items-center justify-center rounded-full bg-white px-7 py-3 text-base font-semibold text-ink hover:bg-stone-200 transition-colors"
               >
                 Add to Zoom
               </a>
               <Link
                 to="/timer/app"
+                onClick={trackCta('web_timer', 'closing')}
                 className="inline-flex items-center justify-center rounded-full border border-white/30 px-7 py-3 text-base font-semibold text-white hover:bg-white/10 transition-colors"
               >
                 Use in Browser &rarr;
@@ -929,7 +941,9 @@ export default function Landing() {
           <div>
             <h4 className="text-sm font-semibold mb-3">Get Started</h4>
             <ul className="space-y-2">
-              <li><Link to="/timer/app" className="text-sm text-stone-500 hover:text-ink transition-colors">Start Timer</Link></li>
+              <li><a href={ADD_TO_ZOOM_URL} target="_blank" rel="noopener noreferrer" onClick={trackCta('add_to_zoom', 'footer')} className="text-sm text-stone-500 hover:text-ink transition-colors">Add to Zoom</a></li>
+              <li><Link to="/timer/app" onClick={trackCta('web_timer', 'footer')} className="text-sm text-stone-500 hover:text-ink transition-colors">Web timer</Link></li>
+              <li><a href={ZOOM_MARKETPLACE_LISTING_URL} target="_blank" rel="noopener noreferrer" onClick={trackCta('marketplace', 'footer')} className="text-sm text-stone-500 hover:text-ink transition-colors">Zoom Marketplace</a></li>
             </ul>
           </div>
           <div>

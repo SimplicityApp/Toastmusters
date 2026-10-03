@@ -16,6 +16,15 @@ function jsonLdScript(graph) {
   return `<script type="application/ld+json">\n${json}\n</script>`;
 }
 
+/**
+ * One line pointing Zoom meetings at the timer's Zoom app, the suite's main
+ * product. data-cta makes analytics.js send the same cta_clicked event the
+ * timer site sends, with `location` saying which page section it was.
+ */
+export function zoomPitch(config, location) {
+  return `<p class="tt-zoom-pitch">Meeting on Zoom? <a href="${attr(config.rootOrigin)}/add-to-zoom" data-cta="add_to_zoom" data-cta-location="${attr(location)}">Add Toastmusters Timer to Zoom</a> and your video background turns green, yellow and red on its own.</p>`;
+}
+
 export function footer(config) {
   const tools = config.tools
     .map((t) => `<li><a href="${attr(t.url)}/"${t.slug === 'table-topics' ? ' aria-current="true"' : ''}>${esc(t.name)}</a></li>`)

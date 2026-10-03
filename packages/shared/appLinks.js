@@ -10,6 +10,13 @@ export const ZOOM_MARKETPLACE_REVIEW_URL =
   'https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw';
 
 /**
+ * The same listing as the place to learn about the app before adding it: the
+ * small "See it on the Zoom Marketplace" link beside every "Add to Zoom", and
+ * where /add-to-zoom falls back to when a deployment has no install link.
+ */
+export const ZOOM_MARKETPLACE_LISTING_URL = ZOOM_MARKETPLACE_REVIEW_URL;
+
+/**
  * Canonical entry point of the web timer: the "Time this" deep-link target,
  * and the Zoom app's "use the browser timer" fallback. The Zoom app opens it
  * with zoomSdk.openUrl, which needs its domain on the Marketplace allow list

@@ -201,6 +201,28 @@ describe('the old toastmusters.com timer hosts move to www.toastmusters.com', ()
   });
 });
 
+describe('/add-to-zoom', () => {
+  it("sends people to this deployment's Zoom install screen", async () => {
+    const env = { ...makeEnv([]), ZOOM_CLIENT_ID: 'client-123', WEB_ORIGIN: 'https://www.timer.simple-tech.app' };
+    const res = await worker.fetch(get('https://www.toastmusters.com/add-to-zoom'), env, ctx);
+
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get('location'));
+    expect(location.origin + location.pathname).toBe('https://zoom.us/oauth/authorize');
+    expect(location.searchParams.get('client_id')).toBe('client-123');
+    expect(location.searchParams.get('redirect_uri')).toBe('https://www.timer.simple-tech.app/oauth/redirect');
+    expect(res.headers.get('x-robots-tag')).toBe('noindex');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('falls back to the Marketplace listing when no install link is configured', async () => {
+    const res = await worker.fetch(get('https://www.toastmusters.com/add-to-zoom'), makeEnv([]), ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw');
+  });
+});
+
 describe('/tabletopics is handed to the Table Topics Worker', () => {
   const withTableTopics = () => {
     const env = makeEnv(['/index.html', '/404.html']);

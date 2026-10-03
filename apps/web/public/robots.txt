@@ -4,6 +4,7 @@
 User-agent: *
 Allow: /
 Disallow: /oauth/
+Disallow: /add-to-zoom
 
 # ── AI answer engines ─────────────────────────────────────────────────────────
 # Listed explicitly so citation crawlers are never caught by a future

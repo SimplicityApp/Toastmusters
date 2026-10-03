@@ -13,6 +13,23 @@
       /* analytics must never break the page */
     }
   };
+  // Clicks on any element marked data-cta: the same cta_clicked event the
+  // timer site sends. sendBeacon, because these links leave the page.
+  document.addEventListener('click', function (event) {
+    var el = event.target && event.target.closest ? event.target.closest('[data-cta]') : null;
+    if (!el) return;
+    var props = {
+      cta: el.getAttribute('data-cta'),
+      location: el.getAttribute('data-cta-location') || 'content',
+      page: window.location.pathname,
+    };
+    try {
+      if (window.posthog && window.posthog.__loaded) window.posthog.capture('cta_clicked', props, { transport: 'sendBeacon' });
+      else window.ttTrack('cta_clicked', props);
+    } catch (e) {
+      /* ignore */
+    }
+  });
   if (!KEY || KEY.indexOf('__') === 0 || !HOST || HOST.indexOf('__') === 0) return;
   var s = document.createElement('script');
   s.src = HOST.replace(/\/$/, '') + '/static/array.js';

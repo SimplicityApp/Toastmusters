@@ -441,6 +441,21 @@
   color: var(--ink);
 }
 
+/* The quieter choices beside a pill CTA: the browser timer and the Zoom
+   Marketplace listing. Add to Zoom stays the one button on the page. */
+.static-cta-alt {
+  display: inline-block;
+  margin-left: 0.75rem;
+  font-size: 0.9rem;
+  color: #78716c;
+}
+@media (max-width: 640px) {
+  .static-cta-alt {
+    display: block;
+    margin-left: 0;
+  }
+}
+
 /* "Last updated" stamp. Freshness is weighted heavily by answer engines, so
    the date is visible to readers as well as declared in JSON-LD. */
 .page-updated {
