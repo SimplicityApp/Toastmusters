@@ -54,22 +54,22 @@ describe('stripSpeakerParams', () => {
   });
 
   it('removes role and name but keeps other params and the hash', () => {
-    window.history.replaceState(null, '', '/app?utm_source=tt&role=Ice%20Breaker&name=Jane&tab=live#reports');
+    window.history.replaceState(null, '', '/timer?utm_source=tt&role=Ice%20Breaker&name=Jane&tab=live#reports');
     stripSpeakerParams();
-    expect(window.location.pathname).toBe('/app');
+    expect(window.location.pathname).toBe('/timer');
     expect(window.location.search).toBe('?utm_source=tt&tab=live');
     expect(window.location.hash).toBe('#reports');
   });
 
   it('leaves an empty search when nothing else was there', () => {
-    window.history.replaceState(null, '', '/app?role=Ice%20Breaker&name=Jane');
+    window.history.replaceState(null, '', '/timer?role=Ice%20Breaker&name=Jane');
     stripSpeakerParams();
     expect(window.location.search).toBe('');
-    expect(window.location.href.endsWith('/app')).toBe(true);
+    expect(window.location.href.endsWith('/timer')).toBe(true);
   });
 
   it('does not touch history when neither param is present', () => {
-    window.history.replaceState(null, '', '/app?tab=live');
+    window.history.replaceState(null, '', '/timer?tab=live');
     const spy = vi.spyOn(window.history, 'replaceState');
     stripSpeakerParams();
     expect(spy).not.toHaveBeenCalled();

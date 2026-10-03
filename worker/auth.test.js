@@ -38,10 +38,10 @@ describe('parseCookies / sanitizeReturnTo', () => {
 
   it('only allows same-site paths as return targets', () => {
     expect(sanitizeReturnTo('/account?x=1')).toBe('/account?x=1');
-    expect(sanitizeReturnTo('https://evil.test')).toBe('/app');
-    expect(sanitizeReturnTo('//evil.test/x')).toBe('/app');
-    expect(sanitizeReturnTo('/a\\b')).toBe('/app');
-    expect(sanitizeReturnTo(undefined)).toBe('/app');
+    expect(sanitizeReturnTo('https://evil.test')).toBe('/timer');
+    expect(sanitizeReturnTo('//evil.test/x')).toBe('/timer');
+    expect(sanitizeReturnTo('/a\\b')).toBe('/timer');
+    expect(sanitizeReturnTo(undefined)).toBe('/timer');
   });
 });
 
@@ -129,7 +129,7 @@ describe('handleAuthStart', () => {
   it('carries a rejected returnTo to the canonical host as the safe default', async () => {
     const url = new URL('https://timer.example.test/api/auth/zoom/start?returnTo=https%3A%2F%2Fevil.test');
     const res = await handleAuthStart(new Request(url), url, env, { now: NOW });
-    expect(res.headers.get('location')).toBe('https://www.example.test/api/auth/zoom/start?returnTo=%2Fapp');
+    expect(res.headers.get('location')).toBe('https://www.example.test/api/auth/zoom/start?returnTo=%2Ftimer');
   });
 
   // `wrangler dev` rewrites the Host header to the first configured route, so a

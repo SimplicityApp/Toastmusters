@@ -204,19 +204,19 @@ describe('LiveTab "Time this" deep link', () => {
   });
 
   it('loads the role and name from the URL and then strips them', async () => {
-    window.history.pushState({}, '', '/app?role=Table%20Topics%20Speech&name=Describe%20a%20perfect%20day');
+    window.history.pushState({}, '', '/timer?role=Table%20Topics%20Speech&name=Describe%20a%20perfect%20day');
     renderWithProviders(<LiveTab />);
 
     await waitFor(() => {
       expect(screen.getByRole('combobox')).toHaveValue('Table Topics Speech');
     });
     expect(screen.getByPlaceholderText(/type speaker name/i)).toHaveValue('Describe a perfect day');
-    expect(window.location.pathname).toBe('/app');
+    expect(window.location.pathname).toBe('/timer');
     expect(window.location.search).toBe('');
   });
 
   it('falls back to the defaults for an unknown role and still strips the params', async () => {
-    window.history.pushState({}, '', '/app?role=Keynote&name=Jane');
+    window.history.pushState({}, '', '/timer?role=Keynote&name=Jane');
     renderWithProviders(<LiveTab />);
 
     await waitFor(() => {
@@ -237,7 +237,7 @@ describe('LiveTab "Time this" deep link', () => {
       return currentSpeaker ? <LiveTab /> : null;
     }
 
-    window.history.pushState({}, '', '/app?role=Table%20Topics%20Speech&name=Describe%20a%20perfect%20day');
+    window.history.pushState({}, '', '/timer?role=Table%20Topics%20Speech&name=Describe%20a%20perfect%20day');
     renderWithProviders(<Seeded />);
 
     await waitFor(() => {

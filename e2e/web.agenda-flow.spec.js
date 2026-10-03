@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('agenda add and load speakers', async ({ page }) => {
-  await page.goto('/app');
+  await page.goto('/timer');
 
   // Switch to AGENDA tab
   await page.getByRole('button', { name: /AGENDA/i }).click();

@@ -44,7 +44,7 @@ const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|
 // for unknown URLs creates soft 404s that waste crawl budget.
 const SPA_ROUTES = new Set([
   '/',
-  '/app',
+  '/timer',
   '/oauth/redirect',
   '/billing/success',
   '/billing/cancel',
@@ -204,10 +204,13 @@ export default {
       return withSecurityHeaders(await handleSharedReport(request, url, env), request, url);
     }
 
-    // 4. Redirect (was `redirects` in vercel.json): /web -> /app (302).
+    // 4. The web timer lives at /timer. /app (its old path) moves permanently,
+    //    keeping the query so a Table Topics deep link still opens its question.
+    //    /web is an older alias still; it goes straight to /timer, one hop.
     //    Return early — Response.redirect() responses are immutable.
-    if (pathname === '/web') {
-      return Response.redirect(new URL('/app', url.origin).toString(), 302);
+    if (pathname === '/app' || pathname === '/app/' || pathname === '/web') {
+      const target = new URL(`/timer${pathname === '/web' ? '' : url.search}`, url.origin);
+      return Response.redirect(target.toString(), pathname === '/web' ? 302 : 301);
     }
 
     // 5. Serve the right asset (host-based routing + SPA fallback), then
@@ -344,9 +347,9 @@ function withSecurityHeaders(response, request, url) {
     headers.set('X-Robots-Tag', 'noindex, nofollow');
   }
 
-  // Deep links like /app?role=…&name=… (one per Table Topics question) are app
-  // state, not pages. Keep them out of the index; bare /app is unaffected.
-  if (url.pathname === '/app' && url.search) {
+  // Deep links like /timer?role=…&name=… (one per Table Topics question) are
+  // app state, not pages. Keep them out of the index; bare /timer is unaffected.
+  if (url.pathname === '/timer' && url.search) {
     headers.set('X-Robots-Tag', 'noindex');
   }
 

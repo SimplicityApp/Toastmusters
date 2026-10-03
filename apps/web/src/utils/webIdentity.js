@@ -56,7 +56,7 @@ export function resolveWebIdentity() {
 }
 
 /** Where a "Sign in with Zoom" link should point, coming back to `returnTo`. */
-export function signInUrl(returnTo = '/app') {
+export function signInUrl(returnTo = '/timer') {
   return `/api/auth/zoom/start?returnTo=${encodeURIComponent(returnTo)}`
 }
 

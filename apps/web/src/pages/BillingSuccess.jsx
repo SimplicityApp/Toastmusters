@@ -83,7 +83,7 @@ export default function BillingSuccess() {
               Open Zoom app
             </a>
             <Link
-              to="/app"
+              to="/timer"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/10 text-white font-medium hover:bg-white/20 transition-colors no-underline"
             >
               Use in browser

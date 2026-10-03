@@ -153,11 +153,36 @@ describe('canonical host redirect', () => {
   });
 });
 
+describe('the web timer moved from /app to /timer', () => {
+  it('301s /app to /timer and keeps the query', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(
+      get('https://www.timer.simple-tech.app/app?role=Table%20Topics%20Speech&name=Test'),
+      env,
+      ctx
+    );
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(
+      'https://www.timer.simple-tech.app/timer?role=Table%20Topics%20Speech&name=Test'
+    );
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('sends /web straight to /timer in one hop', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/web'), env, ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer');
+  });
+});
+
 describe('404 handling', () => {
   it('serves the SPA shell with 200 for real app routes', async () => {
     const env = makeEnv(['/index.html']);
 
-    for (const path of ['/', '/app', '/oauth/redirect', '/club/admin', '/club/manage']) {
+    for (const path of ['/', '/timer', '/oauth/redirect', '/club/admin', '/club/manage']) {
       const res = await worker.fetch(
         get(`https://www.timer.simple-tech.app${path}`),
         env,
@@ -303,14 +328,14 @@ describe('indexing headers', () => {
     expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
   });
 
-  it('marks web timer deep links noindex, but not bare /app', async () => {
+  it('marks web timer deep links noindex, but not bare /timer', async () => {
     const env = makeEnv(['/index.html']);
     const deep = await worker.fetch(
-      get('https://www.timer.toastmusters.com/app?role=Table%20Topics%20Speech&name=Test'),
+      get('https://www.timer.simple-tech.app/timer?role=Table%20Topics%20Speech&name=Test'),
       env,
       ctx
     );
-    const bare = await worker.fetch(get('https://www.timer.toastmusters.com/app'), env, ctx);
+    const bare = await worker.fetch(get('https://www.timer.simple-tech.app/timer'), env, ctx);
 
     expect(deep.status).toBe(200);
     expect(deep.headers.get('x-robots-tag')).toBe('noindex');
@@ -422,7 +447,7 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
 
   it('starts sign-in from /api/auth/zoom/start and completes it on the callback', async () => {
     const env = authEnv();
-    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), env, ctx);
+    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Ftimer'), env, ctx);
     expect(started.status).toBe(302);
     const location = new URL(started.headers.get('location'));
     expect(location.hostname).toBe('zoom.us');
@@ -441,7 +466,7 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       });
       const res = await worker.fetch(cb, env, ctx);
       expect(res.status).toBe(302);
-      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/app');
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer');
       expect(res.headers.get('set-cookie')).toMatch(/tt_session=/);
     } finally {
       globalThis.fetch = realFetch;
@@ -453,13 +478,13 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
   // with no code exchange and no session.
   it('404s the start and serves the SPA for a signed callback while pro is off', async () => {
     const off = authEnv('0');
-    const start = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), off, ctx);
+    const start = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Ftimer'), off, ctx);
     expect(start.status).toBe(404);
     expect(await start.json()).toEqual({ error: 'Not found' });
     expect(start.headers.get('set-cookie')).toBeNull();
 
     // A state minted while sign-in was on, spent after it went off.
-    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Fapp'), authEnv('1'), ctx);
+    const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Ftimer'), authEnv('1'), ctx);
     const state = new URL(started.headers.get('location')).searchParams.get('state');
     const nonce = started.headers.get('set-cookie').match(/tt_oauth=([^;]+)/)[1];
 

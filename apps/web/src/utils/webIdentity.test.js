@@ -64,7 +64,7 @@ describe('resolveWebIdentity', () => {
 describe('signInUrl / signOut', () => {
   it('builds the start URL with the return path encoded', () => {
     expect(signInUrl('/account?x=1')).toBe('/api/auth/zoom/start?returnTo=%2Faccount%3Fx%3D1');
-    expect(signInUrl()).toBe('/api/auth/zoom/start?returnTo=%2Fapp');
+    expect(signInUrl()).toBe('/api/auth/zoom/start?returnTo=%2Ftimer');
   });
 
   it('posts to logout and survives failure', async () => {

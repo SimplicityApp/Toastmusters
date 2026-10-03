@@ -22,7 +22,7 @@ function stubMe(body, status = 200) {
 const SIGNED_OUT = [{ error: 'Unauthorized' }, 401];
 const SIGNED_IN = [{ uid: 'u1', entitlement: { plan: 'free', entitled: false } }];
 
-async function renderMenu(path = '/app') {
+async function renderMenu(path = '/timer') {
   const view = render(
     <MemoryRouter initialEntries={[path]}>
       <AccountMenu />
@@ -68,12 +68,12 @@ describe('AccountMenu: the pro flag', () => {
   it('links sign-in back to the page it was pressed on when the flag is on', async () => {
     stubMe(...SIGNED_OUT);
     setFlags({ pro: true });
-    await renderMenu('/app?tab=agenda');
+    await renderMenu('/timer?tab=agenda');
 
     await waitFor(() =>
       expect(screen.getByTestId('sign-in-with-zoom')).toHaveAttribute(
         'href',
-        '/api/auth/zoom/start?returnTo=%2Fapp%3Ftab%3Dagenda'
+        '/api/auth/zoom/start?returnTo=%2Ftimer%3Ftab%3Dagenda'
       )
     );
   });
