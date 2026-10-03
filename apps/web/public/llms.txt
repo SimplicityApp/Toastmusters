@@ -25,9 +25,10 @@ Toastmasters International.
   (green 5:00, yellow 6:00, red 7:00), Table Topics 1–2 min (green 1:00,
   yellow 1:30, red 2:00), Evaluation 2–3 min (green 2:00, yellow 2:30,
   red 3:00), Longer Speech 7–9 min (green 7:00, yellow 8:00, red 9:00).
-- Speakers have a 30-second grace period after the red signal. Finishing before
-  green or more than 30 seconds after red makes a speaker ineligible for that
-  meeting's awards.
+- Speakers have a 30-second grace period on either side of the range. In
+  contests, finishing more than 30 seconds under the minimum or over the
+  maximum disqualifies a speaker (Table Topics: under 1:00 or over 2:30).
+  For meeting awards, each club sets its own rule; some require reaching green.
 - Three ways to display the signal: full-screen colour in the browser, a
   floating overlay, or an automatic Zoom virtual background.
 - The Zoom app changes the background colour on its own as thresholds are
