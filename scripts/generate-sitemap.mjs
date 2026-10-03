@@ -18,14 +18,14 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const ORIGIN = 'https://www.timer.simple-tech.app';
+const ORIGIN = 'https://www.toastmusters.com';
 const OUT = resolve(ROOT, 'apps/web/public/sitemap.xml');
 
 /**
  * Every indexable URL, with the source file its lastmod is derived from.
  *
  * Deliberately absent:
- *  - /app and /oauth/redirect — the SPA shell has no static content of its own
+ *  - /timer/app and /oauth/redirect — the SPA shell has no static content of its own
  *    and canonicalises to the home page.
  *  - /404.html — noindex.
  *  - /zoom/* — the Zoom app is noindex.
