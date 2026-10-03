@@ -67,7 +67,7 @@ export function header(config) {
         <nav class="tt-nav" aria-label="Site">
           <a href="/topics/">Categories</a>
           <a href="/today/">Today&rsquo;s set</a>
-          <a href="${attr(timer)}/app" rel="noopener">Speech timer</a>
+          <a href="${attr(timer)}/app" rel="noopener">Toastmasters timer</a>
         </nav>
       </div>
     </header>`;
