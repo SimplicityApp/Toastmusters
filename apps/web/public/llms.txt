@@ -12,7 +12,7 @@ Name: Toastmusters Timer (the product name is a play on "Toastmasters"; the tool
   endorsed by, or sponsored by Toastmasters International).
 Topic: Toastmasters International (https://en.wikipedia.org/wiki/Toastmasters_International,
   https://www.wikidata.org/wiki/Q917036) — meeting timing, the Timer role, speech time limits.
-Site: https://www.timer.simple-tech.app/
+Site: https://www.toastmusters.com/
 Cost: Free. No account, sign-up, payment, or installation required.
 Platform: Any modern web browser (desktop, tablet, phone) and Zoom.
 Publisher: Simple Tech
@@ -37,36 +37,36 @@ Toastmasters International.
 
 ## Pages
 
-- [Toastmasters Timer (home)](https://www.timer.simple-tech.app/): What the tool
+- [Toastmasters Timer (home)](https://www.toastmusters.com/): What the tool
   does, the three display modes, and the standard timing rules.
-- [Open the timer](https://www.timer.simple-tech.app/app): The timer itself.
-- [Timer Role Guide](https://www.timer.simple-tech.app/toastmasters-timer-role-guide):
+- [Open the timer](https://www.toastmusters.com/timer): The timer itself.
+- [Timer Role Guide](https://www.toastmusters.com/toastmasters-timer-role-guide):
   What the Timer does before, during, and after a meeting; step-by-step
   instructions, tips, and common mistakes.
-- [Speech Types & Timing Rules](https://www.timer.simple-tech.app/toastmasters-speech-types-and-timing):
+- [Speech Types & Timing Rules](https://www.toastmusters.com/toastmasters-speech-types-and-timing):
   Complete reference for every Toastmasters speech type and its green/yellow/red
   thresholds.
-- [Timing Chart](https://www.timer.simple-tech.app/toastmasters-timing-chart):
+- [Timing Chart](https://www.toastmusters.com/toastmasters-timing-chart):
   Visual colour reference table for all speech types.
-- [Timer Script and Report Template](https://www.timer.simple-tech.app/toastmasters-timer-script):
+- [Timer Script and Report Template](https://www.toastmusters.com/toastmasters-timer-script):
   Word-for-word script for explaining the signals and delivering the timing
   report, plus a fill-in log.
-- [Table Topics Timer](https://www.timer.simple-tech.app/table-topics-timer):
+- [Table Topics Timer](https://www.toastmusters.com/table-topics-timer):
   Table Topics timing rules (1–2 minutes) and how to time a rapid-fire session.
-- [Speech Contest Timing Rules](https://www.timer.simple-tech.app/toastmasters-speech-contest-timing-rules):
+- [Speech Contest Timing Rules](https://www.toastmusters.com/toastmasters-speech-contest-timing-rules):
   How contest timing differs from club meetings, including disqualification
   rules.
-- [How to Use Zoom for Toastmasters](https://www.timer.simple-tech.app/how-to-use-zoom-for-toastmasters):
+- [How to Use Zoom for Toastmasters](https://www.toastmusters.com/how-to-use-zoom-for-toastmasters):
   Running the Timer role in an online or hybrid meeting.
-- [Free Zoom Timer Backgrounds](https://www.timer.simple-tech.app/toastmasters-zoom-timer-backgrounds):
+- [Free Zoom Timer Backgrounds](https://www.toastmusters.com/toastmasters-zoom-timer-backgrounds):
   Downloadable green, yellow, and red virtual backgrounds, and how to install
   them in Zoom.
-- [Best Toastmasters Timer Apps Compared](https://www.timer.simple-tech.app/best-toastmasters-timer-apps):
+- [Best Toastmasters Timer Apps Compared](https://www.toastmusters.com/best-toastmasters-timer-apps):
   Honest comparison of the available timer tools, including alternatives.
 
 ## Optional
 
-- [Documentation](https://www.timer.simple-tech.app/documentation)
-- [Support](https://www.timer.simple-tech.app/support)
-- [Privacy Policy](https://www.timer.simple-tech.app/privacy)
-- [Terms of Use](https://www.timer.simple-tech.app/terms-of-use)
+- [Documentation](https://www.toastmusters.com/documentation)
+- [Support](https://www.toastmusters.com/support)
+- [Privacy Policy](https://www.toastmusters.com/privacy)
+- [Terms of Use](https://www.toastmusters.com/terms-of-use)

@@ -10,7 +10,7 @@ export const ZOOM_MARKETPLACE_REVIEW_URL =
   'https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw';
 
 /** Canonical entry point of the web timer (the "Time this" deep-link target). */
-export const TIMER_APP_URL = 'https://www.timer.toastmusters.com/app';
+export const TIMER_APP_URL = 'https://www.toastmusters.com/timer';
 
 /**
  * Every tool in the Toastmusters suite, one subdomain each. Footers and nav
@@ -21,7 +21,7 @@ export const TOOLS = [
   {
     slug: 'timer',
     name: 'Toastmusters Timer',
-    url: 'https://www.timer.toastmusters.com',
+    url: 'https://www.toastmusters.com',
     tagline: 'Green, yellow and red timing signals for every speech, in the browser or as a Zoom app.',
   },
   {
