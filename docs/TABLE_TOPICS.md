@@ -1,10 +1,13 @@
 # Table Topics Generator (`apps/table-topics`)
 
 Random Table Topics questions for Toastmasters meetings, served at
-**https://www.tabletopics.toastmusters.com** by its own Cloudflare Worker
-(`toastmusters-tabletopics`). First sibling of the timer in the Toastmusters
-suite: one subdomain per tool, cross-linked through `TOOLS` in
-`packages/shared/appLinks.js`.
+**https://www.toastmusters.com/tabletopics/** by its own Cloudflare Worker
+(`toastmusters-tabletopics`), which the timer Worker reaches over its
+`TABLETOPICS` service binding. First sibling of the timer in the Toastmusters
+suite: one path per tool on `www.toastmusters.com`, cross-linked through
+`TOOLS` in `packages/shared/appLinks.js`. The old host,
+`www.tabletopics.toastmusters.com`, 301s every URL to the same page under
+`/tabletopics` (see [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md)).
 
 ## How it works
 
@@ -78,11 +81,13 @@ npm run validate:tabletopics       # content check
 npm run build:tabletopics          # -> apps/table-topics/dist
 npm run dev:tabletopics            # build + wrangler dev on :8789 (launch.json: tabletopics-worker)
 npx vitest run --root apps/table-topics   # app only; root `npm test` also covers it once every app is installed
-npm run cf:deploy:tabletopics:dev  # www.tabletopics-dev.toastmusters.com (noindex)
+npm run cf:deploy:tabletopics:dev  # www.tabletopics-dev.toastmusters.com/tabletopics/ (noindex)
 npm run cf:deploy:tabletopics:prod
 ```
 
-Env for the build: `SITE_ORIGIN` (default prod), `BUILD_DATE`, `QUESTIONS_FILE`,
+Env for the build: `SITE_ORIGIN` (default `https://www.toastmusters.com/tabletopics`;
+its path becomes the base path every page, asset and link is built under),
+`BUILD_DATE`, `QUESTIONS_FILE`,
 `VITE_PUBLIC_POSTHOG_KEY`, `VITE_PUBLIC_POSTHOG_HOST`.
 
 ## Automation
