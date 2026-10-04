@@ -1,5 +1,5 @@
 import zoomSdk from '@zoom/appssdk';
-import { loadOverlayMode, loadOverlayTimeReadout, saveOverlayTimeReadout, resolveCardImage, CARD_ASSET_VERSION, hasOwnBackground, getOwnBackgroundUrl, clubBadgeState, clubBadgePlacement, saveClubBadgeOverride, clearClubBadgeOverride, hasClubBadgeOverride, clubKit, drawClubBadge, badgeUnchanged, clampBadgeScale } from '@toastmaster-timer/shared';
+import { loadOverlayMode, loadOverlayTimeReadout, saveOverlayTimeReadout, resolveCardImage, CARD_ASSET_VERSION, hasOwnBackground, getOwnBackgroundUrl, clubBadgeState, clubBadgePlacement, saveClubBadgeOverride, clearClubBadgeOverride, hasClubBadgeOverride, clubKit, drawClubBadge, clubBadgeRect, badgeUnchanged, clampBadgeScale } from '@toastmaster-timer/shared';
 
 // Production base URL for background images
 const PRODUCTION_BASE_URL = 'https://www.timer.simple-tech.app';
@@ -536,18 +536,39 @@ export function renderTimeOnFrame(base, label, position = overlayTimePosition, s
   return ctx.getImageData(0, 0, base.width, base.height);
 }
 
+/** The readout's font at a given frame height and scale. */
+function readoutFont(height, scale) {
+  const fontSize = Math.round(height * scale);
+  return { fontSize, font: `bold ${fontSize}px 'Helvetica Neue', Helvetica, Arial, sans-serif` };
+}
+
+/**
+ * Where a readout `textWidth` wide is centred on the frame, clamped so the text
+ * never runs off it. Shared by the drawing and by the foreground crop, so the
+ * crop cannot disagree with where the digits land.
+ */
+function readoutCenter(width, height, fontSize, textWidth, position) {
+  const pad = Math.round(height * 0.04);
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  return {
+    x: Math.round(clamp(position.x * width, pad + textWidth / 2, width - pad - textWidth / 2)),
+    y: Math.round(clamp(position.y * height, pad + fontSize / 2, height - pad - fontSize / 2)),
+  };
+}
+
+/** The keyline around the digits, in pixels. */
+function readoutStrokeWidth(fontSize) {
+  return Math.max(2, Math.round(fontSize / 12));
+}
+
 /** The drawing itself, shared by the baked (card) and layered (camera) paths. */
 function drawTimeReadout(ctx, width, height, label, position, scale) {
-  const fontSize = Math.round(height * scale);
-  ctx.font = `bold ${fontSize}px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  const { fontSize, font } = readoutFont(height, scale);
+  ctx.font = font;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const pad = Math.round(height * 0.04);
-  const textWidth = ctx.measureText(label).width;
-  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-  const x = Math.round(clamp(position.x * width, pad + textWidth / 2, width - pad - textWidth / 2));
-  const y = Math.round(clamp(position.y * height, pad + fontSize / 2, height - pad - fontSize / 2));
-  ctx.lineWidth = Math.max(2, Math.round(fontSize / 12));
+  const { x, y } = readoutCenter(width, height, fontSize, ctx.measureText(label).width, position);
+  ctx.lineWidth = readoutStrokeWidth(fontSize);
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
   ctx.strokeText(label, x, y);
   ctx.fillStyle = '#ffffff';
@@ -614,9 +635,15 @@ export function renderTimeForeground(
   badge = null
 ) {
   const canvas = document.createElement('canvas');
-  canvas.width = budget.width;
-  canvas.height = budget.height;
   const ctx = canvas.getContext('2d');
+  // Everything is drawn in camera-size coordinates either way; a cropped
+  // canvas only drops the transparent bottom and right of the layer, which the
+  // client composites 1:1 from the top-left. The band frames the whole video,
+  // so it keeps the full frame.
+  const frame = color ? budget : croppedForegroundSize(ctx, budget, position, scale, badge, label);
+  // Sized before drawing: resizing a canvas clears it.
+  canvas.width = frame.width;
+  canvas.height = frame.height;
   if (color) {
     const thickness = Math.max(
       2,
@@ -635,7 +662,82 @@ export function renderTimeForeground(
   // baked card path, for the same reason.
   if (badge) drawClubBadge(ctx, budget.width, budget.height, badge.kit, badge.placement);
   if (label) drawTimeReadout(ctx, budget.width, budget.height, label, position, scale);
-  return ctx.getImageData(0, 0, budget.width, budget.height);
+  return ctx.getImageData(0, 0, frame.width, frame.height);
+}
+
+// The crop is rounded up to this, so a few pixels of measuring noise cannot
+// change the frame size from one second to the next.
+const FOREGROUND_CROP_STEP = 64;
+
+/**
+ * The smallest top-left-anchored frame that holds the readout and the badge,
+ * in the camera's own coordinate space. Exported for testing.
+ *
+ * Every second the readout layer is handed to the SDK, which base64-encodes it
+ * on this thread; at camera size that is 3.7-8.3 MB of mostly transparent
+ * pixels, and on a slow machine it eats most of the second — the reason a card
+ * change could land seconds late (issue #79). The foreground is composited 1:1
+ * from the top-left, so dropping the empty bottom and right changes nothing
+ * the room sees.
+ *
+ * The readout is measured as the widest label of its shape (every digit the
+ * widest digit), never the label itself, so the size changes only when the
+ * readout or badge is moved, resized, shown or hidden — not every second, and
+ * the identical-frame check stays meaningful.
+ *
+ * @param {CanvasRenderingContext2D} ctx - used only to measure; left as found
+ * @param {{width: number, height: number}} camera - the foreground budget
+ * @param {{x: number, y: number}} position - normalized centre of the readout
+ * @param {number} scale - readout height as a fraction of the frame
+ * @param {{kit: Object, placement: Object}|null} badge - the club's badge
+ * @param {string|null} label - the readout, for its shape only; null for none
+ * @returns {{width: number, height: number}}
+ */
+export function croppedForegroundSize(ctx, camera, position, scale, badge, label) {
+  let right = 0;
+  let bottom = 0;
+
+  if (label) {
+    const { fontSize, font } = readoutFont(camera.height, scale);
+    ctx.save();
+    try {
+      ctx.font = font;
+      let widestDigit = '0';
+      let widestDigitWidth = -1;
+      for (const digit of '0123456789') {
+        const width = ctx.measureText(digit).width;
+        if (width > widestDigitWidth) {
+          widestDigit = digit;
+          widestDigitWidth = width;
+        }
+      }
+      const textWidth = Math.max(
+        ctx.measureText(String(label).replace(/[0-9]/g, widestDigit)).width,
+        ctx.measureText(label).width
+      );
+      const center = readoutCenter(camera.width, camera.height, fontSize, textWidth, position);
+      // A whole keyline of slack past the text box, not half: the glyphs'
+      // ink can overhang their advance width a little.
+      const slack = readoutStrokeWidth(fontSize);
+      right = Math.max(right, center.x + textWidth / 2 + slack);
+      bottom = Math.max(bottom, center.y + fontSize / 2 + slack);
+    } finally {
+      ctx.restore();
+    }
+  }
+
+  const badgeRect = badge ? clubBadgeRect(ctx, camera.width, camera.height, badge.kit, badge.placement) : null;
+  if (badgeRect) {
+    // +1/+2 for the drop shadow drawClubBadge offsets under the pill.
+    right = Math.max(right, badgeRect.x + badgeRect.width + 1);
+    bottom = Math.max(bottom, badgeRect.y + badgeRect.height + 2);
+  }
+
+  const roundUp = (value) => Math.max(FOREGROUND_CROP_STEP, Math.ceil(value / FOREGROUND_CROP_STEP) * FOREGROUND_CROP_STEP);
+  return {
+    width: Math.min(camera.width, roundUp(right)),
+    height: Math.min(camera.height, roundUp(bottom)),
+  };
 }
 
 /**
@@ -891,6 +993,11 @@ async function syncForegroundReadout(timing = null) {
       frame
     );
     if (!timing) recordReadoutPush(now() - pushStartedAt);
+    // Once per crop, which changes only on a drag, a resize or a camera change:
+    // what to compare against if the readout ever lands somewhere unexpected.
+    if (activeForeground?.frameWidth !== frame.width || activeForeground?.frameHeight !== frame.height) {
+      log(`Count-up readout pushed as ${frame.width}x${frame.height} of the ${budget.width}x${budget.height} layer`, 'info');
+    }
     markVirtualForegroundApplied(true);
     activeForeground = {
       color,
@@ -898,8 +1005,12 @@ async function syncForegroundReadout(timing = null) {
       badge,
       position: { ...overlayTimePosition },
       scale: overlayTimeScale,
+      // The camera budget, which is how a camera change is noticed; the frame
+      // actually pushed is usually a crop of it.
       width: budget.width,
       height: budget.height,
+      frameWidth: frame.width,
+      frameHeight: frame.height,
     };
   } catch (error) {
     log(`Could not push the count-up readout: ${error.message || error.name}`, 'warn');
@@ -3064,10 +3175,16 @@ function reportThresholdColor(report, timing) {
 
   // The frame carrying the readout: the foreground layer in camera mode, the
   // baked card in Timer Only. A fileUrl background hands over no frame of ours.
+  // When the color change pushed no foreground of its own (an identical layer
+  // was already up), the per-second frame is still the one last pushed.
+  const lastForeground =
+    activeForeground && (timing.pipeline === 'background_fileurl' || timing.pipeline === 'background_imagedata' || timing.pipeline === 'band')
+      ? { width: activeForeground.frameWidth, height: activeForeground.frameHeight }
+      : null;
   const frame =
     timing.calls.find((call) => call.name === 'fg' && call.width) ||
     timing.calls.find((call) => call.name === 'filter' && call.width) ||
-    null;
+    lastForeground;
   const sorted = [...durations].sort((a, b) => a - b);
 
   const properties = {

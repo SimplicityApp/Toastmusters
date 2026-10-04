@@ -3490,27 +3490,34 @@ describe('the count-up on the pushed card', () => {
   });
 
   it('sizes the readout layer to the camera stream, not the background budget', async () => {
-    stubCanvas();
+    const { operations } = stubCanvas();
     saveOverlayMode('camera');
     sdkMock.setVirtualForeground.mockResolvedValue({});
-    const { initializeZoomSdk, setOverlayTimeLabel, applyOverlay, handleMyMediaChange } =
+    const { initializeZoomSdk, setOverlayTimeLabel, setOverlayTimePosition, applyOverlay, handleMyMediaChange } =
       await loadModule();
     await initializeZoomSdk();
     handleMyMediaChange({ media: { video: { width: 1280, height: 720 } }, timestamp: 1 });
 
+    setOverlayTimePosition({ x: 1, y: 1 });
     setOverlayTimeLabel('00:05');
     await applyOverlay('https://zoom.example/backgrounds/green.png');
 
     // The client composites the foreground onto the video 1:1 from the
     // top-left. At the 640x360 background budget on a 720p stream, the layer
     // covered only the top-left quadrant and the readout could never move
-    // past the video's center.
+    // past the video's center. Dragged to the bottom-right, the digits land in
+    // the bottom-right of the 720p video, and the (cropped) layer reaches them.
+    const [x, y] = operations.filter(([op]) => op === 'fillText').at(-1).slice(2);
+    expect(x).toBeGreaterThan(640);
+    expect(y).toBeGreaterThan(360);
     const [options] = sdkMock.setVirtualForeground.mock.calls.at(-1);
-    expect(options.imageData).toMatchObject({ width: 1280, height: 720 });
+    expect(options.imageData.width).toBe(1280);
+    expect(options.imageData.height).toBeGreaterThan(y);
+    expect(options.imageData.height).toBeLessThanOrEqual(720);
   });
 
   it('assumes a 720p stream until the camera reports its resolution', async () => {
-    stubCanvas();
+    const { operations } = stubCanvas();
     saveOverlayMode('camera');
     sdkMock.setVirtualForeground.mockResolvedValue({});
     const { initializeZoomSdk, setOverlayTimeLabel, applyOverlay } = await loadModule();
@@ -3519,12 +3526,15 @@ describe('the count-up on the pushed card', () => {
     setOverlayTimeLabel('00:05');
     await applyOverlay('https://zoom.example/backgrounds/green.png');
 
+    // Drawn in 720p coordinates — at the default spot, 18% across and 30% down
+    // a 1280x720 frame — and cropped to the corner that holds it.
+    expect(operations.filter(([op]) => op === 'fillText').at(-1)).toEqual(['fillText', '00:05', 230, 216]);
     const [options] = sdkMock.setVirtualForeground.mock.calls.at(-1);
-    expect(options.imageData).toMatchObject({ width: 1280, height: 720 });
+    expect(options.imageData).toMatchObject({ width: 384, height: 320 });
   });
 
   it('remembers the camera resolution across a webview reload', async () => {
-    stubCanvas();
+    const { operations } = stubCanvas();
     saveOverlayMode('camera');
     sdkMock.setVirtualForeground.mockResolvedValue({});
     // The first webview hears the report...
@@ -3542,8 +3552,12 @@ describe('the count-up on the pushed card', () => {
     second.setOverlayTimeLabel('00:05');
     await second.applyOverlay('https://zoom.example/backgrounds/green.png');
 
+    // Drawn in 360p coordinates (18% across, 30% down 640x360), not the 720p
+    // fallback's (230, 216), and cropped inside the 360p frame.
+    expect(operations.filter(([op]) => op === 'fillText').at(-1)).toEqual(['fillText', '00:05', 115, 108]);
     const [options] = sdkMock.setVirtualForeground.mock.calls.at(-1);
-    expect(options.imageData).toMatchObject({ width: 640, height: 360 });
+    expect(options.imageData.width).toBeLessThanOrEqual(640);
+    expect(options.imageData.height).toBeLessThanOrEqual(360);
   });
 
   it.each([
@@ -3557,7 +3571,7 @@ describe('the count-up on the pushed card', () => {
   });
 
   it('re-renders the readout layer when the camera resolution changes', async () => {
-    stubCanvas();
+    const { operations } = stubCanvas();
     saveOverlayMode('camera');
     sdkMock.setVirtualForeground.mockResolvedValue({});
     const { initializeZoomSdk, setOverlayTimeLabel, applyOverlay, handleMyMediaChange } =
@@ -3569,10 +3583,14 @@ describe('the count-up on the pushed card', () => {
     handleMyMediaChange({ media: { video: { width: 1920, height: 1080 } }, timestamp: 2 });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Composited 1:1, a layer of the wrong size puts the readout in the
+    // Composited 1:1, a layer drawn for the wrong size puts the readout in the
     // wrong place — but the fileUrl background still needs no re-push.
-    const [options] = sdkMock.setVirtualForeground.mock.calls.at(-1);
-    expect(options.imageData).toMatchObject({ width: 1920, height: 1080 });
+    expect(sdkMock.setVirtualForeground).toHaveBeenCalledTimes(2);
+    expect(operations.filter(([op]) => op === 'fillText').at(-1)).toEqual(['fillText', '00:05', 346, 324]);
+    const [before] = sdkMock.setVirtualForeground.mock.calls[0];
+    const [after] = sdkMock.setVirtualForeground.mock.calls.at(-1);
+    expect(after.imageData.width).toBeGreaterThan(before.imageData.width);
+    expect(after.imageData.height).toBeGreaterThan(before.imageData.height);
     expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(1);
   });
 
@@ -4148,9 +4166,10 @@ describe('card_color_applied', () => {
       detect_lag_ms: 12,
       busy_with: 'readout',
       readout_visible: true,
-      // The readout layer is camera-sized: no camera reported, so 720p.
-      frame_width: 1280,
-      frame_height: 720,
+      // The readout layer is cropped to its corner of the 720p fallback (no
+      // camera reported), not the whole camera frame.
+      frame_width: 384,
+      frame_height: 320,
       camera_width: null,
       camera_height: null,
       // The held 00:59 push, which finished before the event went out.
@@ -4588,5 +4607,194 @@ describe('one card push per color change', () => {
         expect(options.persistence).toBe('meeting');
       }
     });
+  });
+});
+
+describe('the cropped count-up layer', () => {
+  const GREEN = 'https://zoom.example/backgrounds/green.png';
+  const YELLOW = 'https://zoom.example/backgrounds/yellow.png';
+  const CAMERA = { width: 1280, height: 720 };
+  const BADGE = {
+    kit: { name: 'Downtown Speakers', logo: null, primaryColor: '#772432', showOnCards: true },
+    placement: { x: 0.8, y: 0.12, scale: 0.12, visible: true },
+  };
+  const drain = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  /**
+   * A fake canvas whose digits are not all the same width, the way a real
+   * proportional font's are not: a crop measured off the label itself would
+   * change size between 00:09 and 10:00. Measured at a 100px font, then scaled
+   * to whatever font is set, so a bigger readout measures wider.
+   */
+  function stubProportionalCanvas() {
+    const stub = stubCanvas();
+    const ctx = stub.fakeCanvas.getContext('2d');
+    ctx.font = '100px sans-serif';
+    ctx.measureText = (text) => {
+      const px = Number(/(\d+)px/.exec(ctx.font)?.[1] ?? 100);
+      const at100 = [...String(text)].reduce((sum, char) => sum + (char === '1' ? 20 : char === ':' ? 16 : 40), 0);
+      return { width: (at100 * px) / 100 };
+    };
+    return stub;
+  }
+
+  /** A camera-mode module with a speech already showing green. */
+  async function cameraSpeech() {
+    saveOverlayMode('camera');
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.setVirtualBackground.mockResolvedValue({});
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    const mod = await loadModule();
+    await mod.initializeZoomSdk();
+    mod.handleMyMediaChange({ media: { video: { ...CAMERA } }, timestamp: 1 });
+    mod.setOverlayTimeLabel('00:05');
+    await mod.applyOverlay(GREEN);
+    return mod;
+  }
+
+  const lastForegroundSize = () => {
+    const { width, height } = sdkMock.setVirtualForeground.mock.calls.at(-1)[0].imageData;
+    return { width, height };
+  };
+
+  it('pushes the same size at 00:09, 00:10 and 10:00', async () => {
+    stubProportionalCanvas();
+    const mod = await cameraSpeech();
+
+    const sizes = [];
+    for (const label of ['00:09', '00:10', '10:00', '11:11']) {
+      mod.setOverlayTimeLabel(label);
+      await drain();
+      sizes.push(lastForegroundSize());
+    }
+
+    // One push per second, every one of them a fraction of the 720p frame.
+    expect(sdkMock.setVirtualForeground.mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(sizes.map(({ width, height }) => `${width}x${height}`)).size).toBe(1);
+    expect(sizes[0].width).toBeLessThan(CAMERA.width);
+    expect(sizes[0].height).toBeLessThan(CAMERA.height);
+    // Rounded to whole 64-pixel steps, so measuring noise cannot resize it.
+    expect(sizes[0].width % 64).toBe(0);
+    expect(sizes[0].height % 64).toBe(0);
+  });
+
+  it('grows when the readout is dragged to the bottom-right', async () => {
+    const { operations } = stubCanvas();
+    const mod = await cameraSpeech();
+    const before = lastForegroundSize();
+
+    mod.setOverlayTimePosition({ x: 1, y: 1 });
+    await drain();
+
+    const after = lastForegroundSize();
+    expect(after.width).toBe(CAMERA.width);
+    expect(after.height).toBeGreaterThan(before.height);
+    expect(after.height).toBeLessThanOrEqual(CAMERA.height);
+    // Still drawn in camera coordinates: the digits sit inside the crop.
+    const [x, y] = operations.filter(([op]) => op === 'fillText').at(-1).slice(2);
+    expect(x).toBeLessThan(after.width);
+    expect(y).toBeLessThan(after.height);
+  });
+
+  it('grows when the readout is scaled up', async () => {
+    stubProportionalCanvas();
+    const mod = await cameraSpeech();
+    const before = lastForegroundSize();
+
+    mod.setOverlayTimeScale(0.33);
+    await drain();
+
+    const after = lastForegroundSize();
+    expect(after.width).toBeGreaterThan(before.width);
+    expect(after.height).toBeGreaterThan(before.height);
+  });
+
+  it('never crops away any part of the readout, wherever it is put', async () => {
+    const { croppedForegroundSize } = await loadModule();
+    stubProportionalCanvas();
+    const ctx = document.createElement('canvas').getContext('2d');
+
+    for (const position of [{ x: 0, y: 0 }, { x: 0.18, y: 0.3 }, { x: 0.5, y: 0.5 }, { x: 1, y: 1 }]) {
+      for (const scale of [0.06, 0.18, 0.33]) {
+        const frame = croppedForegroundSize(ctx, CAMERA, position, scale, null, '00:00');
+        // The text box at its widest, with the keyline outside it.
+        const fontSize = Math.round(CAMERA.height * scale);
+        const textWidth = ((4 * 40 + 16) * fontSize) / 100;
+        const pad = Math.round(CAMERA.height * 0.04);
+        const x = Math.min(Math.max(position.x * CAMERA.width, pad + textWidth / 2), CAMERA.width - pad - textWidth / 2);
+        const y = Math.min(Math.max(position.y * CAMERA.height, pad + fontSize / 2), CAMERA.height - pad - fontSize / 2);
+        const keyline = Math.max(2, Math.round(fontSize / 12)) / 2;
+        expect(frame.width).toBeGreaterThanOrEqual(Math.min(CAMERA.width, x + textWidth / 2 + keyline));
+        expect(frame.height).toBeGreaterThanOrEqual(Math.min(CAMERA.height, y + fontSize / 2 + keyline));
+        expect(frame.width).toBeLessThanOrEqual(CAMERA.width);
+        expect(frame.height).toBeLessThanOrEqual(CAMERA.height);
+      }
+    }
+  });
+
+  it('holds the badge as well as the readout', async () => {
+    const { renderTimeForeground } = await loadModule();
+    stubCanvas();
+
+    const readoutOnly = renderTimeForeground(null, '00:05', CAMERA, { x: 0.18, y: 0.3 }, 0.18, null);
+    const withBadge = renderTimeForeground(null, '00:05', CAMERA, { x: 0.18, y: 0.3 }, 0.18, BADGE);
+    const badgeOnly = renderTimeForeground(null, null, CAMERA, { x: 0.18, y: 0.3 }, 0.18, BADGE);
+
+    // The badge sits top-right by default, so holding it takes the full width
+    // but none of the extra height.
+    expect(withBadge.width).toBeGreaterThan(readoutOnly.width);
+    expect(withBadge.height).toBe(readoutOnly.height);
+    // With the clock hidden, only the badge's own band of the frame is sent.
+    expect(badgeOnly.height).toBeLessThan(readoutOnly.height);
+  });
+
+  it('keeps band frames at camera size', async () => {
+    const { renderTimeForeground } = await loadModule();
+    const { operations } = stubCanvas();
+
+    const frame = renderTimeForeground('rgb(255, 0, 0)', '00:05', CAMERA, { x: 0.18, y: 0.3 }, 0.18, BADGE);
+
+    // The band frames the whole video, so the whole frame has to go.
+    expect(frame).toMatchObject(CAMERA);
+    expect(drewBand(operations)).toBe(true);
+  });
+
+  it('reports the cropped frame on card_color_applied, even when the color change pushed no readout', async () => {
+    stubCanvas();
+    const mod = await cameraSpeech();
+    const reporter = vi.fn();
+    mod.setOverlayTimingReporter(reporter);
+    const pushes = sdkMock.setVirtualForeground.mock.calls.length;
+
+    // Same label, same spot: the readout layer already up is identical, so the
+    // color change pushes only the background.
+    await mod.applyOverlay(YELLOW, { trigger: 'threshold', status: 'yellow', detectLagMs: 0, detectedAt: 1 });
+    await drain();
+
+    expect(sdkMock.setVirtualForeground).toHaveBeenCalledTimes(pushes);
+    expect(reporter).toHaveBeenCalledTimes(1);
+    expect(reporter.mock.calls[0][1]).toMatchObject({
+      pipeline: 'background_fileurl',
+      camera_width: CAMERA.width,
+      camera_height: CAMERA.height,
+    });
+    const { frame_width: width, frame_height: height } = reporter.mock.calls[0][1];
+    expect({ width, height }).toEqual(lastForegroundSize());
+    expect(width).toBeLessThan(CAMERA.width);
+  });
+
+  it('never changes what goes to setVirtualBackground', async () => {
+    stubCanvas();
+    const mod = await cameraSpeech();
+
+    mod.setOverlayTimePosition({ x: 1, y: 1 });
+    mod.setOverlayTimeScale(0.3);
+    mod.setOverlayTimeLabel('00:06');
+    await drain();
+
+    // The crop lives entirely in the foreground renderer: the background is
+    // still the one label-free card, pushed by URL, once.
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(1);
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledWith({ fileUrl: GREEN });
   });
 });
