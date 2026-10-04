@@ -4168,14 +4168,97 @@ describe('card_color_applied', () => {
     expect(properties.total_ms).toBeGreaterThanOrEqual(properties.queue_wait_ms);
   });
 
-  it('still reports once when the Live tab push of the same card overtakes the tick', async () => {
+  it('reports once when the Live tab push of the same card joins the queued tick', async () => {
     // On a slow machine the tick's apply is still queued when the Live tab
-    // pushes the same color again; the newer push is the one that runs, and
-    // the threshold must not vanish from the data with the one that did not.
+    // pushes the same color again. The two are one push, and one event.
+    const { mod, reporter, release } = await speechWithReadoutInFlight();
+
+    mod.setOverlayTimeLabel('01:00');
+    const tickPush = mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    const liveTabPush = mod.applyOverlay(YELLOW);
+    expect(liveTabPush).toBe(tickPush);
+    release();
+    await liveTabPush;
+    await drain();
+
+    expect(reporter).toHaveBeenCalledTimes(1);
+    expect(reporter.mock.calls[0][1]).toMatchObject({ status: 'yellow', busy_with: 'readout' });
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(2); // green, then yellow once
+    expect(sdkMock.setVirtualBackground).toHaveBeenLastCalledWith({ fileUrl: YELLOW });
+  });
+
+  it('reports once when the Live tab push joins the tick push already under way', async () => {
+    // The common case on an idle queue: the tick's apply has started before
+    // React even renders, so the Live tab's push arrives mid-flight.
+    stubCanvas();
+    saveOverlayMode('camera');
+    const reporter = vi.fn();
+    const mod = await loadModule();
+    await mod.initializeZoomSdk();
+    mod.setOverlayTimingReporter(reporter);
+    mod.setOverlayTimeLabel('00:59');
+    await mod.applyOverlay(GREEN);
+
+    let release;
+    sdkMock.setVirtualBackground.mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; })
+    );
+    mod.setOverlayTimeLabel('01:00');
+    const tickPush = mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const liveTabPush = mod.applyOverlay(YELLOW);
+    release({});
+    await Promise.all([tickPush, liveTabPush]);
+    await drain();
+
+    expect(reporter).toHaveBeenCalledTimes(1);
+    expect(reporter.mock.calls[0][1]).toMatchObject({ status: 'yellow', busy_with: 'none' });
+    expect(sdkMock.setVirtualBackground.mock.calls).toEqual([
+      [{ fileUrl: GREEN }],
+      [{ fileUrl: YELLOW }],
+    ]);
+  });
+
+  it('reports a threshold that joins a push of the same card already under way', async () => {
+    // Whatever pushed the card first, the threshold rides it: the event goes
+    // out once, and nothing was waited for.
+    stubCanvas();
+    saveOverlayMode('camera');
+    const reporter = vi.fn();
+    const mod = await loadModule();
+    await mod.initializeZoomSdk();
+    mod.setOverlayTimingReporter(reporter);
+
+    let release;
+    sdkMock.setVirtualBackground.mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; })
+    );
+    const firstPush = mod.applyOverlay(YELLOW);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const thresholdPush = mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    expect(thresholdPush).toBe(firstPush);
+    release({});
+    await thresholdPush;
+    await drain();
+
+    expect(reporter).toHaveBeenCalledTimes(1);
+    expect(reporter.mock.calls[0][1]).toMatchObject({
+      status: 'yellow',
+      busy_with: 'color',
+      queue_wait_ms: 0,
+    });
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands the threshold to a later push of the same card when a readout tick supersedes it', async () => {
+    // The tick's apply is queued behind a slow readout push; the next second's
+    // readout supersedes it before it starts, and the Live tab's push of the
+    // same card is the one that reaches the video. It reports the threshold.
     const { mod, reporter, release } = await speechWithReadoutInFlight();
 
     mod.setOverlayTimeLabel('01:00');
     mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    mod.setOverlayTimeLabel('01:01');
     const liveTabPush = mod.applyOverlay(YELLOW);
     release();
     await liveTabPush;
@@ -4183,7 +4266,10 @@ describe('card_color_applied', () => {
 
     expect(reporter).toHaveBeenCalledTimes(1);
     expect(reporter.mock.calls[0][1]).toMatchObject({ status: 'yellow', busy_with: 'readout' });
-    expect(sdkMock.setVirtualBackground).toHaveBeenLastCalledWith({ fileUrl: YELLOW });
+    expect(sdkMock.setVirtualBackground.mock.calls).toEqual([
+      [{ fileUrl: GREEN }],
+      [{ fileUrl: YELLOW }],
+    ]);
   });
 
   it('sends nothing for applies that are not a threshold change', async () => {
@@ -4215,6 +4301,24 @@ describe('card_color_applied', () => {
     const reset = mod.applyOverlay('https://zoom.example/backgrounds/blue.png');
     release();
     await reset;
+    await drain();
+
+    expect(reporter).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when a removal overtakes the threshold, even if the card goes back up', async () => {
+    const { mod, reporter, release } = await speechWithReadoutInFlight();
+    sdkMock.removeVirtualForeground.mockResolvedValue({});
+    sdkMock.removeVirtualBackground.mockResolvedValue({});
+
+    mod.setOverlayTimeLabel('01:00');
+    mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    // The video is taken down before yellow ever ran; a later push of the
+    // same card is a fresh push, not the threshold's delivery.
+    mod.removeOverlay();
+    const pushedAgain = mod.applyOverlay(YELLOW);
+    release();
+    await pushedAgain;
     await drain();
 
     expect(reporter).not.toHaveBeenCalled();
@@ -4279,5 +4383,210 @@ describe('card_color_applied', () => {
     await drain();
 
     expect(reporter).not.toHaveBeenCalled();
+  });
+});
+
+// Issue #79: the tick and the Live tab both push each new color. In camera mode
+// the Live tab's push used to land behind the tick's running one as a second
+// full setVirtualBackground. applyOverlay now joins a same-card push onto the
+// last apply while it is queued or running, and never adds a push.
+describe('one card push per color change', () => {
+  const card = (color) => `https://zoom.example/backgrounds/${color}.png`;
+  const CARDS = ['blue', 'green', 'yellow', 'red'].map(card);
+  const drain = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    stubImage();
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.setVirtualBackground.mockResolvedValue({});
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    sdkMock.removeVirtualForeground.mockResolvedValue({});
+    sdkMock.setVideoFilter.mockResolvedValue({ status: 'ok' });
+  });
+
+  /** Hold the next call of an SDK mock in flight until release() is called. */
+  function holdNext(mock) {
+    const held = { release: null };
+    mock.mockImplementationOnce(() => new Promise((resolve) => { held.release = () => resolve({}); }));
+    return held;
+  }
+
+  it('makes one setVirtualBackground when a second push of the card arrives mid-flight', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    const { initializeZoomSdk, applyOverlay } = await loadModule();
+    await initializeZoomSdk();
+
+    const held = holdNext(sdkMock.setVirtualBackground);
+    const first = applyOverlay(card('green'));
+    await vi.waitFor(() => expect(held.release).toBeTypeOf('function'));
+    const second = applyOverlay(card('green'));
+    held.release();
+    await Promise.all([first, second]);
+
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs both pushes when a readout op is queued between them', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    const { initializeZoomSdk, applyOverlay, setOverlayTimeLabel, resetClubBadgePlacement } = await loadModule();
+    await initializeZoomSdk();
+    setOverlayTimeLabel('00:05');
+    await applyOverlay(card('green'));
+    const readoutPushes = sdkMock.setVirtualForeground.mock.calls.length;
+
+    const held = holdNext(sdkMock.setVirtualBackground);
+    const first = applyOverlay(card('green'));
+    await vi.waitFor(() => expect(held.release).toBeTypeOf('function'));
+    // A repaint of the readout layer that changes nothing the push draws: only
+    // the queue position says the two pushes are no longer the same push.
+    resetClubBadgePlacement();
+    const second = applyOverlay(card('green'));
+    expect(second).not.toBe(first);
+    held.release();
+    await Promise.all([first, second]);
+
+    // Something else was queued in between, so this is a push of its own:
+    // camera mode still never trusts a record of what is on screen.
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(3);
+    expect(sdkMock.setVirtualForeground.mock.calls.length).toBe(readoutPushes);
+  });
+
+  it('pushes again once the earlier push has settled', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    const { initializeZoomSdk, applyOverlay } = await loadModule();
+    await initializeZoomSdk();
+
+    await applyOverlay(card('green'));
+    await applyOverlay(card('green'));
+
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(2);
+  });
+
+  it('never swallows a Timer Only readout tick behind the frame still being pushed', async () => {
+    // Card mode's readout repaints through applyOverlay with the same card, so
+    // joining a running push whose frame carries the previous second would
+    // drop a second from the readout.
+    const { operations } = stubCanvas();
+    const { initializeZoomSdk, applyOverlay, setOverlayTimeLabel } = await loadModule();
+    await initializeZoomSdk();
+    setOverlayTimeLabel('00:05');
+    await applyOverlay(card('green'));
+
+    const held = holdNext(sdkMock.setVideoFilter);
+    setOverlayTimeLabel('00:06');
+    await vi.waitFor(() => expect(held.release).toBeTypeOf('function'));
+    setOverlayTimeLabel('00:07');
+    held.release();
+    await vi.waitFor(() => expect(sdkMock.setVideoFilter).toHaveBeenCalledTimes(3));
+    await drain();
+
+    expect(renderedLabels(operations)).toEqual(['00:05', '00:06', '00:07']);
+  });
+
+  describe('across a whole speech', () => {
+    const CLUB = {
+      clubToken: 'club-token',
+      ver: 2,
+      club: { id: 'club-1', name: 'Downtown Speakers' },
+      kit: {
+        name: 'Downtown Speakers',
+        logoUrl: null,
+        primaryColor: '#772432',
+        showOnCards: true,
+        showOnReports: true,
+      },
+      badge: { x: 0.8, y: 0.12, scale: 0.12 },
+      entitled: true,
+      plan: 'pro',
+      lastRefreshAt: Date.now(),
+    };
+
+    afterEach(async () => {
+      // The shared package memoizes the club across loadModule().
+      localStorage.clear();
+      (await import('@toastmaster-timer/shared')).resetClubForTests();
+    });
+
+    // The saved-background guardrail. The Zoom client saves every image handed
+    // to setVirtualBackground to the user's disk as a custom background, so a
+    // speech must hand it each of the four fixed cards at most once per color
+    // change, and nothing at all on a readout tick, a drag or a badge change.
+    it('pushes the background once per color, and only the four card files', async () => {
+      stubCanvas();
+      saveOverlayMode('camera');
+      localStorage.setItem('toastmaster_club', JSON.stringify(CLUB));
+      const mod = await loadModule();
+      (await import('@toastmaster-timer/shared')).resetClubForTests();
+      await mod.initializeZoomSdk();
+
+      const label = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      const backgroundCalls = () => sdkMock.setVirtualBackground.mock.calls.length;
+
+      /**
+       * A status change as the app makes it: the tick pushes the label and the
+       * color in one frame, its push starts at once, and the Live tab's effect
+       * pushes the same color again while it is still in flight.
+       */
+      async function colorChange(color, seconds) {
+        const held = holdNext(sdkMock.setVirtualBackground);
+        mod.setOverlayTimeLabel(label(seconds));
+        const tickPush = mod.applyOverlay(card(color), { trigger: 'threshold', status: color });
+        await vi.waitFor(() => expect(held.release).toBeTypeOf('function'));
+        const liveTabPush = mod.applyOverlay(card(color));
+        held.release();
+        await Promise.all([tickPush, liveTabPush]);
+      }
+
+      /** Readout ticks, once a second; none may touch the background. */
+      async function tickThrough(from, to) {
+        const before = backgroundCalls();
+        for (let s = from; s <= to; s += 1) {
+          mod.setOverlayTimeLabel(label(s));
+          await drain();
+        }
+        expect(backgroundCalls()).toBe(before);
+      }
+
+      // START: the tick's own push of blue, and the Live tab's.
+      await colorChange('blue', 0);
+      await tickThrough(1, 29);
+      await colorChange('green', 30);
+      await tickThrough(31, 37);
+
+      // Mid-speech, the organizer drags and resizes the readout and moves the
+      // badge: each repaints the foreground layer, never the background.
+      const beforeEdits = backgroundCalls();
+      const foregroundBeforeEdits = sdkMock.setVirtualForeground.mock.calls.length;
+      mod.setOverlayTimePosition({ x: 0.7, y: 0.75 });
+      await drain();
+      mod.setOverlayTimeScale(0.25);
+      await drain();
+      mod.setClubBadgePlacement({ x: 0.2, y: 0.85 });
+      await drain();
+      expect(backgroundCalls()).toBe(beforeEdits);
+      expect(sdkMock.setVirtualForeground.mock.calls.length).toBe(foregroundBeforeEdits + 3);
+
+      await tickThrough(38, 44);
+      await colorChange('yellow', 45);
+      await tickThrough(46, 59);
+      await colorChange('red', 60);
+      await tickThrough(61, 65);
+
+      expect(sdkMock.setVirtualBackground.mock.calls).toEqual(
+        ['blue', 'green', 'yellow', 'red'].map((color) => [{ fileUrl: card(color) }])
+      );
+      for (const [options] of sdkMock.setVirtualBackground.mock.calls) {
+        expect(CARDS).toContain(options.fileUrl);
+        expect(options).not.toHaveProperty('imageData');
+      }
+      // The readout really did tick on the foreground layer all along.
+      expect(sdkMock.setVirtualForeground.mock.calls.length).toBeGreaterThan(60);
+      for (const [options] of sdkMock.setVirtualForeground.mock.calls) {
+        expect(options.persistence).toBe('meeting');
+      }
+    });
   });
 });

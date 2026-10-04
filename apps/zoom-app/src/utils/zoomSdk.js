@@ -1636,13 +1636,15 @@ let runningKind = null;
 // analytics dependency of its own; main.jsx wires it to trackEvent.
 let overlayTimingReporter = null;
 
-// The threshold color change whose event has not been sent yet:
-//   { url, meta, enqueuedAt, busyWith }
-// Held outside the op that carried it because that op can be superseded before
-// it starts — on a slow machine the tick's apply is still waiting when the Live
-// tab pushes the same card again, and the newer push is the one that runs. That
-// push then reports the threshold, timed from when it was first noticed.
-let owedThresholdReport = null;
+// The most recently enqueued apply, until it settles:
+//   { url, requestId, promise, started, inputs, report }
+// A second apply of the same card with nothing queued since joins it instead of
+// pushing the card again (see applyOverlay). report is the threshold color
+// change this apply delivers, if any: { meta, enqueuedAt, busyWith }. It lives
+// here rather than in the op so that a push which joins later — or a newer push
+// of the same card that supersedes this one before it starts — can still hand
+// its threshold to whichever op actually reaches the video.
+let tailApply = null;
 
 // How long each per-second readout push took (render + bridge + Zoom's reply),
 // in ms, since the last card_color_applied. Bounded so a long stretch with no
@@ -2943,6 +2945,12 @@ function enqueueOverlayOp(op, { supersedable = true, kind = 'color' } = {}) {
     calls: [],
     lastReplyAt: null,
   };
+  // An apply still waiting for its turn can never start now: this op is newer.
+  // When this op takes the video somewhere else, the threshold that apply was
+  // carrying never reaches the video, so it has nothing to report.
+  if ((kind === 'removal' || kind === 'own_background') && tailApply && !tailApply.started) {
+    tailApply.report = null;
+  }
   const run = () => {
     if (supersedable && requestId !== overlayRequestId) {
       log('Skipping overlay request superseded by a newer one', 'info');
@@ -2950,9 +2958,6 @@ function enqueueOverlayOp(op, { supersedable = true, kind = 'color' } = {}) {
     }
     timing.startedAt = now();
     runningKind = kind;
-    // A threshold apply that a removal queued after it overtook never reached
-    // the video, so it has nothing to report.
-    if (kind === 'removal' || kind === 'own_background') dropOwedThresholdReport(requestId);
     const settle = () => {
       runningKind = null;
     };
@@ -3025,28 +3030,6 @@ function recordReadoutPush(durationMs) {
   if (readoutPushDurations.length > READOUT_SAMPLE_LIMIT) readoutPushDurations.shift();
 }
 
-/** Forget a threshold report that a removal queued after it overtook. */
-function dropOwedThresholdReport(requestId) {
-  if (owedThresholdReport && requestId > owedThresholdReport.requestId) owedThresholdReport = null;
-}
-
-/**
- * Take the owed threshold report if this apply is the one that delivers it:
- * the same card, queued no earlier than the threshold apply itself. An apply of
- * a different card that runs later means that threshold never reached the
- * video, so the report is dropped rather than left to attach to a later push.
- *
- * @param {string} imageUrl
- * @param {number} requestId - The running apply's queue id
- * @returns {Object|null}
- */
-function claimThresholdReport(imageUrl, requestId) {
-  const owed = owedThresholdReport;
-  if (!owed || requestId < owed.requestId) return null;
-  owedThresholdReport = null;
-  return owed.url === imageUrl ? owed : null;
-}
-
 /** Whole milliseconds, or null for anything that was never measured. */
 function wholeMs(value) {
   return Number.isFinite(value) ? Math.round(value) : null;
@@ -3092,12 +3075,14 @@ function reportThresholdColor(report, timing) {
     overlay_mode: currentOverlayMode,
     pipeline: timing.pipeline,
     detect_lag_ms: wholeMs(report.meta.detectLagMs),
-    queue_wait_ms: wholeMs(timing.startedAt - report.enqueuedAt),
+    // Zero when the threshold joined a push of the same card that had already
+    // started: it waited for nothing.
+    queue_wait_ms: wholeMs(Math.max(0, timing.startedAt - report.enqueuedAt)),
     busy_with: report.busyWith,
     encode_ms: wholeMs(encodeTotal),
     zoom_reply_ms: wholeMs(replyTotal),
     ...perCall,
-    total_ms: wholeMs((timing.lastReplyAt ?? now()) - report.enqueuedAt),
+    total_ms: wholeMs(Math.max(0, (timing.lastReplyAt ?? now()) - report.enqueuedAt)),
     readout_visible: overlayTimeVisible,
     frame_width: frame?.width ?? null,
     frame_height: frame?.height ?? null,
@@ -3636,9 +3621,19 @@ async function removeOverlayInternal(pipelines, label) {
 /**
  * Apply video filter overlay using Zoom SDK. Queued behind any overlay call
  * already in flight, and dropped if a newer overlay call supersedes it.
+ *
+ * A second push of the same card with nothing queued since joins the first
+ * rather than running again: the tick and the Live tab both push each new
+ * color, and in camera mode the Live tab's push used to land behind the tick's
+ * already-running one as a whole second setVirtualBackground. Joining only
+ * ever removes a push. Any op queued in between — a readout tick, a removal, a
+ * mode switch — makes the next apply queue as usual.
+ *
  * A threshold color change from the timer tick passes meta, and is the only
  * kind of apply that reports card_color_applied once it settles. Every other
- * caller passes nothing.
+ * caller passes nothing. The report rides whichever op actually delivers that
+ * card, so it goes out exactly once whether this call queued, joined, or was
+ * superseded by a later push of the same card.
  *
  * @param {string} imageUrl - URL of the image to use as overlay
  * @param {{trigger: 'threshold', status: string, detectLagMs: (number|null),
@@ -3646,20 +3641,98 @@ async function removeOverlayInternal(pipelines, label) {
  * @returns {Promise<void>}
  */
 export function applyOverlay(imageUrl, meta) {
-  const enqueuedAt = now();
-  const busyWith = runningKind ?? 'none';
-  const queued = enqueueOverlayOp(async (timing) => {
-    const report = claimThresholdReport(imageUrl, timing.requestId);
+  const report =
+    meta?.trigger === 'threshold'
+      ? { meta, enqueuedAt: now(), busyWith: runningKind ?? 'none' }
+      : null;
+
+  if (canJoinTailApply(imageUrl)) {
+    // Same push, same outcome. The first threshold to ask is the one reported.
+    if (report && !tailApply.report) tailApply.report = report;
+    return tailApply.promise;
+  }
+
+  // An apply still waiting for its turn is superseded by this one and will
+  // never start. If it carried a threshold for this same card, this push is
+  // what delivers it; for any other card, that color never reaches the video.
+  const previous = tailApply;
+  let carried = null;
+  if (previous && !previous.started) {
+    if (previous.url === imageUrl) carried = previous.report;
+    previous.report = null;
+  }
+
+  const apply = {
+    url: imageUrl,
+    requestId: 0,
+    promise: null,
+    started: false,
+    inputs: null,
+    report: carried ?? report,
+  };
+  apply.promise = enqueueOverlayOp(async (timing) => {
+    apply.started = true;
+    apply.inputs = applyInputs();
     try {
       await applyOverlayInternal(imageUrl, timing);
     } finally {
-      if (report) reportThresholdColor(report, timing);
+      if (tailApply === apply) tailApply = null;
+      const delivered = apply.report;
+      apply.report = null;
+      if (delivered) reportThresholdColor(delivered, timing);
     }
   }, { kind: 'color' });
-  if (meta?.trigger === 'threshold') {
-    owedThresholdReport = { url: imageUrl, meta, enqueuedAt, busyWith, requestId: overlayRequestId };
+  apply.requestId = overlayRequestId;
+  tailApply = apply;
+  return apply.promise;
+}
+
+/**
+ * Everything besides the card itself that decides what an apply pushes: the
+ * mode, the readout and where it sits, the badge, and the camera size the
+ * frames are rendered for.
+ */
+function applyInputs() {
+  return {
+    mode: currentOverlayMode,
+    label: effectiveTimeLabel(),
+    position: overlayTimePosition,
+    scale: overlayTimeScale,
+    badge: clubBadgeState(),
+    camera: cameraResolution,
+  };
+}
+
+/**
+ * Whether a push of imageUrl right now would be the same push as the last
+ * apply queued: same card, nothing queued since, and not yet settled.
+ *
+ * A queued apply reads every input when its turn comes, so joining it is
+ * always safe. A running one may already have rendered its frame, so it is
+ * joined only if nothing it draws has changed since it started — otherwise a
+ * Timer Only readout tick, or a camera-size change, would be swallowed by a
+ * push of the old frame.
+ *
+ * @param {string} imageUrl
+ * @returns {boolean}
+ */
+function canJoinTailApply(imageUrl) {
+  if (!tailApply || tailApply.url !== imageUrl || tailApply.requestId !== overlayRequestId) {
+    return false;
   }
-  return queued;
+  if (!tailApply.started) return true;
+  const was = tailApply.inputs;
+  const is = applyInputs();
+  return (
+    was.mode === is.mode &&
+    was.label === is.label &&
+    was.position.x === is.position.x &&
+    was.position.y === is.position.y &&
+    was.scale === is.scale &&
+    badgeUnchanged(was.badge, is.badge) &&
+    (was.camera?.width ?? null) === (is.camera?.width ?? null) &&
+    (was.camera?.height ?? null) === (is.camera?.height ?? null)
+  );
 }
 
 /**
@@ -3677,8 +3750,12 @@ export function applyOverlay(imageUrl, meta) {
  * because a video filter ships megabytes of ImageData, and the record is dropped
  * there too whenever the app comes back to the front.
  *
- * Two call sites pushing the same color at once are collapsed by the overlay
- * queue, which drops superseded requests, so that is not this function's job.
+ * Two call sites pushing the same color for one change are collapsed before
+ * this is ever asked, so that is not this function's job either: applyOverlay
+ * joins a second push of the same card onto the first while it is still queued
+ * or running, and the queue drops any push a newer request superseded. That is
+ * what keeps the Live tab's follow-up push from costing camera mode a second
+ * setVirtualBackground, with no record of what is on screen to trust.
  *
  * @param {string} imageUrl
  * @returns {boolean}
