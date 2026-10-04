@@ -3,6 +3,9 @@ import { verifySessionToken, readBearerToken, mintSessionToken } from './session
 import { verifyClubToken, readClubHeader } from './club-token.js';
 import { json, notFound, notConfigured, methodNotAllowed } from './http.js';
 import { flagEnabled } from './flags.js';
+// contact.js imports the Zoom round trips from here; the cycle is safe because
+// neither module touches the other's exports until a request is handled.
+import { saveZoomContact } from './contact.js';
 import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
 
 /**
@@ -406,6 +409,12 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
     const { me } = profile;
     const uid = typeof me?.id === 'string' && me.id ? me.id : null;
     if (!uid) return failed('profile');
+
+    // Keep the email and name Zoom just told us (worker/contact.js). Awaited
+    // so the result is settled before the redirect, but best-effort: a KV
+    // hiccup must never cost the user their sign-in.
+    await saveZoomContact(env, uid, me, now).catch((error) =>
+      console.error('Failed to save Zoom contact for', uid, error?.message || error));
 
     // The Zoom access/refresh tokens are dropped here on purpose: nothing calls
     // Zoom on the user's behalf later, and not storing them is less to protect.

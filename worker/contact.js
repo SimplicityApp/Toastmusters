@@ -15,9 +15,12 @@ import { isEmailish, normalizeEmail } from './email.js';
  * `wrangler kv`.
  *
  * Every door that sees a Zoom `users/me` answer saves through
- * saveZoomContact, so the merge rule lives in exactly one place. This module
- * owns the in-client door, POST /api/zoom/contact: the Zoom app runs
- * zoomSdk.authorize() with PKCE and sends us the code it is handed.
+ * saveZoomContact, so the merge rule lives in exactly one place. Three doors:
+ *  - in-client, POST /api/zoom/contact (handleZoomContact): the Zoom app runs
+ *    zoomSdk.authorize() with PKCE and sends us the code it is handed;
+ *  - browser install or re-add, /oauth/redirect?code with no state
+ *    (captureInstallContact), in the background;
+ *  - web sign-in, the callback in auth.js, before the session is minted.
  *
  * In PROFILES by name, like profile.js and user-data.js: this is the user's
  * own data, not billing, so it does not move with a future ENTITLEMENTS
@@ -201,4 +204,47 @@ export async function handleZoomContact(request, env, { fetchImpl = fetch, now =
     console.error('Failed to save Zoom contact for', session.uid, error?.message || error);
     return json({ error: 'storage' }, 503);
   }
+}
+
+/**
+ * /oauth/redirect?code=… with no state — the browser install and re-add door.
+ *
+ * The Marketplace "Add" flow (and the stamped /add-to-zoom link) lands on the
+ * SPA's install-success page with Zoom's one-time code, which nothing else
+ * spends. index.js hands it here in ctx.waitUntil, so the page is served
+ * exactly as fast as before, and this spends the code only to learn who
+ * installed: no session is minted from it. That is why it needs no state of
+ * ours: a forged or replayed code can at most save its own owner's details
+ * under their own uid.
+ *
+ * The redirect URI must be the one the authorize request named, and the code
+ * landed on exactly that URI, so url.origin is right by construction.
+ *
+ * Logs and stops on any failure; nothing here ever reaches the user. A reload
+ * re-sends a code already spent, and that exchange fails harmlessly. Before
+ * the user:read:user scope is granted it is users/me that fails. Network
+ * failures and KV errors reject, for the caller's .catch to log.
+ *
+ * @param {Object} env - PROFILES, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
+ * @param {URL} url - the /oauth/redirect request URL
+ * @param {{fetchImpl?: typeof fetch, now?: number}} [options]
+ * @returns {Promise<{saved: boolean, reason?: string}>}
+ */
+export async function captureInstallContact(env, url, { fetchImpl = fetch, now = Date.now() } = {}) {
+  const code = url.searchParams.get('code');
+  if (!code || code.length > MAX_CODE_LENGTH) return { saved: false, reason: 'no_code' };
+  // Checked before any round trip: nowhere to keep the answer, or no way to
+  // ask, means there is nothing worth spending the code on.
+  if (!env?.PROFILES) return { saved: false, reason: 'unbound' };
+  if (!env.ZOOM_CLIENT_ID || !env.ZOOM_CLIENT_SECRET) return { saved: false, reason: 'not_configured' };
+
+  const tokens = await exchangeZoomCode(env, code, `${url.origin}/oauth/redirect`, { fetchImpl });
+  if (!tokens.ok) return { saved: false, reason: 'exchange' };
+
+  const profile = await fetchZoomMe(tokens.accessToken, fetchImpl);
+  if (!profile.ok) return { saved: false, reason: 'profile' };
+  const uid = typeof profile.me?.id === 'string' && profile.me.id ? profile.me.id : null;
+  if (!uid) return { saved: false, reason: 'profile' };
+
+  return saveZoomContact(env, uid, profile.me, now);
 }

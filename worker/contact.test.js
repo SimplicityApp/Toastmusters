@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { contactKey, saveZoomContact, readContactKnown, handleZoomContact } from './contact.js';
+import { contactKey, saveZoomContact, readContactKnown, handleZoomContact, captureInstallContact } from './contact.js';
 import { mintSessionToken } from './session-token.js';
 
 const SIGNING_KEY = 'test-session-signing-key';
@@ -261,5 +261,96 @@ describe('handleZoomContact', () => {
 
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'storage' });
+  });
+});
+
+describe('captureInstallContact', () => {
+  const installUrl = (query = '?code=install-code') => new URL(`https://www.example.test/oauth/redirect${query}`);
+  const baseEnv = (over = {}) => ({
+    ZOOM_CLIENT_ID: 'client-id',
+    ZOOM_CLIENT_SECRET: 'client-secret',
+    PROFILES: makeKv(),
+    ...over,
+  });
+
+  function zoomFetch({ tokenStatus = 200, meStatus = 200, me = zoomMe() } = {}) {
+    return vi.fn(async (url) => {
+      if (String(url).startsWith('https://zoom.us/oauth/token')) {
+        const ok = tokenStatus === 200;
+        return new Response(JSON.stringify(ok ? { access_token: 'at' } : { reason: 'Invalid authorization code' }), { status: tokenStatus });
+      }
+      if (String(url).startsWith('https://api.zoom.us/v2/users/me')) {
+        return new Response(JSON.stringify(meStatus === 200 ? me : { code: 124 }), { status: meStatus });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+  }
+
+  it('exchanges the code against this origin, reads users/me and saves the contact under its id', async () => {
+    const env = baseEnv();
+    const fetchImpl = zoomFetch();
+
+    expect(await captureInstallContact(env, installUrl(), { fetchImpl, now: NOW })).toEqual({ saved: true });
+
+    const [tokenUrl, init] = fetchImpl.mock.calls[0];
+    expect(tokenUrl).toBe('https://zoom.us/oauth/token');
+    // No PKCE on the browser install flow: no verifier is sent.
+    expect(Object.fromEntries(new URLSearchParams(init.body))).toEqual({
+      grant_type: 'authorization_code',
+      code: 'install-code',
+      redirect_uri: 'https://www.example.test/oauth/redirect',
+    });
+    expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBe('Bearer at');
+    expect(JSON.parse(env.PROFILES.store.get(KEY))).toEqual({
+      email: 'sarah@example.com', firstName: 'Sarah', lastName: 'Smith', updatedAt: NOW,
+    });
+  });
+
+  // A reload re-sends a code Zoom has already spent.
+  it('does nothing when the exchange fails (a reused code)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const env = baseEnv();
+    const fetchImpl = zoomFetch({ tokenStatus: 400 });
+
+    expect(await captureInstallContact(env, installUrl(), { fetchImpl, now: NOW })).toEqual({ saved: false, reason: 'exchange' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(env.PROFILES.store.size).toBe(0);
+  });
+
+  // Before the user:read:user scope is granted, users/me is what fails.
+  it('does nothing when users/me is refused or names nobody', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const fetchImpl of [zoomFetch({ meStatus: 401 }), zoomFetch({ me: { email: 'a@b.co' } })]) {
+      const env = baseEnv();
+      expect(await captureInstallContact(env, installUrl(), { fetchImpl, now: NOW })).toEqual({ saved: false, reason: 'profile' });
+      expect(env.PROFILES.store.size).toBe(0);
+    }
+  });
+
+  it('spends nothing when there is no code, nowhere to store, or no client credentials', async () => {
+    const fetchImpl = zoomFetch();
+    expect(await captureInstallContact(baseEnv(), installUrl('?error=access_denied'), { fetchImpl })).toEqual({ saved: false, reason: 'no_code' });
+    expect(await captureInstallContact(baseEnv(), installUrl(`?code=${'c'.repeat(3000)}`), { fetchImpl })).toEqual({ saved: false, reason: 'no_code' });
+    expect(await captureInstallContact(baseEnv({ PROFILES: undefined }), installUrl(), { fetchImpl })).toEqual({ saved: false, reason: 'unbound' });
+    expect(await captureInstallContact(baseEnv({ ZOOM_CLIENT_SECRET: undefined }), installUrl(), { fetchImpl })).toEqual({ saved: false, reason: 'not_configured' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing on a repeat install with the same details', async () => {
+    const env = baseEnv({ PROFILES: makeKv({ [KEY]: { email: 'sarah@example.com', firstName: 'Sarah', lastName: 'Smith', updatedAt: 1 } }) });
+    expect(await captureInstallContact(env, installUrl(), { fetchImpl: zoomFetch(), now: NOW })).toEqual({ saved: false, reason: 'unchanged' });
+    expect(env.PROFILES.put).not.toHaveBeenCalled();
+  });
+
+  // index.js runs it in ctx.waitUntil with a logging .catch; it must not
+  // swallow a network or KV failure itself.
+  it('rejects on a network failure or a failed write, for the caller to log', async () => {
+    await expect(captureInstallContact(baseEnv(), installUrl(), { fetchImpl: vi.fn(async () => { throw new Error('network down'); }) }))
+      .rejects.toThrow('network down');
+
+    const kv = makeKv();
+    kv.put = async () => { throw new Error('kv down'); };
+    await expect(captureInstallContact(baseEnv({ PROFILES: kv }), installUrl(), { fetchImpl: zoomFetch() }))
+      .rejects.toThrow('kv down');
   });
 });
