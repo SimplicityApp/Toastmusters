@@ -16,6 +16,7 @@ const {
   attempt,
   eligible,
   readCaptureState,
+  snooze,
   writeCaptureState,
 } = await import('./contactCapture');
 
@@ -185,5 +186,109 @@ describe('attempt', () => {
     expect(localStorage.getItem('tt_contact_capture:uid-1')).toBeNull();
     expect(onLateSaved).toHaveBeenCalledTimes(1);
     expect(trackEvent).toHaveBeenCalledWith('contact_capture_saved', { source: 'auto', late: true });
+  });
+});
+
+describe('attempt from the card', () => {
+  const now = () => NOW;
+
+  beforeEach(() => {
+    writeCaptureState('uid-1', { mode: 'card', nextAt: NOW });
+  });
+
+  it('saves and clears the state', async () => {
+    requestZoomAuthorizeCode.mockResolvedValue({ status: 'code', code: 'c', codeVerifier: 'v' });
+    vi.stubGlobal('fetch', respondWith(200));
+
+    expect(await attempt('card', session(), { now })).toBe('saved');
+
+    expect(localStorage.getItem('tt_contact_capture:uid-1')).toBeNull();
+    expect(trackEvent.mock.calls).toEqual([
+      ['contact_capture_prompted', { source: 'card' }],
+      ['contact_capture_saved', { source: 'card' }],
+    ]);
+  });
+
+  // A second "no": the card stays the only way in, and it waits a week.
+  it('keeps card mode and waits seven days after another skip', async () => {
+    requestZoomAuthorizeCode.mockResolvedValue({ status: 'skipped' });
+    vi.stubGlobal('fetch', respondWith(200));
+
+    expect(await attempt('card', session(), { now })).toBe('skipped');
+
+    expect(stored()).toEqual({ mode: 'card', nextAt: NOW + CAPTURE_BACKOFF_MS });
+    expect(trackEvent.mock.calls).toEqual([
+      ['contact_capture_prompted', { source: 'card' }],
+      ['contact_capture_skipped', { source: 'card' }],
+    ]);
+  });
+
+  it('keeps card mode and waits seven days when the save fails', async () => {
+    requestZoomAuthorizeCode.mockResolvedValue({ status: 'code', code: 'c', codeVerifier: 'v' });
+    vi.stubGlobal('fetch', respondWith(502));
+
+    expect(await attempt('card', session(), { now })).toBe('failed');
+
+    expect(stored()).toEqual({ mode: 'card', nextAt: NOW + CAPTURE_BACKOFF_MS });
+  });
+
+  it('changes nothing when the client cannot ask', async () => {
+    requestZoomAuthorizeCode.mockResolvedValue({ status: 'unavailable' });
+
+    expect(await attempt('card', session(), { now })).toBe('unavailable');
+
+    expect(stored()).toEqual({ mode: 'card', nextAt: NOW });
+  });
+
+  it('posts a late code and clears the state on a 200', async () => {
+    let lateCode;
+    requestZoomAuthorizeCode.mockImplementation(async ({ onLateCode }) => {
+      lateCode = onLateCode;
+      return { status: 'skipped' };
+    });
+    vi.stubGlobal('fetch', respondWith(200));
+    const onLateSaved = vi.fn();
+
+    await attempt('card', session(), { now, onLateSaved });
+    await lateCode({ code: 'late', codeVerifier: 'v' });
+
+    expect(localStorage.getItem('tt_contact_capture:uid-1')).toBeNull();
+    expect(onLateSaved).toHaveBeenCalledTimes(1);
+    expect(trackEvent).toHaveBeenCalledWith('contact_capture_saved', { source: 'card', late: true });
+  });
+
+  it('leaves the state alone when a late code still fails to save', async () => {
+    let lateCode;
+    requestZoomAuthorizeCode.mockImplementation(async ({ onLateCode }) => {
+      lateCode = onLateCode;
+      return { status: 'skipped' };
+    });
+    vi.stubGlobal('fetch', respondWith(502));
+    const onLateSaved = vi.fn();
+
+    await attempt('card', session(), { now, onLateSaved });
+    await lateCode({ code: 'late', codeVerifier: 'v' });
+
+    expect(stored()).toEqual({ mode: 'card', nextAt: NOW + CAPTURE_BACKOFF_MS });
+    expect(onLateSaved).not.toHaveBeenCalled();
+  });
+});
+
+describe('snooze', () => {
+  it('keeps card mode and waits seven days', () => {
+    writeCaptureState('uid-1', { mode: 'card', nextAt: 0 });
+
+    snooze('uid-1', NOW);
+
+    expect(stored()).toEqual({ mode: 'card', nextAt: NOW + CAPTURE_BACKOFF_MS });
+    expect(eligible(session(), true, NOW + CAPTURE_BACKOFF_MS - 1)).toBe(false);
+    expect(eligible(session(), true, NOW + CAPTURE_BACKOFF_MS)).toBe(true);
+    expect(trackEvent).toHaveBeenCalledWith('contact_capture_dismissed', { source: 'card' });
+  });
+
+  it('does nothing without a uid', () => {
+    snooze(null, NOW);
+    expect(localStorage.length).toBe(0);
+    expect(trackEvent).not.toHaveBeenCalled();
   });
 });

@@ -115,11 +115,24 @@ export async function postContactCode(token, { code, codeVerifier }) {
 }
 
 /**
+ * "Not now" on the card: keep the user in card mode and stay away for a week.
+ *
+ * @param {string} uid
+ * @param {number} [now]
+ */
+export function snooze(uid, now = Date.now()) {
+  if (!uid) return;
+  trackEvent('contact_capture_dismissed', { source: 'card' });
+  writeCaptureState(uid, { mode: 'card', nextAt: now + CAPTURE_BACKOFF_MS });
+}
+
+/**
  * One ask: Zoom's authorize(), then the POST.
  *
  *   'unavailable' — the client cannot ask; the state is left alone.
  *   'skipped'     — the user skipped Zoom's screen; from now on they get the
- *                   card instead, starting at the next idle moment.
+ *                   card instead. A skipped automatic ask brings the card at
+ *                   the next idle moment; a skipped card waits a week.
  *   'saved'       — the Worker saved the contact; the state is cleared.
  *   'failed'      — a code came back but the save did not; wait a week.
  *
@@ -150,7 +163,10 @@ export async function attempt(source, session, { now = Date.now, onLateSaved } =
 
   if (result.status === 'skipped') {
     trackEvent('contact_capture_skipped', { source });
-    writeCaptureState(uid, { mode: 'card', nextAt: now() });
+    // Skipping Zoom's screen moves the user to the card for good. Skipping it
+    // again from the card is a second "no", so the card itself waits a week.
+    const nextAt = source === 'card' ? now() + CAPTURE_BACKOFF_MS : now();
+    writeCaptureState(uid, { mode: 'card', nextAt });
     return 'skipped';
   }
 

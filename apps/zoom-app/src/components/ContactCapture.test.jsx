@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom';
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import ContactCapture, { SHOW_DELAY_MS } from './ContactCapture';
 import { useTimerTick } from '../context/TimerContext';
 import { useFlag } from '../hooks/useFlag';
 import { resolveZoomIdentity } from '../utils/zoomIdentity';
-import { attempt, writeCaptureState } from '../utils/contactCapture';
+import { CAPTURE_BACKOFF_MS, attempt, readCaptureState, writeCaptureState } from '../utils/contactCapture';
+import { trackEvent } from '../utils/posthog';
 import { isApiAvailable } from '../utils/zoomSdk';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
@@ -37,7 +38,8 @@ async function renderCapture() {
   return utils;
 }
 
-const advance = (ms) => act(() => { vi.advanceTimersByTime(ms); });
+// Async so the promise an elapsed timer starts (attempt) settles inside act.
+const advance = (ms) => act(async () => { vi.advanceTimersByTime(ms); });
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -69,7 +71,7 @@ describe('ContactCapture', () => {
 
     await advance(1);
     expect(attempt).toHaveBeenCalledTimes(1);
-    expect(attempt).toHaveBeenCalledWith('auto', session());
+    expect(attempt).toHaveBeenCalledWith('auto', session(), { onLateSaved: expect.any(Function) });
   });
 
   // Zoom's consent screen must never land on a live speech.
@@ -127,7 +129,7 @@ describe('ContactCapture', () => {
   });
 
   // A user who skipped Zoom's screen is in card mode; the automatic attempt is
-  // never repeated for them (the card itself arrives in a later phase).
+  // never repeated for them.
   it('does not ask automatically again after a skip', async () => {
     writeCaptureState('uid-1', { mode: 'card', nextAt: 0 });
     await renderCapture();
@@ -144,6 +146,193 @@ describe('ContactCapture', () => {
     useFlag.mockReturnValue({ enabled: true, known: true });
     rerender(<ContactCapture />);
     await advance(SHOW_DELAY_MS);
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ContactCapture card', () => {
+  const card = () => screen.queryByRole('region', { name: /stay in touch/i });
+  const inCardMode = (nextAt = 0) => writeCaptureState('uid-1', { mode: 'card', nextAt });
+
+  it('never shows in auto mode', async () => {
+    attempt.mockResolvedValue('failed');
+    await renderCapture();
+    await advance(SHOW_DELAY_MS * 3);
+    expect(card()).toBeNull();
+  });
+
+  it('shows in card mode once the timer has been idle for the grace period', async () => {
+    inCardMode();
+    await renderCapture();
+
+    await advance(SHOW_DELAY_MS - 1);
+    expect(card()).toBeNull();
+
+    await advance(1);
+    expect(card()).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve in Zoom' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Not now' })).toBeInTheDocument();
+    expect(card()).toHaveTextContent(/opt out of these emails at any time/i);
+  });
+
+  it('shows at the next idle moment after the automatic ask is skipped', async () => {
+    attempt.mockImplementation(async () => {
+      writeCaptureState('uid-1', { mode: 'card', nextAt: Date.now() });
+      return 'skipped';
+    });
+    await renderCapture();
+    await advance(SHOW_DELAY_MS);
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(card()).toBeNull();
+
+    await advance(SHOW_DELAY_MS);
+    expect(card()).toBeInTheDocument();
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  // Never in the way of a speech: down the moment one starts, back after it.
+  it('hides when a speech starts and comes back after the next grace', async () => {
+    inCardMode();
+    const { rerender } = await renderCapture();
+    await advance(SHOW_DELAY_MS);
+    expect(card()).toBeInTheDocument();
+
+    setRunning(true, rerender);
+    expect(card()).toBeNull();
+    await advance(SHOW_DELAY_MS * 2);
+    expect(card()).toBeNull();
+
+    setRunning(false, rerender);
+    await advance(SHOW_DELAY_MS - 1);
+    expect(card()).toBeNull();
+    await advance(1);
+    expect(card()).toBeInTheDocument();
+  });
+
+  it('does not show while a backoff runs or for an ineligible user', async () => {
+    const cases = [
+      () => inCardMode(Date.now() + 60_000),
+      () => {
+        inCardMode();
+        resolveZoomIdentity.mockResolvedValue(session({ contactKnown: true }));
+      },
+      () => {
+        inCardMode();
+        useFlag.mockReturnValue({ enabled: false, known: true });
+      },
+      () => {
+        inCardMode();
+        isApiAvailable.mockReturnValue(false);
+      },
+    ];
+    for (const setUp of cases) {
+      setUp();
+      const { unmount } = await renderCapture();
+      await advance(SHOW_DELAY_MS * 2);
+      expect(card()).toBeNull();
+      unmount();
+      localStorage.clear();
+      resolveZoomIdentity.mockResolvedValue(session());
+      useFlag.mockReturnValue({ enabled: true, known: true });
+      isApiAvailable.mockReturnValue(true);
+    }
+  });
+
+  it('"Not now" snoozes for seven days and keeps the card away on reopen', async () => {
+    inCardMode();
+    const { unmount } = await renderCapture();
+    await advance(SHOW_DELAY_MS);
+
+    const before = Date.now();
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
+
+    expect(card()).toBeNull();
+    expect(readCaptureState('uid-1')).toEqual({ mode: 'card', nextAt: before + CAPTURE_BACKOFF_MS });
+    expect(trackEvent).toHaveBeenCalledWith('contact_capture_dismissed', { source: 'card' });
+    expect(attempt).not.toHaveBeenCalled();
+
+    unmount();
+    await renderCapture();
+    await advance(SHOW_DELAY_MS * 3);
+    expect(card()).toBeNull();
+  });
+
+  it('the close button snoozes like "Not now"', async () => {
+    inCardMode();
+    await renderCapture();
+    await advance(SHOW_DELAY_MS);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(card()).toBeNull();
+    expect(readCaptureState('uid-1').nextAt).toBeGreaterThan(Date.now());
+  });
+
+  it('"Approve in Zoom" runs the card attempt and takes the card down when it is done', async () => {
+    inCardMode();
+    let finish;
+    attempt.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    await renderCapture();
+    await advance(SHOW_DELAY_MS);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve in Zoom' }));
+
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(attempt).toHaveBeenCalledWith('card', session(), { onLateSaved: expect.any(Function) });
+    // Zoom's screen is up: no second ask, no dismissal underneath it.
+    expect(screen.getByRole('button', { name: 'Approve in Zoom' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Not now' })).toBeDisabled();
+
+    await act(async () => { finish('saved'); });
+    expect(card()).toBeNull();
+
+    await advance(SHOW_DELAY_MS * 3);
+    expect(card()).toBeNull();
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays down for the rest of the load after a card attempt is skipped again', async () => {
+    inCardMode();
+    attempt.mockImplementation(async () => {
+      writeCaptureState('uid-1', { mode: 'card', nextAt: Date.now() + CAPTURE_BACKOFF_MS });
+      return 'skipped';
+    });
+    const { rerender } = await renderCapture();
+    await advance(SHOW_DELAY_MS);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Approve in Zoom' }));
+    });
+    expect(card()).toBeNull();
+
+    setRunning(true, rerender);
+    setRunning(false, rerender);
+    await advance(SHOW_DELAY_MS * 3);
+    expect(card()).toBeNull();
+  });
+
+  // A code that lands after Zoom's 2-minute wait is still saved; the card the
+  // skip brought up then has nothing left to ask.
+  it('comes down when a late code is saved', async () => {
+    let onLateSaved;
+    attempt.mockImplementation(async (_source, _session, options) => {
+      onLateSaved = options.onLateSaved;
+      writeCaptureState('uid-1', { mode: 'card', nextAt: Date.now() });
+      return 'skipped';
+    });
+    await renderCapture();
+    await advance(SHOW_DELAY_MS);
+    await advance(SHOW_DELAY_MS);
+    expect(card()).toBeInTheDocument();
+
+    await act(async () => {
+      writeCaptureState('uid-1', null);
+      onLateSaved();
+    });
+
+    expect(card()).toBeNull();
+    await advance(SHOW_DELAY_MS * 3);
+    expect(card()).toBeNull();
     expect(attempt).toHaveBeenCalledTimes(1);
   });
 });
