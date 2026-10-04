@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { entitlementStore, clubKey } from './entitlements.js';
+import { normalizeEmail } from './email.js';
 
 /**
  * Minting a club, and the codes that let a device join one.
@@ -125,15 +126,9 @@ export const clubByCustomerKey = (customerId) => `club-by-customer:${customerId}
 export const CLUB_PENDING_PREFIX = 'club-pending:';
 export const clubPendingKey = (customerId) => `${CLUB_PENDING_PREFIX}${customerId}`;
 
-/**
- * Fold a billing address into the one form we index it under.
- *
- * Case only, and the whole address: the local part of an address is
- * case-sensitive by the letter of the RFC and case-insensitive at every
- * provider anyone actually bills through, and treating `Sarah@` and `sarah@` as
- * two clubs would lock an officer out for capitalising their own name.
- */
-export const normalizeEmail = (email) => String(email ?? '').trim().toLowerCase();
+// Billing addresses are folded by the shared normaliser (worker/email.js).
+// Re-exported so the modules that already import it from here keep working.
+export { normalizeEmail };
 
 /**
  * The club a billing address owns.

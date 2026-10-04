@@ -286,6 +286,74 @@ export async function handleAuthStart(request, url, env, { now = Date.now(), ctx
   return redirect(authorize.toString(), [oauthCookie(nonce)]);
 }
 
+// ---------------------------------------------------------------------------
+// Zoom OAuth round trips (shared by sign-in and the contact capture doors)
+// ---------------------------------------------------------------------------
+
+/**
+ * Spend a Zoom authorization code at the token endpoint.
+ *
+ * Shared by every door that receives a code: the web sign-in callback, and the
+ * contact capture paths in worker/contact.js. They differ only in the
+ * redirect URI Zoom expects back (it must be the one the code was issued for)
+ * and, for the in-client flow, the PKCE verifier.
+ *
+ * A non-2xx answer or a body with no access token is `ok: false`. A network
+ * failure or an unparseable body throws, so each caller keeps its own
+ * reason for it (the sign-in callback reports it as `network`).
+ *
+ * @param {Object} env - ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
+ * @param {string} code
+ * @param {string} redirectUri
+ * @param {{codeVerifier?: string, fetchImpl?: typeof fetch}} [options]
+ * @returns {Promise<{ok: boolean, accessToken: string|null, status: number}>}
+ */
+export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, fetchImpl = fetch } = {}) {
+  const basic = Buffer.from(`${env.ZOOM_CLIENT_ID}:${env.ZOOM_CLIENT_SECRET}`).toString('base64');
+  const form = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+  });
+  if (codeVerifier) form.set('code_verifier', codeVerifier);
+
+  const tokenRes = await fetchImpl(ZOOM_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basic}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: form.toString(),
+  });
+  if (!tokenRes.ok) {
+    console.error('Zoom token exchange failed:', tokenRes.status);
+    return { ok: false, accessToken: null, status: tokenRes.status };
+  }
+  const tokens = await tokenRes.json();
+  const accessToken = typeof tokens?.access_token === 'string' && tokens.access_token ? tokens.access_token : null;
+  return { ok: Boolean(accessToken), accessToken, status: tokenRes.status };
+}
+
+/**
+ * GET /v2/users/me with a freshly exchanged access token.
+ *
+ * Returns the whole body: the caller decides what to keep. A non-2xx answer is
+ * `ok: false`; a network failure or an unparseable body throws.
+ *
+ * @param {string} accessToken
+ * @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<{ok: boolean, me: Object|null, status: number}>}
+ */
+export async function fetchZoomMe(accessToken, fetchImpl = fetch) {
+  const meRes = await fetchImpl(ZOOM_ME_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!meRes.ok) {
+    // 400/401 here almost always means the app lacks the user:read scope.
+    console.error('Zoom users/me failed:', meRes.status);
+    return { ok: false, me: null, status: meRes.status };
+  }
+  return { ok: true, me: await meRes.json(), status: meRes.status };
+}
+
 /**
  * GET /oauth/redirect?code=…&state=… — Zoom sent the browser back.
  *
@@ -330,34 +398,12 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
   if (!env.ZOOM_CLIENT_ID || !env.ZOOM_CLIENT_SECRET) return failed('not_configured');
 
   try {
-    const basic = Buffer.from(`${env.ZOOM_CLIENT_ID}:${env.ZOOM_CLIENT_SECRET}`).toString('base64');
-    const tokenRes = await fetchImpl(ZOOM_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${basic}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: `${origin}/oauth/redirect`,
-      }).toString(),
-    });
-    if (!tokenRes.ok) {
-      console.error('Zoom token exchange failed:', tokenRes.status);
-      return failed('exchange');
-    }
-    const tokens = await tokenRes.json();
-    const accessToken = tokens?.access_token;
-    if (!accessToken) return failed('exchange');
+    const tokens = await exchangeZoomCode(env, code, `${origin}/oauth/redirect`, { fetchImpl });
+    if (!tokens.ok) return failed('exchange');
 
-    const meRes = await fetchImpl(ZOOM_ME_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!meRes.ok) {
-      // 400/401 here almost always means the app lacks the user:read scope.
-      console.error('Zoom users/me failed:', meRes.status);
-      return failed('profile');
-    }
-    const me = await meRes.json();
+    const profile = await fetchZoomMe(tokens.accessToken, fetchImpl);
+    if (!profile.ok) return failed('profile');
+    const { me } = profile;
     const uid = typeof me?.id === 'string' && me.id ? me.id : null;
     if (!uid) return failed('profile');
 

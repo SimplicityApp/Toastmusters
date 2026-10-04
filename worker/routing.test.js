@@ -523,6 +523,32 @@ describe('the Zoom identity endpoint is reachable from every host', () => {
   });
 });
 
+describe('the Zoom contact endpoint', () => {
+  const env = (assets = []) => ({ ...makeEnv(assets), SESSION_SIGNING_KEY: 'k', PROFILES: { get: async () => null, put: async () => {} } });
+
+  it('is routed on every host, ahead of the SPA and the www redirect', async () => {
+    for (const host of ['zoom.timer.simple-tech.app', 'timer.simple-tech.app', 'www.timer.simple-tech.app']) {
+      const res = await worker.fetch(get(`https://${host}/api/zoom/contact`), env(['/zoom/index.html', '/index.html']), ctx);
+      expect(res.status, host).toBe(405);
+      expect(res.headers.get('content-type')).toContain('application/json');
+    }
+  });
+
+  it('answers 401 to a POST without a session', async () => {
+    const res = await worker.fetch(
+      new Request('https://zoom.timer.simple-tech.app/api/zoom/contact', {
+        method: 'POST',
+        headers: { host: 'zoom.timer.simple-tech.app', 'content-type': 'application/json' },
+        body: JSON.stringify({ code: 'c', codeVerifier: 'v'.repeat(64) }),
+      }),
+      env(['/zoom/index.html']),
+      ctx
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+});
+
 describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
   // Sign-in released, unless a case says otherwise.
   const authEnv = (FLAGS_FORCE = '1') => ({

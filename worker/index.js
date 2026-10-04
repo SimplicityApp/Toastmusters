@@ -1,6 +1,7 @@
 import { handleZoomWebhook } from './zoom-webhook.js';
 import { handleStats } from './stats.js';
 import { handleZoomSession } from './session.js';
+import { handleZoomContact } from './contact.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
@@ -137,6 +138,13 @@ export default {
     // reach it without being rewritten into /zoom/*.
     if (pathname === '/api/zoom/session') {
       return handleZoomSession(request, env, ctx);
+    }
+
+    // The Zoom app's in-client authorization code, spent to save the user's
+    // Zoom email and name. Placed with the identity endpoint for the same
+    // reasons: a POST body, and reachable from the zoom.<domain> host.
+    if (pathname === '/api/zoom/contact') {
+      return handleZoomContact(request, env);
     }
 
     // Cross-device settings. Ahead of the redirect for the same body-dropping

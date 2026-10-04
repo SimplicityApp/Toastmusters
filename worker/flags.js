@@ -29,6 +29,11 @@ export const FLAG_FALLBACKS = Object.freeze({
   // sign-in, and the doors into a club (joining, creating, administering).
   // removeBy: 2026-12-31
   pro: false,
+  // The Zoom app asking Zoom for an authorization code (zoomSdk.authorize) so
+  // the Worker can save the user's Zoom email and name (worker/contact.js).
+  // The browser doors save it unflagged.
+  // removeBy: 2027-03-31
+  contact_capture: false,
 });
 
 // The ingestion host, called directly rather than through the browser's

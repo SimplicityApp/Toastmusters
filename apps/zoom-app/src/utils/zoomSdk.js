@@ -94,6 +94,8 @@ export const USED_SDK_APIS = [
   { name: 'getAppContext', capability: 'getAppContext', required: false, purpose: 'Recognising a returning user across meetings and devices' },
   { name: 'promptAuthorize', capability: 'promptAuthorize', required: false, purpose: 'Re-approving the app from inside Zoom' },
   { name: 'onMyUserContextChange', capability: 'onMyUserContextChange', required: false, purpose: 'Noticing the app being re-approved' },
+  { name: 'authorize', capability: 'authorize', required: false, purpose: 'Asking Zoom for approval to email the user updates' },
+  { name: 'onAuthorized', capability: 'onAuthorized', required: false, purpose: 'Receiving the approval code from Zoom' },
   { name: 'shareApp', capability: 'shareApp', required: false, purpose: 'Sharing the stage to the meeting' },
   { name: 'onShareApp', capability: 'onShareApp', required: false, purpose: 'Following Zoom\'s own sharing toolbar' },
   { name: 'onShareScreen', capability: 'onShareScreen', required: false, purpose: 'Noticing Zoom\'s own Stop Share' },
@@ -1818,6 +1820,172 @@ export async function promptZoomAuthorize() {
     log(`promptAuthorize failed: ${error.message || error.name}`, 'warn');
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// In-client OAuth: an authorization code the Worker can spend on users/me
+// ---------------------------------------------------------------------------
+
+/**
+ * How long to wait for Zoom's onAuthorized after authorize() was accepted.
+ * A user who has already approved the app's scopes gets the code silently in
+ * a moment; one shown the consent screen who has not answered by now is
+ * treated as having skipped it.
+ */
+export const AUTHORIZE_CODE_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * The PKCE method for the code challenge. Zoom's in-client OAuth docs say only
+ * 'plain' is supported, while Zoom's own samples use 'S256'. The dev client
+ * settles it: if the Worker's exchange answers 400 with this, switch to 'S256'.
+ */
+export const PKCE_METHOD = 'plain';
+
+// One entry per authorize() in flight, keyed by its state. An entry outlives
+// its timeout so a late code can still be handed over.
+const pendingAuthorizations = new Map();
+let authorizedListenerRegistered = false;
+
+function base64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function randomUrlSafe(byteLength) {
+  const bytes = new Uint8Array(byteLength);
+  globalThis.crypto.getRandomValues(bytes);
+  return base64Url(bytes);
+}
+
+/**
+ * The PKCE code challenge for a verifier. Exported for testing.
+ *
+ * @param {string} verifier
+ * @param {'plain'|'S256'} [method]
+ * @returns {Promise<string>}
+ */
+export async function challengeFor(verifier, method = PKCE_METHOD) {
+  if (method === 'plain') return verifier;
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return base64Url(new Uint8Array(digest));
+}
+
+/**
+ * Zoom's onAuthorized event. Only answers a request this page made: an event
+ * with any other state (another tab, a stale request) is ignored. A declined
+ * consent arrives as `result: false` and counts as a skip. Exported for
+ * testing.
+ *
+ * Never throws — it runs as an SDK event handler with nobody to catch it.
+ */
+export function handleAuthorized(event) {
+  const state = typeof event?.state === 'string' ? event.state : null;
+  const pending = state ? pendingAuthorizations.get(state) : null;
+  if (!pending) {
+    log('Ignoring an onAuthorized event this page did not ask for', 'info');
+    return;
+  }
+  pendingAuthorizations.delete(state);
+  // Logged so the dev-client check can compare it with ZOOM_APP_HOME_URL, the
+  // redirect_uri the Worker exchanges the code with.
+  if (event.redirectUri) log(`onAuthorized redirectUri: ${event.redirectUri}`, 'info');
+  const code = event.result !== false && typeof event.code === 'string' && event.code ? event.code : null;
+  try {
+    pending.deliver(code);
+  } catch (error) {
+    log(`Handling the authorization code failed: ${error.message || error.name}`, 'warn');
+  }
+}
+
+/** Registered once per page, on first use, and left in place. */
+function ensureAuthorizedListener() {
+  if (authorizedListenerRegistered) return true;
+  try {
+    zoomSdk.onAuthorized(handleAuthorized);
+    authorizedListenerRegistered = true;
+    return true;
+  } catch (error) {
+    log(`Failed to subscribe to onAuthorized: ${error.message || error.name}`, 'warn');
+    return false;
+  }
+}
+
+/**
+ * Ask Zoom for an OAuth authorization code from inside the client, for the
+ * Worker to exchange (worker/contact.js).
+ *
+ * zoomSdk.authorize() is silent for a user who has already approved the app's
+ * current scopes, and shows Zoom's consent screen to one who has not. The code
+ * arrives later through onAuthorized, matched by the random state sent here.
+ *
+ *   'unavailable' — the client did not grant authorize/onAuthorized, or this
+ *                   is not Zoom. Nothing was shown.
+ *   'skipped'     — authorize() rejected, the user declined, or no code came
+ *                   within the timeout.
+ *   'code'        — { code, codeVerifier } for POST /api/zoom/contact.
+ *
+ * A code that arrives after the timeout is still handed to `onLateCode`, so a
+ * user who approved slowly is not lost.
+ *
+ * Never throws.
+ *
+ * @param {{timeoutMs?: number, onLateCode?: (r: {code: string, codeVerifier: string}) => void}} [options]
+ * @returns {Promise<{status: 'code'|'skipped'|'unavailable', code?: string, codeVerifier?: string}>}
+ */
+export async function requestZoomAuthorizeCode({ timeoutMs = AUTHORIZE_CODE_TIMEOUT_MS, onLateCode } = {}) {
+  await initializeZoomSdk();
+  if (!sdkAvailable || !zoomSdk || !isApiAvailable('authorize') || !isApiAvailable('onAuthorized')) {
+    log('authorize not granted by this client; not asking Zoom for a code', 'info');
+    return { status: 'unavailable' };
+  }
+  if (!ensureAuthorizedListener()) return { status: 'unavailable' };
+
+  let codeVerifier;
+  let state;
+  let codeChallenge;
+  try {
+    // 48 bytes → 64 characters, inside PKCE's 43–128.
+    codeVerifier = randomUrlSafe(48);
+    state = randomUrlSafe(16);
+    codeChallenge = await challengeFor(codeVerifier);
+  } catch (error) {
+    log(`Could not build a PKCE challenge: ${error.message || error.name}`, 'warn');
+    return { status: 'unavailable' };
+  }
+
+  let finish;
+  const outcome = new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      log('No authorization code from Zoom in time; treating it as skipped', 'info');
+      resolve({ status: 'skipped' });
+    }, timeoutMs);
+    finish = (result) => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+      return true;
+    };
+    pendingAuthorizations.set(state, {
+      deliver(code) {
+        if (finish(code ? { status: 'code', code, codeVerifier } : { status: 'skipped' })) return;
+        if (code && onLateCode) onLateCode({ code, codeVerifier });
+      },
+    });
+  });
+
+  try {
+    await zoomSdk.authorize({ codeChallenge, state });
+    log('Asked Zoom for an authorization code', 'info');
+  } catch (error) {
+    pendingAuthorizations.delete(state);
+    log(`authorize failed: ${error.message || error.name}`, 'warn');
+    finish({ status: 'skipped' });
+  }
+  return outcome;
 }
 
 async function initializeZoomSdkOnce() {
