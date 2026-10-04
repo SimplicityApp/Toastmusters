@@ -223,39 +223,31 @@ describe('/add-to-zoom', () => {
   });
 });
 
-describe('/tabletopics is handed to the Table Topics Worker', () => {
-  const withTableTopics = () => {
-    const env = makeEnv(['/index.html', '/404.html']);
-    env.TABLETOPICS = { fetch: vi.fn(async () => new Response('table topics', { status: 200 })) };
-    return env;
-  };
+describe('/tabletopics is served from this Worker\'s own assets', () => {
+  const env = () => makeEnv(['/index.html', '/404.html', '/tabletopics/', '/tabletopics/404.html', '/tabletopics/today/']);
 
-  it.each(['/tabletopics', '/tabletopics/', '/tabletopics/topics/humor/', '/tabletopics/questions.json'])(
-    'forwards %s untouched',
-    async (path) => {
-      const env = withTableTopics();
-      const res = await worker.fetch(get(`https://www.toastmusters.com${path}`), env, ctx);
+  it.each(['/tabletopics/', '/tabletopics/today/'])('serves %s with the Table Topics CSP', async (path) => {
+    const res = await worker.fetch(get(`https://www.toastmusters.com${path}`), env(), ctx);
 
-      expect(await res.text()).toBe('table topics');
-      expect(env.TABLETOPICS.fetch).toHaveBeenCalledTimes(1);
-      expect(new URL(env.TABLETOPICS.fetch.mock.calls[0][0].url).pathname).toBe(path);
-      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
-    }
-  );
-
-  it('leaves look-alike paths and the Zoom host alone', async () => {
-    const env = withTableTopics();
-    await worker.fetch(get('https://www.toastmusters.com/tabletopics-old'), env, ctx);
-    await worker.fetch(get('https://zoom.timer.simple-tech.app/tabletopics/'), env, ctx);
-
-    expect(env.TABLETOPICS.fetch).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-security-policy')).toContain("script-src 'self' https://e.simple-tech.app");
+    expect(res.headers.get('content-security-policy')).not.toContain("'unsafe-inline' https://e.simple-tech.app");
   });
 
-  it('is a plain 404 when the binding is absent (local dev)', async () => {
-    const env = makeEnv(['/index.html', '/404.html']);
-    const res = await worker.fetch(get('https://www.toastmusters.com/tabletopics/'), env, ctx);
+  it('answers a missing page with its own 404, never the timer shell', async () => {
+    const res = await worker.fetch(get('https://www.toastmusters.com/tabletopics/nope'), env(), ctx);
 
     expect(res.status).toBe(404);
+    expect(res.headers.get('x-asset-path')).toBe('/tabletopics/404.html');
+  });
+
+  it('leaves look-alike paths and the Zoom host alone', async () => {
+    const e = env();
+    const lookalike = await worker.fetch(get('https://www.toastmusters.com/tabletopics-old'), e, ctx);
+    const zoom = await worker.fetch(get('https://zoom.timer.simple-tech.app/tabletopics/'), e, ctx);
+
+    expect(lookalike.headers.get('x-asset-path')).toBe('/404.html');
+    expect(zoom.headers.get('content-security-policy')).toContain('zoom');
   });
 });
 

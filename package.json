@@ -11,11 +11,11 @@
     "install:zoom": "npm install --prefix apps/zoom-app",
     "install:web": "npm install --prefix apps/web",
     "dev": "npm run dev --prefix apps/zoom-app",
-    "build": "npm run sitemap && npm run build:web && npm run build --prefix apps/zoom-app && npm run combine:dist",
+    "build": "npm run sitemap && npm run build:web && npm run build --prefix apps/zoom-app && npm run build:tabletopics && npm run combine:dist",
     "build:web": "npm run build --prefix apps/web",
     "sitemap": "node scripts/generate-sitemap.mjs",
     "build:zoom-standalone": "VITE_BASE_PATH=/ npm run build --prefix apps/zoom-app",
-    "combine:dist": "rm -rf dist && mkdir -p dist/zoom && cp -r apps/web/dist/. dist/ && cp -r apps/zoom-app/dist/. dist/zoom/",
+    "combine:dist": "rm -rf dist && mkdir -p dist/zoom && cp -r apps/web/dist/. dist/ && cp -r apps/zoom-app/dist/. dist/zoom/ && cp -r apps/table-topics/dist/. dist/",
     "preview": "npm run preview --prefix apps/zoom-app",
     "dev:web": "npm run dev --prefix apps/web",
     "dev:zoom": "npm run dev --prefix apps/zoom-app",
@@ -31,10 +31,7 @@
     "cf:deploy:prod": "npm run build && wrangler deploy",
     "install:tabletopics": "npm install --prefix apps/table-topics",
     "validate:tabletopics": "node apps/table-topics/scripts/validate-questions.mjs",
-    "build:tabletopics": "node apps/table-topics/scripts/build.mjs",
-    "dev:tabletopics": "npm run build:tabletopics && wrangler dev -c apps/table-topics/wrangler.jsonc --port 8789",
-    "cf:deploy:tabletopics:dev": "SITE_ORIGIN=https://www.tabletopics-dev.toastmusters.com/tabletopics npm run build:tabletopics && wrangler deploy -c apps/table-topics/wrangler.jsonc --env dev",
-    "cf:deploy:tabletopics:prod": "npm run build:tabletopics && wrangler deploy -c apps/table-topics/wrangler.jsonc"
+    "build:tabletopics": "node apps/table-topics/scripts/build.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

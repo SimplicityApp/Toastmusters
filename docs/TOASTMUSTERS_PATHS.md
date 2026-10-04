@@ -36,7 +36,7 @@ Four decisions shape it:
 | `www.toastmusters.com/app` | 301 → `/timer/app`, query kept | step 1 |
 | `www.toastmusters.com/add-to-zoom` | 302 → this deployment's Zoom install screen, or the Marketplace listing if it has none (`noindex`, not cached) | step 1 |
 | `www.toastmusters.com/<guide>` | The timer guides (`/toastmasters-timing-chart` etc.), 200 | unchanged |
-| `www.toastmusters.com/tabletopics/…` | Table Topics, via the `TABLETOPICS` service binding | step 1 |
+| `www.toastmusters.com/tabletopics/…` | Table Topics, from the timer Worker's own assets | step 1 |
 | `www.toastmusters.com/zoom/…` | Zoom app shell in a browser (not the Zoom URL) | unchanged |
 | `toastmusters.com/*` | 301 → `www.toastmusters.com/*` | unchanged |
 | `timer.toastmusters.com/*`, `www.timer.toastmusters.com/*` | 301 → `www.toastmusters.com/*` (`/app`, `/web` → `/timer/app`) | step 1 |
@@ -99,17 +99,16 @@ links into the web timer without `data-cta`.
 
 ## Configuration
 
-- **Timer Worker** (`wrangler.jsonc`): `ROOT_ORIGIN = https://www.toastmusters.com`
-  turns on the toastmusters.com subdomain redirects; `services` binds
-  `TABLETOPICS` to `toastmusters-tabletopics`. `WEB_ORIGIN` stays on
+- **Timer Worker** (`wrangler.jsonc`): `ROOT_ORIGIN` (prod
+  `https://www.toastmusters.com`, dev `https://www.timer-dev.toastmusters.com`)
+  turns on the redirects from the old `timer.toastmusters.com` and
+  `tabletopics.toastmusters.com` hosts, which are attached to this Worker as
+  custom domains for that purpose. `WEB_ORIGIN` stays on
   `www.timer.simple-tech.app` for now (sign-in and Stripe returns; see step 2).
-- **Table Topics Worker** (`apps/table-topics/wrangler.jsonc`):
-  `ROOT_ORIGIN = https://www.toastmusters.com` turns on its host redirect. Its
-  build defaults to `SITE_ORIGIN=https://www.toastmusters.com/tabletopics` and
-  writes the whole site under `/tabletopics`.
-- **Dev** sets neither `ROOT_ORIGIN`, because there is no path-based dev host
-  yet. Dev hosts keep serving as before, with Table Topics under
-  `/tabletopics` on `www.tabletopics-dev.toastmusters.com`.
+- **Table Topics build**: defaults to
+  `SITE_ORIGIN=https://www.toastmusters.com/tabletopics` and writes the whole
+  site under `/tabletopics`; `npm run build` copies it into `dist/`. Dev sets
+  `SITE_ORIGIN` as a build variable.
 
 ## Deploying step 1 (order matters)
 
@@ -119,18 +118,13 @@ fallback opens `TIMER_APP_URL` (`https://www.toastmusters.com/timer/app`) with
 `zoomSdk.openUrl`, which only opens allow-listed domains. Check that the
 approved entry covers the `www.` host.
 
-The Table Topics Worker deploys itself from CI on every push to `master` that
-touches it; the timer Worker is deployed by hand. Its new build redirects the
-old host to `www.toastmusters.com/tabletopics`, which only exists once the
-timer Worker with the binding is live. So:
+One Worker serves both, so one deploy ships both and there is no ordering
+to get wrong: the redirects from the old Table Topics host only go live in the
+same deploy that serves `/tabletopics`.
 
-1. Deploy the **timer Worker** (`npm run cf:deploy:prod`). Until the next
-   step, `/tabletopics` on the main site reaches the *old* Table Topics build
-   and 404s; nothing links there yet.
-2. Deploy the **Table Topics Worker** (`npm run cf:deploy:tabletopics:prod`),
-   or merge to `master` and let CI do it. Its smoke test checks the new page
-   and the old host's redirect.
-3. Verify (below), then in Search Console submit
+1. Merge to `dev`, check `www.timer-dev.toastmusters.com/` and `/tabletopics/`,
+   then merge to `master`.
+2. Verify (below), then in Search Console submit
    `https://www.toastmusters.com/sitemap.xml` and
    `https://www.toastmusters.com/tabletopics/sitemap.xml`. Keep the old
    sitemaps submitted for a few weeks so Google recrawls the redirects.

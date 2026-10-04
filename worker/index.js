@@ -6,6 +6,7 @@ import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
 import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
 import { ZOOM_MARKETPLACE_LISTING_URL } from '../packages/shared/appLinks.js';
+import { isLegacyTableTopicsHost, isTableTopicsPath, legacyTableTopicsTarget, serveTableTopics } from './tabletopics.js';
 import { handleBilling } from './billing.js';
 import { handleClub } from './club.js';
 import { handleClubAsset } from './club-assets.js';
@@ -205,6 +206,12 @@ export default {
       return Response.redirect(legacyTimerTarget(url, env.ROOT_ORIGIN), 301);
     }
 
+    // 2b. The old tabletopics.toastmusters.com hosts (and the dev twin) move to
+    //     /tabletopics on the main site, same rule and same reason as above.
+    if (url.protocol === 'https:' && env.ROOT_ORIGIN && isLegacyTableTopicsHost(url.hostname)) {
+      return Response.redirect(legacyTableTopicsTarget(url, env.ROOT_ORIGIN), 301);
+    }
+
     // 2. Canonical host: apex -> www (301). The zoom.<domain> host is a
     //    separate app and is left alone.
     //
@@ -226,16 +233,13 @@ export default {
       });
     }
 
-    // 3a. Table Topics lives at /tabletopics, served by its own Worker over the
-    //     TABLETOPICS service binding. That Worker answers the whole path,
-    //     including its own 404s and security headers, so the response goes
-    //     back untouched. Not on the zoom.<domain> host, which is the Zoom app.
-    if (
-      env.TABLETOPICS &&
-      !host.startsWith('zoom.') &&
-      (pathname === '/tabletopics' || pathname.startsWith('/tabletopics/'))
-    ) {
-      return env.TABLETOPICS.fetch(request);
+    // 3a. Table Topics lives at /tabletopics, in this Worker's own assets (the
+    //     build copies apps/table-topics/dist into dist/). It has its own 404
+    //     page, CSP and cache headers, so it never reaches the timer's SPA
+    //     fallback or security headers below. Not on the zoom.<domain> host,
+    //     which is the Zoom app.
+    if (!host.startsWith('zoom.') && isTableTopicsPath(pathname)) {
+      return serveTableTopics(request, env, url);
     }
 
     // 3b. A shared meeting report. Worker-rendered HTML rather than an SPA
