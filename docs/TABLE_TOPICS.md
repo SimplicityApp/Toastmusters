@@ -1,9 +1,10 @@
 # Table Topics Generator (`apps/table-topics`)
 
 Random Table Topics questions for Toastmasters meetings, served at
-**https://www.toastmusters.com/tabletopics/** by its own Cloudflare Worker
-(`toastmusters-tabletopics`), which the timer Worker reaches over its
-`TABLETOPICS` service binding. First sibling of the timer in the Toastmusters
+**https://www.toastmusters.com/tabletopics/** by the timer Worker itself: the
+build writes the whole site under `/tabletopics`, and `npm run build` copies it
+into the timer's `dist/`, so one Worker and one deploy serve both products
+(`worker/tabletopics.js` adds its 404 page, CSP and cache headers). First sibling of the timer in the Toastmusters
 suite: one path per tool on `www.toastmusters.com`, cross-linked through
 `TOOLS` in `packages/shared/appLinks.js`. The old host,
 `www.tabletopics.toastmusters.com`, 301s every URL to the same page under
@@ -90,10 +91,8 @@ key; a persisted speaker wins over the URL.
 npm run install:tabletopics        # once; links packages/shared
 npm run validate:tabletopics       # content check
 npm run build:tabletopics          # -> apps/table-topics/dist
-npm run dev:tabletopics            # build + wrangler dev on :8789 (launch.json: tabletopics-worker)
+npm run build                      # timer + Zoom app + Table Topics -> dist/ (then `npx wrangler dev`)
 npx vitest run --root apps/table-topics   # app only; root `npm test` also covers it once every app is installed
-npm run cf:deploy:tabletopics:dev  # www.tabletopics-dev.toastmusters.com/tabletopics/ (noindex)
-npm run cf:deploy:tabletopics:prod
 ```
 
 Env for the build: `SITE_ORIGIN` (default `https://www.toastmusters.com/tabletopics`;
@@ -108,16 +107,17 @@ its path becomes the base path every page, asset and link is built under),
   `content/GENERATION_PROMPT.md` (append 3 questions per category, validate,
   test), and opens a PR against `master`. It never merges. Manage it at
   https://claude.ai/code/routines.
-- **Deploy on merge**: `.github/workflows/deploy-tabletopics.yml` runs on push
-  to `master` when `apps/table-topics/**`, `packages/shared/appLinks.js` or
-  `packages/ui/**` change: validate → test → build → `wrangler deploy` →
-  smoke test. Secrets `CLOUDFLARE_API_TOKEN` (Workers Scripts:Edit, Account
-  Settings:Read, Zone DNS:Edit + Workers Routes:Edit on `toastmusters.com`) and
-  `CLOUDFLARE_ACCOUNT_ID`; variables `VITE_PUBLIC_POSTHOG_KEY/HOST`. The timer
-  Worker is never deployed by CI. Since the move to `/tabletopics`, a build
-  that redirects the old host needs the timer Worker's `TABLETOPICS` binding
-  live first: deploy the timer Worker before such a change reaches `master`
-  ([TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md#deploying-step-1-order-matters)).
+- **Deploy on merge**: there is no separate Table Topics Worker or build. The
+  timer Workers' Cloudflare Workers Builds (`toastmaster-timer` on `master`,
+  `toastmaster-timer-dev` on `dev`) build and deploy it with the timer.
+  Workers Builds renames every `wrangler deploy` to the connected Worker, so a
+  second deploy command would overwrite the timer. Settings:
+  - build: `npm run install:web && npm run install:zoom && npm run install:tabletopics && npm run validate:tabletopics && npx vitest run --root apps/table-topics && npm run build`
+  - deploy: `npx wrangler deploy` (prod), `npx wrangler deploy --env dev` (dev)
+  - dev build variable `SITE_ORIGIN=https://www.timer-dev.toastmusters.com/tabletopics`
+    (canonicals on the noindexed dev host); prod leaves it unset and gets
+    `https://www.toastmusters.com/tabletopics`.
+  - `VITE_PUBLIC_POSTHOG_KEY/HOST` are already build variables.
 
 ## Known trade-offs
 

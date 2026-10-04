@@ -26,10 +26,10 @@
   //    toastmusters.com`, which auto-provisions SPF and DKIM; DMARC is not
   //    auto-added and should be set alongside it). Dev needs its own onboarded
   //    domain, since env.dev serves the *-dev hosts.
-  //  - ROOT_ORIGIN: the main site (www.toastmusters.com). The old
-  //    toastmusters.com subdomains 301 there, path for path. Dev leaves it
-  //    unset until it has a path-based host of its own, so its hosts keep
-  //    serving as they are.
+  //  - ROOT_ORIGIN: the main site of this deployment (www.toastmusters.com on
+  //    prod, www.timer-dev.toastmusters.com on dev). The old toastmusters.com
+  //    subdomains (timer.*, tabletopics.*) 301 there, path for path. Table
+  //    Topics itself is served from this Worker's assets under /tabletopics.
   //  - FLAGS_FORCE: short-circuits the release flags (worker/flags.js). "1"
   //    turns every flag on, "0" turns every flag off, anything else asks
   //    PostHog. Production leaves it "" and always asks. Never "1" here: that
@@ -89,12 +89,6 @@
   // is the only one that is throttled. Entropy and throttling both stay because
   // they fail differently: entropy does nothing against a leaked code, and
   // throttling does nothing against a short one.
-  // Table Topics is its own Worker (apps/table-topics). www.toastmusters.com
-  // serves it at /tabletopics by handing those requests over this binding,
-  // so the one host answers for both sites. Bindings are not inherited by
-  // environments; dev repeats it, pointing at the dev Table Topics Worker.
-  "services": [{ "binding": "TABLETOPICS", "service": "toastmusters-tabletopics" }],
-
   // `period` must be 10 or 60; namespace_id is a per-Worker identifier, not an
   // account resource, so nothing has to be created before deploying.
   "unsafe": {
@@ -145,7 +139,11 @@
     // The bare root is parked on this Worker only until the suite landing
     // page exists; it then moves to that project.
     { "pattern": "toastmusters.com", "custom_domain": true },
-    { "pattern": "www.toastmusters.com", "custom_domain": true }
+    { "pattern": "www.toastmusters.com", "custom_domain": true },
+    // Table Topics' old home. It now lives at www.toastmusters.com/tabletopics;
+    // these hosts stay attached to this Worker only to 301 there.
+    { "pattern": "tabletopics.toastmusters.com", "custom_domain": true },
+    { "pattern": "www.tabletopics.toastmusters.com", "custom_domain": true }
   ],
 
   "env": {
@@ -159,7 +157,9 @@
         { "pattern": "zoom.timer-dev.simple-tech.app", "custom_domain": true },
         { "pattern": "timer-dev.toastmusters.com", "custom_domain": true },
         { "pattern": "www.timer-dev.toastmusters.com", "custom_domain": true },
-        { "pattern": "zoom.timer-dev.toastmusters.com", "custom_domain": true }
+        { "pattern": "zoom.timer-dev.toastmusters.com", "custom_domain": true },
+        { "pattern": "tabletopics-dev.toastmusters.com", "custom_domain": true },
+        { "pattern": "www.tabletopics-dev.toastmusters.com", "custom_domain": true }
       ],
       // Bindings are per-environment: the dev Worker needs its own namespace,
       // or staging writes would land in production users' profiles.
@@ -174,7 +174,6 @@
       // or not the send succeeds, so an un-onboarded dev domain shows up only
       // in the Worker log.
       "send_email": [{ "name": "EMAIL" }],
-      "services": [{ "binding": "TABLETOPICS", "service": "toastmusters-tabletopics-dev" }],
       // `unsafe` is not inherited by environments; repeated here so dev throttles too.
       "unsafe": {
         "bindings": [
@@ -191,6 +190,7 @@
       // PostHog round trip.
       "vars": {
         "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
+        "ROOT_ORIGIN": "https://www.timer-dev.toastmusters.com",
         "ENTITLEMENT_ENFORCE": "1",
         "STRIPE_AUTOMATIC_TAX": "0",
         "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com",
