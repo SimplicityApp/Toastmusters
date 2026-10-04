@@ -4080,3 +4080,204 @@ describe("the club's badge", () => {
     expect(sdkMock.setVirtualForeground).not.toHaveBeenCalled();
   });
 });
+
+// Issue #79: on slow machines the card reached the video seconds late, and
+// nothing said where the time went. Each threshold color change reports one
+// event, timed from the moment the tick noticed it to Zoom's last reply.
+describe('card_color_applied', () => {
+  const GREEN = 'https://zoom.example/backgrounds/green.png';
+  const YELLOW = 'https://zoom.example/backgrounds/yellow.png';
+  const thresholdMeta = (status) => ({
+    trigger: 'threshold',
+    status,
+    detectLagMs: 12.4,
+    detectedAt: 1_700_000_000_000,
+  });
+  /** Let the overlay queue drain and the deferred report go out. */
+  const drain = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    stubImage();
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.setVirtualBackground.mockResolvedValue({});
+    sdkMock.setVirtualForeground.mockResolvedValue({});
+    sdkMock.setVideoFilter.mockResolvedValue({ status: 'ok' });
+  });
+
+  /**
+   * A camera-mode speech already showing green, with the next per-second
+   * readout push held in flight — the slow machine's normal state.
+   */
+  async function speechWithReadoutInFlight() {
+    stubCanvas();
+    saveOverlayMode('camera');
+    const reporter = vi.fn();
+    const mod = await loadModule();
+    await mod.initializeZoomSdk();
+    mod.setOverlayTimingReporter(reporter);
+    mod.setOverlayTimeLabel('00:05');
+    await mod.applyOverlay(GREEN);
+
+    let release;
+    sdkMock.setVirtualForeground.mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; })
+    );
+    mod.setOverlayTimeLabel('00:59');
+    await drain();
+    expect(release).toBeTypeOf('function');
+    return { mod, reporter, release: () => release({}) };
+  }
+
+  it('reports what the color change waited behind, and how long each call took', async () => {
+    const { mod, reporter, release } = await speechWithReadoutInFlight();
+
+    // The threshold tick: the label first, then the color, in one frame.
+    mod.setOverlayTimeLabel('01:00');
+    const applied = mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    release();
+    await applied;
+    await drain();
+
+    expect(reporter).toHaveBeenCalledTimes(1);
+    const [name, properties] = reporter.mock.calls[0];
+    expect(name).toBe('card_color_applied');
+    expect(properties).toMatchObject({
+      status: 'yellow',
+      overlay_mode: 'camera',
+      pipeline: 'background_fileurl',
+      detect_lag_ms: 12,
+      busy_with: 'readout',
+      readout_visible: true,
+      // The readout layer is camera-sized: no camera reported, so 720p.
+      frame_width: 1280,
+      frame_height: 720,
+      camera_width: null,
+      camera_height: null,
+      // The held 00:59 push, which finished before the event went out.
+      readout_count: 1,
+      detected_at: 1_700_000_000_000,
+    });
+    for (const key of [
+      'queue_wait_ms', 'encode_ms', 'zoom_reply_ms', 'total_ms',
+      'bg_encode_ms', 'bg_reply_ms', 'fg_encode_ms', 'fg_reply_ms',
+      'readout_ms_p50', 'readout_ms_max',
+    ]) {
+      expect(Number.isInteger(properties[key]), key).toBe(true);
+      expect(properties[key], key).toBeGreaterThanOrEqual(0);
+    }
+    expect(properties.total_ms).toBeGreaterThanOrEqual(properties.queue_wait_ms);
+  });
+
+  it('still reports once when the Live tab push of the same card overtakes the tick', async () => {
+    // On a slow machine the tick's apply is still queued when the Live tab
+    // pushes the same color again; the newer push is the one that runs, and
+    // the threshold must not vanish from the data with the one that did not.
+    const { mod, reporter, release } = await speechWithReadoutInFlight();
+
+    mod.setOverlayTimeLabel('01:00');
+    mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    const liveTabPush = mod.applyOverlay(YELLOW);
+    release();
+    await liveTabPush;
+    await drain();
+
+    expect(reporter).toHaveBeenCalledTimes(1);
+    expect(reporter.mock.calls[0][1]).toMatchObject({ status: 'yellow', busy_with: 'readout' });
+    expect(sdkMock.setVirtualBackground).toHaveBeenLastCalledWith({ fileUrl: YELLOW });
+  });
+
+  it('sends nothing for applies that are not a threshold change', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    const reporter = vi.fn();
+    const { initializeZoomSdk, setOverlayTimingReporter, setOverlayTimeLabel, applyOverlay } = await loadModule();
+    await initializeZoomSdk();
+    setOverlayTimingReporter(reporter);
+
+    // START, a restore, a reset to blue, the Live tab's own push.
+    setOverlayTimeLabel('00:00');
+    await applyOverlay(GREEN);
+    await applyOverlay(YELLOW);
+    await drain();
+
+    expect(reporter).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when a reset overtakes the threshold before it reaches the video', async () => {
+    const { mod, reporter, release } = await speechWithReadoutInFlight();
+    sdkMock.removeVirtualForeground.mockResolvedValue({});
+    sdkMock.removeVirtualBackground.mockResolvedValue({});
+
+    mod.setOverlayTimeLabel('01:00');
+    mod.applyOverlay(YELLOW, thresholdMeta('yellow'));
+    // RESET in the same breath: blue replaces yellow before yellow ever ran.
+    mod.setOverlayTimeLabel(null);
+    const reset = mod.applyOverlay('https://zoom.example/backgrounds/blue.png');
+    release();
+    await reset;
+    await drain();
+
+    expect(reporter).not.toHaveBeenCalled();
+  });
+
+  it('times the baked card in Timer Only', async () => {
+    stubCanvas();
+    const reporter = vi.fn();
+    const { initializeZoomSdk, setOverlayTimingReporter, setOverlayTimeLabel, applyOverlay } = await loadModule();
+    await initializeZoomSdk();
+    setOverlayTimingReporter(reporter);
+
+    setOverlayTimeLabel('01:00');
+    await applyOverlay(YELLOW, thresholdMeta('yellow'));
+    await drain();
+
+    expect(reporter).toHaveBeenCalledTimes(1);
+    const properties = reporter.mock.calls[0][1];
+    expect(properties).toMatchObject({
+      overlay_mode: 'card',
+      pipeline: 'filter',
+      busy_with: 'none',
+      frame_width: 640,
+      frame_height: 360,
+      readout_count: 0,
+      readout_ms_p50: null,
+    });
+    expect(Number.isInteger(properties.filter_encode_ms)).toBe(true);
+    expect(properties).not.toHaveProperty('bg_encode_ms');
+  });
+
+  it('keeps the queue running when the reporter throws', async () => {
+    stubCanvas();
+    saveOverlayMode('camera');
+    const reporter = vi.fn(() => {
+      throw new Error('analytics down');
+    });
+    const { initializeZoomSdk, setOverlayTimingReporter, applyOverlay } = await loadModule();
+    await initializeZoomSdk();
+    setOverlayTimingReporter(reporter);
+
+    await expect(applyOverlay(GREEN, thresholdMeta('green'))).resolves.toBeUndefined();
+    await drain();
+    await applyOverlay(YELLOW, thresholdMeta('yellow'));
+    await drain();
+
+    expect(reporter).toHaveBeenCalledTimes(2);
+    expect(sdkMock.setVirtualBackground).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends nothing without a reporter, and nothing in a stage mode', async () => {
+    stubCanvas();
+    saveOverlayMode('stage');
+    const reporter = vi.fn();
+    const { initializeZoomSdk, setOverlayTimingReporter, applyOverlay } = await loadModule();
+    await initializeZoomSdk();
+    await applyOverlay(GREEN, thresholdMeta('green'));
+
+    // The stage draws the color itself: no delivery to time.
+    setOverlayTimingReporter(reporter);
+    await applyOverlay(YELLOW, thresholdMeta('yellow'));
+    await drain();
+
+    expect(reporter).not.toHaveBeenCalled();
+  });
+});

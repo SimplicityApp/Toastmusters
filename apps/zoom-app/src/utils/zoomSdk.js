@@ -368,7 +368,7 @@ function repaintOverlayFrame() {
   // the background here instead would hand the Zoom client an image to save
   // to the user's disk once a second.
   if (backgroundPipelineActive()) {
-    enqueueOverlayOp(() => syncForegroundReadout());
+    enqueueOverlayOp(() => syncForegroundReadout(), { kind: 'readout' });
     return;
   }
   if (activeOverlay?.url) applyOverlay(activeOverlay.url);
@@ -819,8 +819,12 @@ function markVirtualForegroundApplied(applied) {
  * never take the color signal down with it. Runs inside the overlay queue:
  * applyOverlayInternal and removeOverlayInternal call it from their own
  * queued turns, and repaintOverlayFrame enqueues it directly.
+ *
+ * @param {Object} [timing] - A color op's timing record, which times the push
+ *   as part of that color change. Without one this is a per-second readout
+ *   push, and its duration goes into the next card_color_applied instead.
  */
-async function syncForegroundReadout() {
+async function syncForegroundReadout(timing = null) {
   if (!sdkAvailable || !zoomSdk) return;
 
   // Only the camera pipeline pairs the readout with a foreground layer; the
@@ -876,10 +880,17 @@ async function syncForegroundReadout() {
   }
 
   try {
+    const pushStartedAt = now();
     const frame = renderTimeForeground(color, label, budget, overlayTimePosition, overlayTimeScale, badge);
     // "meeting" persistence: the client takes the layer down itself when the
     // meeting ends, so a closed panel or a crashed app strands nothing.
-    await zoomSdk.setVirtualForeground({ imageData: frame, persistence: 'meeting' });
+    await timedSdkCall(
+      timing,
+      'fg',
+      () => zoomSdk.setVirtualForeground({ imageData: frame, persistence: 'meeting' }),
+      frame
+    );
+    if (!timing) recordReadoutPush(now() - pushStartedAt);
     markVirtualForegroundApplied(true);
     activeForeground = {
       color,
@@ -1221,7 +1232,7 @@ export async function applyOwnBackground() {
         log(`Could not apply the organizer's own background: ${error.message || error.name}`, 'warn');
       }
     },
-    { supersedable: false }
+    { supersedable: false, kind: 'own_background' }
   );
   return outcome;
 }
@@ -1268,7 +1279,7 @@ export async function removeOwnBackground() {
         }
       }
     },
-    { supersedable: false }
+    { supersedable: false, kind: 'own_background' }
   );
   return outcome;
 }
@@ -1614,6 +1625,30 @@ let overlayRequestId = 0;
 
 // Serializes SDK overlay calls; see enqueueOverlayOp.
 let overlayQueue = Promise.resolve();
+
+// The kind of op the queue is running right now ('readout', 'color', 'removal'
+// or 'own_background'), or null while it is idle. Read at enqueue time so a
+// color change can say what it had to wait behind.
+let runningKind = null;
+
+// Where a threshold color change reports how long it took to reach the video
+// (card_color_applied). Injected rather than imported, so this module keeps no
+// analytics dependency of its own; main.jsx wires it to trackEvent.
+let overlayTimingReporter = null;
+
+// The threshold color change whose event has not been sent yet:
+//   { url, meta, enqueuedAt, busyWith }
+// Held outside the op that carried it because that op can be superseded before
+// it starts — on a slow machine the tick's apply is still waiting when the Live
+// tab pushes the same card again, and the newer push is the one that runs. That
+// push then reports the threshold, timed from when it was first noticed.
+let owedThresholdReport = null;
+
+// How long each per-second readout push took (render + bridge + Zoom's reply),
+// in ms, since the last card_color_applied. Bounded so a long stretch with no
+// color change cannot grow it without limit.
+const readoutPushDurations = [];
+const READOUT_SAMPLE_LIMIT = 600;
 
 /**
  * Set log callback for debug panel
@@ -2011,7 +2046,7 @@ export function handleMyMediaChange(event) {
     // for the old camera size — and the foreground is composited 1:1, so a
     // wrong size lands the readout in the wrong place. The sync compares
     // sizes itself and repaints only when they differ.
-    enqueueOverlayOp(() => syncForegroundReadout());
+    enqueueOverlayOp(() => syncForegroundReadout(), { kind: 'readout' });
   }
 }
 
@@ -2886,23 +2921,201 @@ export function isOverlayActive() {
  * superseded it, and the teardown never ran. Per-second count-up pushes make
  * that race routine rather than rare.
  *
- * @param {Function} op - Async operation to run
- * @param {{supersedable?: boolean}} [options] - supersedable false marks a
- *   removal, which newer requests must never skip
+ * Every op is handed a timing record: when it was enqueued, what the queue was
+ * busy with at that moment, and when it started. A threshold color change
+ * reports from it; every other op is free to ignore it.
+ *
+ * @param {Function} op - Async operation to run; receives the timing record
+ * @param {{supersedable?: boolean, kind?: string}} [options] - supersedable
+ *   false marks a removal, which newer requests must never skip. kind is what
+ *   the op is, for what a later color change reports it waited behind:
+ *   'readout', 'color', 'removal' or 'own_background'
  * @returns {Promise<void>}
  */
-function enqueueOverlayOp(op, { supersedable = true } = {}) {
+function enqueueOverlayOp(op, { supersedable = true, kind = 'color' } = {}) {
   const requestId = ++overlayRequestId;
+  const timing = {
+    requestId,
+    enqueuedAt: now(),
+    busyWith: runningKind ?? 'none',
+    startedAt: null,
+    pipeline: null,
+    calls: [],
+    lastReplyAt: null,
+  };
   const run = () => {
     if (supersedable && requestId !== overlayRequestId) {
       log('Skipping overlay request superseded by a newer one', 'info');
       return undefined;
     }
-    return op();
+    timing.startedAt = now();
+    runningKind = kind;
+    // A threshold apply that a removal queued after it overtook never reached
+    // the video, so it has nothing to report.
+    if (kind === 'removal' || kind === 'own_background') dropOwedThresholdReport(requestId);
+    const settle = () => {
+      runningKind = null;
+    };
+    let result;
+    try {
+      result = op(timing);
+    } catch (error) {
+      settle();
+      throw error;
+    }
+    return Promise.resolve(result).finally(settle);
   };
   // Same handler for both outcomes: one failed op must not stall the queue.
   overlayQueue = overlayQueue.then(run, run);
   return overlayQueue;
+}
+
+/**
+ * Route the card_color_applied event somewhere. Same shape as the shared
+ * package's setArchiveReporter: anything that is not a function unsets it.
+ * @param {Function|null} fn - Called as fn(eventName, properties)
+ */
+export function setOverlayTimingReporter(fn) {
+  overlayTimingReporter = typeof fn === 'function' ? fn : null;
+}
+
+/**
+ * Make one SDK call, timing it into an op's timing record.
+ *
+ * encode is the time spent inside the call before it hands back its promise —
+ * where the SDK base64-encodes and JSON.stringifies the pixels on this thread.
+ * reply is the rest, until Zoom answers. Without a record the call just runs.
+ *
+ * @param {Object|null|undefined} timing - The op's timing record
+ * @param {string} name - 'bg', 'fg' or 'filter'; prefixes the event properties
+ * @param {Function} call - Makes the SDK call and returns its promise
+ * @param {ImageData|null} [imageData] - The frame handed over, for its size
+ * @returns {Promise<*>} Whatever the SDK call resolves to
+ */
+async function timedSdkCall(timing, name, call, imageData = null) {
+  if (!timing) return call();
+  const entry = {
+    name,
+    encodeMs: 0,
+    replyMs: 0,
+    width: imageData?.width ?? null,
+    height: imageData?.height ?? null,
+  };
+  timing.calls.push(entry);
+  const startedAt = now();
+  let pending;
+  try {
+    pending = call();
+  } finally {
+    entry.encodeMs = now() - startedAt;
+  }
+  const returnedAt = now();
+  try {
+    return await pending;
+  } finally {
+    const settledAt = now();
+    entry.replyMs = settledAt - returnedAt;
+    timing.lastReplyAt = settledAt;
+  }
+}
+
+/** Remember how long one per-second readout push took, for the next event. */
+function recordReadoutPush(durationMs) {
+  readoutPushDurations.push(durationMs);
+  if (readoutPushDurations.length > READOUT_SAMPLE_LIMIT) readoutPushDurations.shift();
+}
+
+/** Forget a threshold report that a removal queued after it overtook. */
+function dropOwedThresholdReport(requestId) {
+  if (owedThresholdReport && requestId > owedThresholdReport.requestId) owedThresholdReport = null;
+}
+
+/**
+ * Take the owed threshold report if this apply is the one that delivers it:
+ * the same card, queued no earlier than the threshold apply itself. An apply of
+ * a different card that runs later means that threshold never reached the
+ * video, so the report is dropped rather than left to attach to a later push.
+ *
+ * @param {string} imageUrl
+ * @param {number} requestId - The running apply's queue id
+ * @returns {Object|null}
+ */
+function claimThresholdReport(imageUrl, requestId) {
+  const owed = owedThresholdReport;
+  if (!owed || requestId < owed.requestId) return null;
+  owedThresholdReport = null;
+  return owed.url === imageUrl ? owed : null;
+}
+
+/** Whole milliseconds, or null for anything that was never measured. */
+function wholeMs(value) {
+  return Number.isFinite(value) ? Math.round(value) : null;
+}
+
+/**
+ * Send card_color_applied for a threshold color change that has just settled.
+ *
+ * Properties are snapshotted now, but the reporter runs on a later task, so
+ * analytics never runs inside the overlay queue and a reporter that throws can
+ * never reach it. Sends nothing when no SDK call was made — a stage mode, or no
+ * SDK at all — since there is no delivery to time.
+ *
+ * @param {{meta: Object, enqueuedAt: number, busyWith: string}} report
+ * @param {Object} timing - The timing record of the apply that ran
+ */
+function reportThresholdColor(report, timing) {
+  const durations = readoutPushDurations.splice(0);
+  const reporter = overlayTimingReporter;
+  if (!reporter || timing.calls.length === 0) return;
+
+  const perCall = {};
+  let encodeTotal = 0;
+  let replyTotal = 0;
+  for (const call of timing.calls) {
+    perCall[`${call.name}_encode_ms`] = (perCall[`${call.name}_encode_ms`] ?? 0) + call.encodeMs;
+    perCall[`${call.name}_reply_ms`] = (perCall[`${call.name}_reply_ms`] ?? 0) + call.replyMs;
+    encodeTotal += call.encodeMs;
+    replyTotal += call.replyMs;
+  }
+  for (const key of Object.keys(perCall)) perCall[key] = wholeMs(perCall[key]);
+
+  // The frame carrying the readout: the foreground layer in camera mode, the
+  // baked card in Timer Only. A fileUrl background hands over no frame of ours.
+  const frame =
+    timing.calls.find((call) => call.name === 'fg' && call.width) ||
+    timing.calls.find((call) => call.name === 'filter' && call.width) ||
+    null;
+  const sorted = [...durations].sort((a, b) => a - b);
+
+  const properties = {
+    status: report.meta.status ?? null,
+    overlay_mode: currentOverlayMode,
+    pipeline: timing.pipeline,
+    detect_lag_ms: wholeMs(report.meta.detectLagMs),
+    queue_wait_ms: wholeMs(timing.startedAt - report.enqueuedAt),
+    busy_with: report.busyWith,
+    encode_ms: wholeMs(encodeTotal),
+    zoom_reply_ms: wholeMs(replyTotal),
+    ...perCall,
+    total_ms: wholeMs((timing.lastReplyAt ?? now()) - report.enqueuedAt),
+    readout_visible: overlayTimeVisible,
+    frame_width: frame?.width ?? null,
+    frame_height: frame?.height ?? null,
+    camera_width: cameraResolution?.width ?? null,
+    camera_height: cameraResolution?.height ?? null,
+    readout_ms_p50: sorted.length ? wholeMs(sorted[Math.ceil(sorted.length / 2) - 1]) : null,
+    readout_ms_max: sorted.length ? wholeMs(sorted[sorted.length - 1]) : null,
+    readout_count: sorted.length,
+    detected_at: report.meta.detectedAt ?? null,
+  };
+
+  setTimeout(() => {
+    try {
+      reporter('card_color_applied', properties);
+    } catch {
+      // Measurement must never cost the timer anything.
+    }
+  }, 0);
 }
 
 /**
@@ -2934,7 +3147,7 @@ export async function setOverlayMode(mode, currentImageUrl) {
     // its own, and setVirtualBackground replaces without a removal first.
     await enqueueOverlayOp(
       () => removeOverlayInternal(pipelinesForMode(previousMode), previousMode),
-      { supersedable: false }
+      { supersedable: false, kind: 'removal' }
     );
   }
   currentOverlayMode = mode;
@@ -3141,7 +3354,7 @@ export async function clearVideoPipelines() {
     async () => {
       outcome = await clearVideoPipelinesInternal();
     },
-    { supersedable: false }
+    { supersedable: false, kind: 'removal' }
   );
   return outcome;
 }
@@ -3423,11 +3636,30 @@ async function removeOverlayInternal(pipelines, label) {
 /**
  * Apply video filter overlay using Zoom SDK. Queued behind any overlay call
  * already in flight, and dropped if a newer overlay call supersedes it.
+ * A threshold color change from the timer tick passes meta, and is the only
+ * kind of apply that reports card_color_applied once it settles. Every other
+ * caller passes nothing.
+ *
  * @param {string} imageUrl - URL of the image to use as overlay
+ * @param {{trigger: 'threshold', status: string, detectLagMs: (number|null),
+ *   detectedAt: number}} [meta]
  * @returns {Promise<void>}
  */
-export function applyOverlay(imageUrl) {
-  return enqueueOverlayOp(() => applyOverlayInternal(imageUrl));
+export function applyOverlay(imageUrl, meta) {
+  const enqueuedAt = now();
+  const busyWith = runningKind ?? 'none';
+  const queued = enqueueOverlayOp(async (timing) => {
+    const report = claimThresholdReport(imageUrl, timing.requestId);
+    try {
+      await applyOverlayInternal(imageUrl, timing);
+    } finally {
+      if (report) reportThresholdColor(report, timing);
+    }
+  }, { kind: 'color' });
+  if (meta?.trigger === 'threshold') {
+    owedThresholdReport = { url: imageUrl, meta, enqueuedAt, busyWith, requestId: overlayRequestId };
+  }
+  return queued;
 }
 
 /**
@@ -3479,8 +3711,10 @@ function isAlreadyShowing(imageUrl) {
 
 /**
  * @param {string} imageUrl - URL of the image to use as overlay
+ * @param {Object} timing - The op's timing record; each SDK call is timed into
+ *   it, and the pipeline taken is written to it, for card_color_applied
  */
-async function applyOverlayInternal(imageUrl) {
+async function applyOverlayInternal(imageUrl, timing) {
   // Ensure SDK is initialized before attempting to set filter
   await initializeZoomSdk();
 
@@ -3561,7 +3795,8 @@ async function applyOverlayInternal(imageUrl) {
           // re-pushes, because the organizer can wipe the layer from Zoom's own
           // UI without a word to the app.
           activeForeground = null;
-          await syncForegroundReadout();
+          timing.pipeline = 'band';
+          await syncForegroundReadout(timing);
           log(`Applied the camera band in ${cameraBandColor || 'no color'}`, 'info');
           lastError = null;
           return;
@@ -3583,13 +3818,16 @@ async function applyOverlayInternal(imageUrl) {
         if (/^https?:/i.test(imageUrl)) {
           try {
             log(`Applying virtual background by fileUrl: ${imageUrl}`, 'info');
-            const result = await zoomSdk.setVirtualBackground({ fileUrl: imageUrl });
+            timing.pipeline = 'background_fileurl';
+            const result = await timedSdkCall(timing, 'bg', () =>
+              zoomSdk.setVirtualBackground({ fileUrl: imageUrl })
+            );
             log(`Successfully applied virtual background by fileUrl. Result: ${JSON.stringify(result)}`, 'info');
             // No pixels pushed, so no budget to go stale.
             activeOverlay = { url: imageUrl, mode: currentOverlayMode, budget: null, pipeline: 'background' };
             markVirtualBackgroundApplied(true);
             lastError = null;
-            await syncForegroundReadout();
+            await syncForegroundReadout(timing);
             return;
           } catch (fileUrlError) {
             // The native client may not be able to reach the URL (restricted
@@ -3602,12 +3840,18 @@ async function applyOverlayInternal(imageUrl) {
         const budget = getOverlayBudget();
         const imageData = await loadImageAsImageData(imageUrl);
         log(`Loaded ImageData: ${imageData.width}x${imageData.height}`, 'info');
-        const result = await zoomSdk.setVirtualBackground({ imageData });
+        timing.pipeline = 'background_imagedata';
+        const result = await timedSdkCall(
+          timing,
+          'bg',
+          () => zoomSdk.setVirtualBackground({ imageData }),
+          imageData
+        );
         log(`Successfully applied virtual background. Result: ${JSON.stringify(result)}`, 'info');
         activeOverlay = { url: imageUrl, mode: currentOverlayMode, budget, pipeline: 'background' };
         markVirtualBackgroundApplied(true);
         lastError = null;
-        await syncForegroundReadout();
+        await syncForegroundReadout(timing);
         return;
       } else {
         // Card pipeline: setVideoFilter covers the entire video. Both Timer
@@ -3635,7 +3879,13 @@ async function applyOverlayInternal(imageUrl) {
               log(`Could not render the time onto the card: ${error.message || error.name}`, 'warn');
             }
           }
-          const result = await zoomSdk.setVideoFilter({ imageData: frame });
+          timing.pipeline = 'filter';
+          const result = await timedSdkCall(
+            timing,
+            'filter',
+            () => zoomSdk.setVideoFilter({ imageData: frame }),
+            frame
+          );
           log(`Successfully applied video filter overlay. Result: ${JSON.stringify(result)}`, 'info');
           activeOverlay = { url: imageUrl, mode: currentOverlayMode, budget, pipeline: 'filter', label, badge, position: overlayTimePosition, scale: overlayTimeScale };
           markVideoFilterApplied(true);
@@ -3704,7 +3954,7 @@ export function removeOverlay() {
   // and the window are the organizer's to end, not something a status change or
   // a finished speech should tear down under them.
   if (!isVideoOverlayMode(mode)) return Promise.resolve();
-  return enqueueOverlayOp(() => removeOverlayInternal(ALL_PIPELINES, mode), { supersedable: false });
+  return enqueueOverlayOp(() => removeOverlayInternal(ALL_PIPELINES, mode), { supersedable: false, kind: 'removal' });
 }
 
 /**

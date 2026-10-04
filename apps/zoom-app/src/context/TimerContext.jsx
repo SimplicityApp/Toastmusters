@@ -47,6 +47,22 @@ export function useTimer() {
 export const TIMER_SESSION_MAX_AGE_MS = 60 * 60 * 1000;
 
 /**
+ * Elapsed seconds rounded DOWN to the tenth, the grain the timer runs on.
+ *
+ * Down, never to nearest: thresholds are whole seconds, and rounding to nearest
+ * turned 59.95 s into 60.0 — the card changed up to 50 ms before its threshold.
+ * The epsilon only absorbs float noise in the sum (4.1 + 0.2 is 4.2999…), which
+ * would otherwise cost a whole tenth; Date.now() is whole milliseconds, so it
+ * can never pull a value that is genuinely short of a tenth up to it.
+ *
+ * @param {number} seconds
+ * @returns {number}
+ */
+function floorToTenth(seconds) {
+  return Math.floor(seconds * 10 + 1e-6) / 10;
+}
+
+/**
  * Turn the saved session, if any, into the state the timer boots with.
  *
  * @param {Array} agenda - Already-loaded agenda, so a saved link to an item
@@ -62,8 +78,9 @@ export function restoreTimerSession(agenda, now = Date.now()) {
   const raw = saved.running ? saved.baseElapsed + (now - saved.startedAt) / 1000 : saved.baseElapsed;
   if (!Number.isFinite(raw) || raw < 0) return null;
   // Same tenth-of-a-second grain as the tick, so the first frame after restore
-  // is a plain continuation rather than a jump.
-  const elapsed = Math.round(raw * 10) / 10;
+  // is a plain continuation rather than a jump. Rounded down for the same
+  // reason as the tick: the card must never change before its threshold.
+  const elapsed = floorToTenth(raw);
   // A paused speech that never accumulated time is indistinguishable from idle.
   if (!saved.running && elapsed === 0) return null;
   const activeSpeakerId =
@@ -170,7 +187,7 @@ export function TimerProvider({ children }) {
 
     function tick() {
       const newElapsed = baseElapsedRef.current + (Date.now() - startTimestampRef.current) / 1000;
-      const rounded = Math.round(newElapsed * 10) / 10;
+      const rounded = floorToTenth(newElapsed);
 
       if (rounded !== lastRoundedElapsed) {
         lastRoundedElapsed = rounded;
@@ -190,8 +207,17 @@ export function TimerProvider({ children }) {
           const newStatus = calculateStatus(rounded, speaker.rules);
           if (newStatus !== previousStatusRef.current) {
             setCurrentStatus(newStatus);
-            // Zoom-specific: apply overlay on status change
-            applyOverlay(getBackgroundUrl(newStatus));
+            // Zoom-specific: apply overlay on status change. Tagged as a
+            // threshold so the overlay layer reports how long the card took to
+            // reach the video; only this call site knows the raw elapsed time
+            // the change was noticed at, and so how late the tick was.
+            const threshold = speaker.rules[newStatus];
+            applyOverlay(getBackgroundUrl(newStatus), {
+              trigger: 'threshold',
+              status: newStatus,
+              detectLagMs: typeof threshold === 'number' ? (newElapsed - threshold) * 1000 : null,
+              detectedAt: Date.now(),
+            });
             previousStatusRef.current = newStatus;
           }
         }
