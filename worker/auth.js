@@ -175,6 +175,25 @@ export function sanitizeReturnTo(value, fallback = '/timer/app') {
   return value;
 }
 
+/** The query params `failed()` adds to a return URL. */
+const SIGNIN_PARAMS = ['signin', 'reason'];
+
+/**
+ * A successful sign-in's return path, minus any earlier failure params:
+ * "/account?signin=failed&reason=x&tab=1" → "/account?tab=1".
+ *
+ * Without this a retry started from a failed URL — the header's sign-in link
+ * carries `pathname + search` as its `returnTo` — would land back on
+ * `?signin=failed` and show the old failure after a sign-in that worked. A path
+ * with neither param is returned untouched, so nothing else is re-encoded.
+ */
+export function withoutSigninParams(returnTo) {
+  const url = new URL(returnTo, 'https://return.invalid');
+  if (!SIGNIN_PARAMS.some((name) => url.searchParams.has(name))) return returnTo;
+  for (const name of SIGNIN_PARAMS) url.searchParams.delete(name);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 // ---------------------------------------------------------------------------
 // Why GET /users/me failed
 // ---------------------------------------------------------------------------
@@ -419,7 +438,10 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
 
   const succeeded = async (uid, session) => {
     await track('web_signin_succeeded', { distinct_id: `zoom:${uid}` });
-    return redirect(new URL(returnTo, origin).toString(), [sessionCookie(session), clearOauthCookie()]);
+    return redirect(new URL(withoutSigninParams(returnTo), origin).toString(), [
+      sessionCookie(session),
+      clearOauthCookie(),
+    ]);
   };
 
   const nonce = parseCookies(request.headers.get('cookie'))[OAUTH_COOKIE];

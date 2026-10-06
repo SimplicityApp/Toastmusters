@@ -7,9 +7,10 @@ import { useEntitlement, useWebIdentity } from '../hooks/useEntitlement'
 import { useFlag } from '../hooks/useFlag'
 import { useClub } from '../hooks/useClub'
 import { signInUrl, signOut } from '../utils/webIdentity'
-import { signinFailureMessage } from '../utils/signinFailure'
+import { readSigninFailure } from '../utils/signinFailure'
 import { trackEvent } from '../utils/posthog'
 import ClubCodeSection from '../components/ClubCodeSection'
+import SignInFailureActions from '../components/SignInFailureActions'
 
 /**
  * The signed-in user's plan, and the way to buy or manage it from the web.
@@ -93,7 +94,7 @@ export default function Account() {
     })
   }
 
-  const signinFailure = signinFailureMessage(searchParams)
+  const signinFailure = readSigninFailure(searchParams)
 
   useEffect(() => {
     trackEvent('account_page_viewed', { signed_in: Boolean(identity?.identified) })
@@ -245,9 +246,10 @@ export default function Account() {
         <h2 className="text-2xl font-bold">Your account</h2>
 
         {signinFailure && (
-          <p className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200" role="alert">
-            {signinFailure}
-          </p>
+          <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200" role="alert">
+            <p>{signinFailure.message}</p>
+            <SignInFailureActions failure={signinFailure} surface="account" tone="dark" />
+          </div>
         )}
 
         {(proReleased || club?.entitled) && (

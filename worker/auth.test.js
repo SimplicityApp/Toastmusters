@@ -4,6 +4,7 @@ import {
   parseCookies,
   verifyState,
   sanitizeReturnTo,
+  withoutSigninParams,
   handleAuthStart,
   handleOAuthCallback,
   handleLogout,
@@ -45,6 +46,19 @@ describe('parseCookies / sanitizeReturnTo', () => {
     expect(sanitizeReturnTo('//evil.test/x')).toBe('/timer/app');
     expect(sanitizeReturnTo('/a\\b')).toBe('/timer/app');
     expect(sanitizeReturnTo(undefined)).toBe('/timer/app');
+  });
+});
+
+describe('withoutSigninParams', () => {
+  it('drops an earlier failure from the return path, keeping everything else', () => {
+    expect(withoutSigninParams('/account?signin=failed&reason=x&tab=1')).toBe('/account?tab=1');
+    expect(withoutSigninParams('/account?signin=failed&reason=denied')).toBe('/account');
+    expect(withoutSigninParams('/club/admin?tab=1&signin=failed&reason=profile#members')).toBe('/club/admin?tab=1#members');
+  });
+
+  it('leaves a path without failure params exactly as it was', () => {
+    expect(withoutSigninParams('/account')).toBe('/account');
+    expect(withoutSigninParams('/timer/app?q=a%20b')).toBe('/timer/app?q=a%20b');
   });
 });
 
@@ -269,8 +283,10 @@ describe('handleOAuthCallback', () => {
     stateOverride,
     callbackEnv = env,
     ctx,
+    returnTo = '/account',
   } = {}) {
-    const startUrl = new URL('https://www.example.test/api/auth/zoom/start?returnTo=%2Faccount');
+    const startUrl = new URL('https://www.example.test/api/auth/zoom/start');
+    startUrl.searchParams.set('returnTo', returnTo);
     const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW });
     const location = new URL(started.headers.get('location'));
     let state = stateOverride ?? location.searchParams.get('state');
@@ -328,6 +344,20 @@ describe('handleOAuthCallback', () => {
     const noProfile = await (await startAndCallback({ fetchImpl: zoomFetch({ meOk: false }) })).promise;
     expect(noProfile.headers.get('location')).toContain('reason=profile');
     expect(cookieValue(noProfile, SESSION_COOKIE)).toBeNull();
+  });
+
+  // A retry from a failed URL carries the failure params in its returnTo; a
+  // sign-in that works must not land back on them.
+  it('strips an earlier failure from returnTo on success', async () => {
+    const res = await (await startAndCallback({ returnTo: '/account?signin=failed&reason=x&tab=1' })).promise;
+    expect(res.headers.get('location')).toBe('https://www.example.test/account?tab=1');
+    expect(cookieValue(res, SESSION_COOKIE)).not.toBeNull();
+  });
+
+  it('replaces, not appends to, an earlier failure when the retry fails too', async () => {
+    const fetchImpl = zoomFetch({ tokenOk: false });
+    const res = await (await startAndCallback({ fetchImpl, returnTo: '/account?signin=failed&reason=denied&tab=1' })).promise;
+    expect(res.headers.get('location')).toBe('https://www.example.test/account?signin=failed&reason=exchange&tab=1');
   });
 
   it('rejects an expired state', async () => {

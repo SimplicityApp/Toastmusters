@@ -54,6 +54,14 @@ The Worker cannot render a page, so every failure after the state check is a
 key into copy (`apps/web/src/utils/signinFailure.js`); an unknown key shows the
 generic "Sign-in did not finish" line.
 
+Every failure notice offers **Sign in again** (`SignInFailureActions`). It
+restarts `/api/auth/zoom/start` with the current page as `returnTo`, minus
+`signin` and `reason`. The Worker also strips those two params from `returnTo`
+on success, so a retry that works never lands back on the old failure, even
+from a link that carried them (the header's sign-in link uses
+`pathname + search`). A retry that fails again overwrites both params with the
+new reason.
+
 | `reason` | Cause |
 |---|---|
 | `state_mismatch` | The `tt_oauth` nonce cookie is missing or differs (expired link, other host) |

@@ -23,13 +23,39 @@ export const SIGNIN_ERRORS = {
   failed: 'Sign-in did not finish. Please try again.',
 }
 
+/** Query params the Worker adds to a failed sign-in's return URL. */
+const SIGNIN_PARAMS = ['signin', 'reason']
+
 /**
+ * What a failed sign-in looks like to the notices that show it.
+ *
+ * `reason` is the raw query value, kept for analytics: an unknown reason still
+ * shows the generic message, but reports what the Worker actually sent.
+ *
  * @param {URLSearchParams} searchParams
- * @returns {string|null} the line to show, or null when this is not a failure
+ * @returns {{reason: string, message: string, scopeIssue: boolean}|null}
+ *   null when this is not a failure
  */
-export function signinFailureMessage(searchParams) {
+export function readSigninFailure(searchParams) {
   if (searchParams?.get('signin') !== 'failed') return null
-  const reason = searchParams.get('reason')
+  const reason = searchParams.get('reason') || 'failed'
   // Own keys only: `?reason=toString` must not hand back a function.
-  return (reason && Object.hasOwn(SIGNIN_ERRORS, reason) && SIGNIN_ERRORS[reason]) || SIGNIN_ERRORS.failed
+  const message = (Object.hasOwn(SIGNIN_ERRORS, reason) && SIGNIN_ERRORS[reason]) || SIGNIN_ERRORS.failed
+  return { reason, message, scopeIssue: reason === 'scope_not_granted' }
+}
+
+/**
+ * Where "Sign in again" should come back to: the current page, minus the
+ * failure params. Without this a successful retry would land on a URL that
+ * still says `?signin=failed`, and the old notice would come straight back.
+ * Every other param and the hash are kept.
+ *
+ * @param {{pathname: string, search?: string, hash?: string}} location
+ * @returns {string}
+ */
+export function retryReturnTo(location) {
+  const params = new URLSearchParams(location?.search || '')
+  for (const name of SIGNIN_PARAMS) params.delete(name)
+  const search = params.toString()
+  return `${location?.pathname || '/'}${search ? `?${search}` : ''}${location?.hash || ''}`
 }
