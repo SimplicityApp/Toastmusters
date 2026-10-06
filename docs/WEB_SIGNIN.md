@@ -62,6 +62,21 @@ from a link that carried them (the header's sign-in link uses
 `pathname + search`). A retry that fails again overwrites both params with the
 new reason.
 
+`scope_not_granted` gets two more links, both opening in a new tab so the retry
+stays one click away (constants in `packages/shared/appLinks.js`):
+
+- **Manage in Zoom** (`ZOOM_MANAGE_APPS_URL`): the user's added apps in the
+  Zoom App Marketplace (**Manage → Added Apps**). "Sign in again" normally
+  fixes a missing scope, because Zoom shows its consent screen again when the
+  requested permissions changed. If Zoom quietly reuses the old grant instead,
+  removing and re-adding the app here forces a fresh consent. Zoom documents
+  that page only by its menu path, so the URL is the one confirmed in a browser;
+  re-check it when Zoom redesigns the Marketplace.
+- **Why does Zoom ask?** (`ZOOM_SIGNIN_PERMISSION_HELP_URL`): the
+  `#zoom-permission` section of the support page
+  (`apps/zoom-app/public/support.html`). It says what the permission shows us,
+  why sign-in needs it, and how to grant it, for users who declined on purpose.
+
 | `reason` | Cause |
 |---|---|
 | `state_mismatch` | The `tt_oauth` nonce cookie is missing or differs (expired link, other host) |
@@ -112,6 +127,28 @@ blocker cannot hide these.
   PostHog, and a capture failure is logged and swallowed. With no
   `POSTHOG_API_KEY` nothing is sent. The helper is `worker/posthog.js`, shared
   with the Zoom webhook.
+
+### Browser events
+
+The server counts outcomes; only the browser can follow one person from a
+failure to a later success, because a failed sign-in never learns the Zoom id.
+`SignInFailureActions` records these through `trackEvent`, each with `reason`
+(the raw query value, so an unknown reason is still reported as sent) and
+`surface: 'banner' | 'account'`:
+
+| Event | When |
+|---|---|
+| `signin_failure_shown` | A failure notice is on screen (fires once, when the actions mount) |
+| `signin_retry_clicked` | **Sign in again** clicked, on any failure |
+| `zoom_manage_app_clicked` | **Manage in Zoom** clicked (`scope_not_granted` only) |
+| `signin_help_clicked` | **Why does Zoom ask?** clicked (`scope_not_granted` only) |
+
+The global strip skips `/account`, so only one surface fires on any page.
+Recovery needs no extra plumbing: the anonymous browser person that saw the
+failure is merged into `zoom:<uid>` when the next successful sign-in calls
+`identifyUser` (`apps/web/src/utils/webIdentity.js`). "Recovered" is
+`signin_failure_shown` with `reason=scope_not_granted` followed by a sign-in
+within 24 hours.
 
 ## Hosts
 
