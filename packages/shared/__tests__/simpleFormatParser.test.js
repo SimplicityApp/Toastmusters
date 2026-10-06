@@ -102,7 +102,22 @@ describe('parseSimpleFormatText', () => {
   });
 });
 
-describe('matchCustomRole (exact)', () => {
+describe('parseSimpleFormatText: PRD worked examples', () => {
+  it.each([
+    ['Person (A)', ['A'], 'Person', 'A'],
+    ['Cam-Ly (opening remarks)', ['Opening Remarks'], 'Cam-Ly', 'Opening Remarks'],
+    ['Cam-Ly (Opening)', ['Opening Remarks'], 'Cam-Ly', 'Opening Remarks'],
+    ['Cam-Ly (Remarks)', ['Opening Remarks', 'Closing Remarks'], 'Cam-Ly', 'Opening Remarks'],
+    ['Cam-Ly (Opening Remarks - 2 min)', ['Opening', 'Opening Remarks'], 'Cam-Ly', 'Opening Remarks'],
+    ['Cam-Ly - Opening (Opening)', ['Opening'], 'Cam-Ly - Opening', 'Opening'],
+    ['Dominique - General Evaluation (Closing)', ['Closing'], 'Dominique - General Evaluation', 'Closing'],
+    ['Sarah (Ice Breaker)', ['Opening'], 'Sarah', 'Ice Breaker'],
+  ])('%s with %j imports as %s / %s', (line, customRoles, name, role) => {
+    expect(parseSimpleFormatText(line, customRoles)).toEqual([{ name, role }]);
+  });
+});
+
+describe('matchCustomRole', () => {
   it('matches ignoring case, spacing and punctuation', () => {
     expect(matchCustomRole(' opening   REMARKS ', ['Opening Remarks'])).toBe('Opening Remarks');
     expect(matchCustomRole('Q & A', ['Q&A'])).toBe('Q&A');
@@ -112,9 +127,60 @@ describe('matchCustomRole (exact)', () => {
     expect(matchCustomRole('opening', ['Opening', 'OPENING'])).toBe('Opening');
   });
 
-  it('does not match partial names yet', () => {
-    expect(matchCustomRole('Opening', ['Opening Remarks'])).toBeNull();
-    expect(matchCustomRole('Opening Remarks - 2 min', ['Opening Remarks'])).toBeNull();
+  it('prefers an exact match over a partial one listed earlier', () => {
+    expect(matchCustomRole('Opening', ['Opening Remarks', 'Opening'])).toBe('Opening');
+  });
+
+  it('matches a shortened name inside a custom role', () => {
+    expect(matchCustomRole('Opening', ['Opening Remarks'])).toBe('Opening Remarks');
+    expect(matchCustomRole('remarks', ['Opening Remarks'])).toBe('Opening Remarks');
+  });
+
+  it('matches a custom role inside decorated bracket text', () => {
+    expect(matchCustomRole('Opening Remarks - 2 min', ['Opening Remarks'])).toBe('Opening Remarks');
+  });
+
+  it('matches whole words only', () => {
+    expect(matchCustomRole('Pen', ['Opening'])).toBeNull();
+    expect(matchCustomRole('Open', ['Opening Remarks'])).toBeNull();
+  });
+
+  it('requires the shared words to be contiguous', () => {
+    expect(matchCustomRole('Opening Closing', ['Opening Remarks Closing'])).toBeNull();
+  });
+
+  it('treats punctuation as word breaks', () => {
+    expect(matchCustomRole('Q&A', ['Q&A Session'])).toBe('Q&A Session');
+    expect(matchCustomRole('Q&A', ['Q and A'])).toBeNull();
+    expect(matchCustomRole('Opening/Closing', ['Closing'])).toBe('Closing');
+    expect(matchCustomRole('Opening/Closing', ['Opening Closing Remarks'])).toBe('Opening Closing Remarks');
+  });
+
+  it('picks the role sharing the most words', () => {
+    expect(matchCustomRole('Opening Remarks - 2 min', ['Opening', 'Opening Remarks'])).toBe('Opening Remarks');
+    expect(matchCustomRole('Opening Remarks - 2 min', ['Opening Remarks', 'Opening'])).toBe('Opening Remarks');
+  });
+
+  it('breaks ties by list order', () => {
+    expect(matchCustomRole('Remarks', ['Opening Remarks', 'Closing Remarks'])).toBe('Opening Remarks');
+    expect(matchCustomRole('Remarks', ['Closing Remarks', 'Opening Remarks'])).toBe('Closing Remarks');
+  });
+
+  it('never lets a partial match take a built-in role name', () => {
+    expect(matchCustomRole('Standard Speech', ['Speech'])).toBeNull();
+    expect(matchCustomRole('ice breaker', ['Ice'])).toBeNull();
+    expect(parseSimpleFormatText('Ana (Standard Speech)', ['Speech'])).toEqual([
+      { name: 'Ana', role: 'Standard Speech' },
+    ]);
+  });
+
+  it('still lets an exact custom match take a built-in role name', () => {
+    expect(matchCustomRole('Standard Speech', ['standard speech'])).toBe('standard speech');
+    expect(matchCustomRole('Standard Speech', ['Speech', 'standard speech'])).toBe('standard speech');
+  });
+
+  it('does not guard "Custom", which is not a role name anyone writes', () => {
+    expect(matchCustomRole('Custom', ['Custom Opening'])).toBe('Custom Opening');
   });
 
   it('returns null for empty bracket text or no candidates', () => {
