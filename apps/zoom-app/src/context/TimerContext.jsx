@@ -156,6 +156,13 @@ export function TimerProvider({ children }) {
     return [...visibleBuiltins, ...customOrder, ...otherCustom];
   }, [hiddenBuiltinRoles, customRoleOrder, roleRules]);
 
+  // The custom roles the dropdown offers, in Edit Rules order. Simple Format
+  // import matches against this list, so any role you can pick you can import.
+  const customRoleNames = useMemo(
+    () => roleOptions.filter((r) => !(r in DEFAULT_ROLE_RULES) && r !== BREAK_ROLE),
+    [roleOptions]
+  );
+
   // --- save effects ---
   useEffect(() => { if (agenda.length > 0) saveAgenda(agenda); }, [agenda]);
   useEffect(() => { if (reports.length > 0) saveReports(reports); }, [reports]);
@@ -440,7 +447,7 @@ export function TimerProvider({ children }) {
   }, [agenda, setCurrentSpeakerAction]);
 
   const importBulkSpeakers = useCallback((text) => {
-    const newItems = parseSimpleFormatText(text, customRoleOrder).map(({ name, role }, index) => ({
+    const newItems = parseSimpleFormatText(text, customRoleNames).map(({ name, role }, index) => ({
       id: `${Date.now()}-${index}`,
       name,
       role,
@@ -448,9 +455,13 @@ export function TimerProvider({ children }) {
       completed: false,
     }));
     setAgenda(prev => [...prev, ...newItems]);
-    trackEvent('agenda_imported', { import_type: 'bulk', items_count: newItems.length });
+    trackEvent('agenda_imported', {
+      import_type: 'bulk',
+      items_count: newItems.length,
+      custom_role_count: newItems.filter((item) => customRoleNames.includes(item.role)).length,
+    });
     return newItems.length;
-  }, [roleRules, customRoleOrder]);
+  }, [roleRules, customRoleNames]);
 
   const importEasySpeakSpeakers = useCallback((text) => {
     const parsedItems = parseEasySpeakText(text);

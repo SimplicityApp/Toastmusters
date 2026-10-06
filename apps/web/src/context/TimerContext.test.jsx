@@ -2,6 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { ToastProvider } from './ToastContext';
 import { TimerProvider, useTimer, useTimerTick } from './TimerContext';
 import { setPageBackgroundFromStatus } from '../utils/pageBackground';
+import { trackEvent } from '../utils/posthog';
 
 // Convenience hook for tests: merges both contexts into one object so all
 // existing test assertions continue to work without modification.
@@ -463,6 +464,38 @@ describe('TimerContext', () => {
 
       expect(result.current.agenda).toHaveLength(1);
       expect(result.current.agenda[0]).toMatchObject({ name: 'Person', role: 'A', rules: aRules });
+    });
+
+    it('imports a custom role whose rules were saved without a role order', () => {
+      // Legacy saved rules and club presets published without `order` leave a
+      // role in roleRules (and the dropdown) but out of customRoleOrder.
+      const openerRules = { green: 60, yellow: 90, red: 120, graceAfterRed: 15 };
+      localStorage.setItem('toastmaster_role_rules', JSON.stringify({ Opener: openerRules }));
+      const { result } = renderHook(() => useAllTimer(), { wrapper });
+
+      expect(result.current.roleOptions).toContain('Opener');
+      act(() => {
+        result.current.importBulkSpeakers('Ana (Opener)');
+      });
+
+      expect(result.current.agenda[0]).toMatchObject({ name: 'Ana', role: 'Opener', rules: openerRules });
+    });
+
+    it('reports how many imported lines got a custom role', () => {
+      const { result } = renderHook(() => useAllTimer(), { wrapper });
+
+      act(() => {
+        result.current.addRoleRules('A', { green: 10, yellow: 20, red: 30, graceAfterRed: 10 });
+      });
+      act(() => {
+        result.current.importBulkSpeakers('Person (A)\nBob (Ice Breaker)');
+      });
+
+      expect(trackEvent).toHaveBeenCalledWith('agenda_imported', {
+        import_type: 'bulk',
+        items_count: 2,
+        custom_role_count: 1,
+      });
     });
   });
 
