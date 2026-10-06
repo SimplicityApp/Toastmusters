@@ -79,6 +79,25 @@ describe('addToAgenda', () => {
   });
 });
 
+describe('importBulkSpeakers', () => {
+  it('imports "Person (A)" as custom role A with its rules', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+    const aRules = { green: 10, yellow: 20, red: 30, graceAfterRed: 10 };
+
+    act(() => {
+      result.current.addRoleRules('A', aRules);
+    });
+    let count;
+    act(() => {
+      count = result.current.importBulkSpeakers('Person (A)');
+    });
+
+    expect(count).toBe(1);
+    expect(result.current.agenda).toHaveLength(1);
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Person', role: 'A', rules: aRules });
+  });
+});
+
 describe('resetTimer', () => {
   it('leaves the video alone with skipVideo, whatever is on it', () => {
     // How the RESET button gets a stripped tile: LiveTab clears both pipelines

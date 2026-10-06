@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { DEFAULT_ROLE_RULES, detectRoleFromText, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules, parseSimpleFormatText } from '@toastmaster-timer/shared';
 import { calculateStatus, formatTime, getDisplaySeconds } from '@toastmaster-timer/shared';
 import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
@@ -440,14 +440,13 @@ export function TimerProvider({ children }) {
   }, [agenda, setCurrentSpeakerAction]);
 
   const importBulkSpeakers = useCallback((text) => {
-    const lines = text.split('\n').filter(line => line.trim());
-    const newItems = lines.map((line, index) => {
-      const trimmed = line.trim();
-      const role = detectRoleFromText(trimmed, customRoleOrder);
-      const name = trimmed.replace(/\(.*?\)/g, '').trim() || `Speaker ${index + 1}`;
-      const rules = roleRules[role] || DEFAULT_ROLE_RULES['Standard Speech'];
-      return { id: `${Date.now()}-${index}`, name, role, rules, completed: false };
-    });
+    const newItems = parseSimpleFormatText(text, customRoleOrder).map(({ name, role }, index) => ({
+      id: `${Date.now()}-${index}`,
+      name,
+      role,
+      rules: roleRules[role] || DEFAULT_ROLE_RULES['Standard Speech'],
+      completed: false,
+    }));
     setAgenda(prev => [...prev, ...newItems]);
     trackEvent('agenda_imported', { import_type: 'bulk', items_count: newItems.length });
     return newItems.length;

@@ -449,6 +449,21 @@ describe('TimerContext', () => {
       expect(count).toBe(2);
       expect(result.current.agenda).toHaveLength(2);
     });
+
+    it('imports "Person (A)" as custom role A with its rules', () => {
+      const { result } = renderHook(() => useAllTimer(), { wrapper });
+      const aRules = { green: 10, yellow: 20, red: 30, graceAfterRed: 10 };
+
+      act(() => {
+        result.current.addRoleRules('A', aRules);
+      });
+      act(() => {
+        result.current.importBulkSpeakers('Person (A)');
+      });
+
+      expect(result.current.agenda).toHaveLength(1);
+      expect(result.current.agenda[0]).toMatchObject({ name: 'Person', role: 'A', rules: aRules });
+    });
   });
 
   // ---------------------------------------------------------------------------
