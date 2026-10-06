@@ -81,6 +81,27 @@ function inGuestMode() {
   setLaunchContext('client');
 }
 
+/** The client shook hands and the user has added the app: the healthy panel. */
+function authorizedInZoom() {
+  initializeZoomSdk.mockResolvedValue(true);
+  readZoomUserStatus.mockResolvedValue('authorized');
+  setLaunchContext('client');
+}
+
+/** The function the notice handed to setUserStatusChangeCallback. */
+function statusCallback() {
+  return setUserStatusChangeCallback.mock.calls.find(([cb]) => typeof cb === 'function')[0];
+}
+
+/**
+ * Lets the mount's handshake and status read settle. A healthy mount changes
+ * nothing on screen, so there is no element to wait for; one macrotask drains
+ * every promise the mount chained.
+ */
+async function settleMount() {
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+}
+
 describe('ZoomConnectionNotice', () => {
   it('says nothing at all when the handshake succeeded', async () => {
     initializeZoomSdk.mockResolvedValue(true);
@@ -225,6 +246,7 @@ describe('ZoomConnectionNotice', () => {
       connection_state: 'revoked',
       launch_context: 'client',
       returning_user: true,
+      detected: 'on_open',
     });
   });
 
@@ -314,17 +336,156 @@ describe('ZoomConnectionNotice', () => {
   // onMyUserContextChange also fires when the organizer is made co-host. An
   // authorized user who was never shown the notice must not be congratulated.
   it('says nothing on a status report while no notice is up', async () => {
-    initializeZoomSdk.mockResolvedValue(true);
-    readZoomUserStatus.mockResolvedValue('authorized');
+    authorizedInZoom();
+    renderNotice();
+    await settleMount();
+
+    act(() => statusCallback()('authorized'));
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Zoom will stop asking permission/)).not.toBeInTheDocument();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  // The open-time check used to be the only one: a grant Zoom dropped while
+  // the panel was up left the organizer in guest mode, clicking "Allow" on
+  // every color change, until they happened to reload.
+  it('raises the guest-mode notice when Zoom drops the grant mid-session', async () => {
+    authorizedInZoom();
+    localStorage.setItem('toastmaster_agenda', '[{"role":"Speaker 1"}]');
+    renderNotice();
+    await settleMount();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    act(() => statusCallback()('authenticated'));
+
+    const banner = within(screen.getByRole('status'));
+    expect(banner.getByText(/asks permission on every color change/)).toBeInTheDocument();
+    expect(banner.getByRole('button', { name: /approve in zoom/i })).toBeInTheDocument();
+    const modal = within(screen.getByRole('dialog'));
+    expect(modal.getByText('Approve Toastmusters Timer in Zoom')).toBeInTheDocument();
+    expect(modal.getByText(/agendas, roles and reports exactly where they are/)).toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+    expect(trackEvent).toHaveBeenCalledWith('zoom_connection_degraded', {
+      connection_state: 'unauthorized',
+      launch_context: 'client',
+      returning_user: true,
+      detected: 'mid_session',
+    });
+  });
+
+  // Neither is evidence of a lost grant: an unauthenticated user was never
+  // signed in, and null is a status read that failed. The open-time check
+  // ignores both too.
+  it.each(['unauthenticated', null])('ignores a mid-session %s report', async (status) => {
+    authorizedInZoom();
+    renderNotice();
+    await settleMount();
+
+    act(() => statusCallback()(status));
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  // The status callback is registered before the handshake settles, and until
+  // then the notice still holds its "connected" placeholder. A report in that
+  // window must not raise a second notice, or count a second drop, on top of
+  // what the mount itself is about to read.
+  it('ignores a status report that arrives before the mount has read the status', async () => {
+    let finishHandshake;
+    initializeZoomSdk.mockReturnValue(new Promise((resolve) => { finishHandshake = resolve; }));
+    readZoomUserStatus.mockResolvedValue('authenticated');
     setLaunchContext('client');
     renderNotice();
     await waitFor(() => expect(setUserStatusChangeCallback).toHaveBeenCalledWith(expect.any(Function)));
-    const onStatus = setUserStatusChangeCallback.mock.calls.find(([cb]) => typeof cb === 'function')[0];
 
+    act(() => statusCallback()('authenticated'));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    await act(async () => finishHandshake(true));
+
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+    expect(trackEvent).toHaveBeenCalledWith('zoom_connection_degraded', expect.objectContaining({
+      connection_state: 'unauthorized',
+      detected: 'on_open',
+    }));
+  });
+
+  // Two quick context changes can both arrive before React re-renders; the
+  // drop is still one drop.
+  it('counts back-to-back drop reports once', async () => {
+    authorizedInZoom();
+    renderNotice();
+    await settleMount();
+    const onStatus = statusCallback();
+
+    act(() => {
+      onStatus('authenticated');
+      onStatus('authenticated');
+    });
+
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
+
+  // The re-add notices are decided at open and stay as they are: a status
+  // report cannot turn "Zoom removed this app's access" into guest mode.
+  it('leaves a re-add notice alone when a status report arrives', async () => {
+    setLaunchContext('client');
+    renderNotice();
+    await screen.findByRole('status');
+    await settleMount();
+    vi.mocked(trackEvent).mockClear();
+
+    act(() => statusCallback()('authenticated'));
+    act(() => statusCallback()('authorized'));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Add Toastmusters Timer to Zoom');
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  // The modal explains itself once per Zoom session, whichever way the notice
+  // came up. A grant that drops again later in the same meeting brings back
+  // the banner, which carries the fix, without re-covering the panel.
+  it('brings back only the banner on a second drop once the modal was closed', async () => {
+    const user = userEvent.setup();
+    authorizedInZoom();
+    renderNotice();
+    await settleMount();
+    const onStatus = statusCallback();
+
+    act(() => onStatus('authenticated'));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /close/i }));
     act(() => onStatus('authorized'));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
-    expect(screen.queryByText(/Zoom will stop asking permission/)).not.toBeInTheDocument();
-    expect(trackEvent).not.toHaveBeenCalledWith('zoom_reauthorized');
+    act(() => onStatus('authenticated'));
+
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledWith('zoom_reauthorized');
+    expect(trackEvent.mock.calls.filter(([event]) => event === 'zoom_connection_degraded')).toHaveLength(2);
+  });
+
+  // Same rule for a modal already closed at open: a mid-session drop after
+  // the user approved does not explain itself a second time.
+  it('keeps the modal closed on a mid-session drop if it was closed on open', async () => {
+    const user = userEvent.setup();
+    inGuestMode();
+    renderNotice();
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /close/i }));
+    act(() => statusCallback()('authorized'));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    act(() => statusCallback()('authenticated'));
+
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledWith('zoom_connection_degraded', expect.objectContaining({
+      detected: 'mid_session',
+    }));
   });
 
   it('stops listening for status changes when it unmounts', async () => {

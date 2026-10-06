@@ -12,6 +12,7 @@ import {
   CONNECTION_CONNECTED,
   CONNECTION_REVOKED,
   CONNECTION_UNAUTHORIZED,
+  STATUS_AUTHENTICATED,
   STATUS_AUTHORIZED,
   isReturningUser,
   needsAttention,
@@ -127,9 +128,52 @@ export default function ZoomConnectionNotice() {
   // it reads the current state through a ref rather than a stale closure.
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Until the mount's own read resolves, stateRef holds the placeholder
+  // "connected", so a status report racing that read could raise the notice
+  // and count the drop a second time. The mount is authoritative for that
+  // window; reports arriving before it are ignored.
+  const resolvedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+
+    /**
+     * Put the notice up. On open and mid-session share this one path, so the
+     * copy, the once-per-session modal rule and the analytics cannot drift
+     * apart between the two triggers.
+     */
+    const raise = (resolved, launch, detected) => {
+      const hasHistory = isReturningUser();
+      // Written ahead of the re-render, so a second report arriving before it
+      // sees the notice already up and does not count the drop twice.
+      stateRef.current = resolved;
+      setState(resolved);
+      setReturning(hasHistory);
+      setModalOpen(!readModalSeen());
+
+      // Nothing measures how often Zoom drops an install today: the
+      // deauthorize webhook only sees admin-initiated removals, never a
+      // token that simply stopped working. `detected` separates the drops
+      // found at open from those Zoom reported while the panel was up.
+      trackEvent('zoom_connection_degraded', {
+        connection_state: resolved,
+        launch_context: launch,
+        returning_user: hasHistory,
+        detected,
+      });
+    };
+
+    // The in-client approval flow reports back through the SDK, not through
+    // the button's promise: stand the notice down the moment Zoom says the
+    // user is authorized again, and say so, since the dialog they clicked
+    // through gave them no other confirmation that the popups will stop.
+    const standDown = () => {
+      stateRef.current = CONNECTION_CONNECTED;
+      setState(CONNECTION_CONNECTED);
+      setModalOpen(false);
+      trackEvent('zoom_reauthorized');
+      showToast('Approved. Zoom will stop asking permission for background changes.', 'success', 5000);
+    };
 
     initializeZoomSdk()
       .catch(() => false)
@@ -146,36 +190,30 @@ export default function ZoomConnectionNotice() {
           isDev: import.meta.env.DEV,
           authStatus,
         });
+        resolvedRef.current = true;
         if (!needsAttention(resolved)) return;
 
-        const hasHistory = isReturningUser();
-        setState(resolved);
-        setReturning(hasHistory);
-        setModalOpen(!readModalSeen());
-
-        // Nothing measures how often Zoom drops an install today: the
-        // deauthorize webhook only sees admin-initiated removals, never a
-        // token that simply stopped working.
-        trackEvent('zoom_connection_degraded', {
-          connection_state: resolved,
-          launch_context: launch,
-          returning_user: hasHistory,
-        });
+        raise(resolved, launch, 'on_open');
       });
 
-    // The in-client approval flow reports back through the SDK, not through
-    // the button's promise: stand the notice down the moment Zoom says the
-    // user is authorized again, and say so, since the dialog they clicked
-    // through gave them no other confirmation that the popups will stop.
-    // Only while the notice is up: the same event fires on a role change
-    // (host to co-host), where an already-authorized user has nothing to hear.
+    // The same SDK event fires for role changes (host to co-host), screen-name
+    // changes and approvals, so what it means depends on what is showing:
+    // - authorized while the guest-mode notice is up: the approval landed.
+    // - authenticated while connected: Zoom dropped the grant mid-session, so
+    //   raise the same guest-mode notice the user would have seen on open.
+    // Everything else is ignored: authorized while connected is a role or
+    // name change; unauthenticated and null (a failed read) are not evidence
+    // of a lost grant, as on open; and the re-add notices are decided at open.
     setUserStatusChangeCallback((status) => {
-      if (cancelled || status !== STATUS_AUTHORIZED) return;
-      if (stateRef.current !== CONNECTION_UNAUTHORIZED) return;
-      setState(CONNECTION_CONNECTED);
-      setModalOpen(false);
-      trackEvent('zoom_reauthorized');
-      showToast('Approved. Zoom will stop asking permission for background changes.', 'success', 5000);
+      if (cancelled || !resolvedRef.current) return;
+      const current = stateRef.current;
+      if (status === STATUS_AUTHORIZED && current === CONNECTION_UNAUTHORIZED) {
+        standDown();
+        return;
+      }
+      if (status === STATUS_AUTHENTICATED && current === CONNECTION_CONNECTED) {
+        raise(CONNECTION_UNAUTHORIZED, readLaunchContext(), 'mid_session');
+      }
     });
 
     return () => {
