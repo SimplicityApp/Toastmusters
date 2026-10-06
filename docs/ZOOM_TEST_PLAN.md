@@ -114,6 +114,38 @@ in-client fix.
 
 ---
 
+## Step 1d: A grant that drops mid-session
+
+The open-time check above only runs once. This step checks that a grant Zoom
+drops while the panel is already open raises the same notice without a
+reload, and that the modal waits until the speech is over.
+
+1. Open the app in a meeting as an `authorized` user, using the two-account
+   setup from "Reaching the `authenticated` state deliberately" in
+   `ZOOM_AUTH_AND_REDIRECTS.md`. No banner shows.
+2. Start a speech, then drop the grant while the timer runs (remove the app
+   for that account in the Marketplace, or switch it to the guest-mode
+   account's state as that section describes).
+3. Expected, if the client fires `onMyUserContextChange` on the drop: the
+   debug log shows `User context changed; Zoom now reports the user as
+   authenticated`, and the amber banner appears at once with **Approve in
+   Zoom**. No modal covers the running timer.
+4. Click **Stop**. Expected: the "Approve Toastmusters Timer in Zoom" modal
+   opens now, unless it was already closed once in this Zoom session, in which
+   case only the banner stays.
+5. PostHog shows `zoom_connection_degraded` with `connection_state:
+   unauthorized` and `detected: mid_session`. The Step 1c open-time event
+   carries `detected: on_open`.
+6. Approve as in Step 1c, steps 4–5: the banner clears with the "Approved"
+   toast and `zoom_reauthorized`.
+7. If nothing appears in step 3 and the log shows no `User context changed`
+   line, the client did not fire the event on a drop. That is not a bug in the
+   app: the drop is caught at the next open, as before. Record the result,
+   with the date and client version, in the status-contract assumptions in
+   `ZOOM_AUTH_AND_REDIRECTS.md`.
+
+---
+
 ## Step 2: Verify the App Appears in Zoom
 
 1. Open the Zoom Desktop Client

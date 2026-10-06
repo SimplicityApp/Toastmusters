@@ -48,7 +48,9 @@ How the notice reads a status report, once the open-time check has resolved
 The open-time check sends `detected: 'on_open'` on the same event. The modal
 still shows at most once per Zoom session (`sessionStorage`
 `toastmaster_reconnect_modal_seen`), whichever way the notice came up; a
-second drop in the same meeting brings back only the banner.
+second drop in the same meeting brings back only the banner. The banner goes
+up at once, but the modal never covers a running timer: while a speech is
+being timed it stays queued, and it opens when the timer stops.
 
 ## `promptAuthorize` is contextual, not a capability grant
 

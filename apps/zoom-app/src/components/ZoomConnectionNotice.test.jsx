@@ -12,6 +12,7 @@ import {
   setUserStatusChangeCallback,
 } from '../utils/zoomSdk';
 import { trackEvent } from '../utils/posthog';
+import { useTimerTick } from '../context/TimerContext';
 
 // The component prefers VITE_ZOOM_OAUTH_REDIRECT and falls back to the shared
 // constant; a developer's root .env sets the variable, CI does not. Mirror
@@ -33,6 +34,9 @@ vi.mock('../utils/zoomSdk', () => ({
   setUserStatusChangeCallback: vi.fn(),
 }));
 vi.mock('../utils/posthog', () => ({ trackEvent: vi.fn() }));
+// The modal reads only whether the timer is running; the real provider would
+// drag in storage, the overlay pipeline and a requestAnimationFrame loop.
+vi.mock('../context/TimerContext', () => ({ useTimerTick: vi.fn(() => ({ isRunning: false })) }));
 
 function setLaunchContext(value) {
   document.head.querySelector('meta[name="zoom-launch"]')?.remove();
@@ -52,12 +56,20 @@ function setInstallUrl(value) {
   document.head.appendChild(meta);
 }
 
+const noticeTree = () => (
+  <ToastProvider>
+    <ZoomConnectionNotice />
+  </ToastProvider>
+);
+
 function renderNotice() {
-  render(
-    <ToastProvider>
-      <ZoomConnectionNotice />
-    </ToastProvider>
-  );
+  return render(noticeTree());
+}
+
+/** Starts or stops the speech the notice sees, and lets it re-render. */
+function setTimerRunning(isRunning, rerender) {
+  useTimerTick.mockReturnValue({ isRunning });
+  if (rerender) rerender(noticeTree());
 }
 
 beforeEach(() => {
@@ -72,6 +84,8 @@ beforeEach(() => {
   // every test below that is not about guest mode should keep seeing.
   readZoomUserStatus.mockResolvedValue(null);
   promptZoomAuthorize.mockResolvedValue(true);
+  // clearAllMocks keeps implementations, so a running timer would leak on.
+  useTimerTick.mockReturnValue({ isRunning: false });
 });
 
 /** The client shook hands, but reports the user as signed in without the app. */
@@ -486,6 +500,78 @@ describe('ZoomConnectionNotice', () => {
     expect(trackEvent).toHaveBeenCalledWith('zoom_connection_degraded', expect.objectContaining({
       detected: 'mid_session',
     }));
+  });
+
+  // A drop reported mid-speech must not cover the timer: the banner goes up
+  // at once and carries the fix, and the explanation waits for Stop.
+  it('holds the modal while the timer runs and shows it once the speech stops', async () => {
+    authorizedInZoom();
+    const { rerender } = renderNotice();
+    await settleMount();
+    setTimerRunning(true, rerender);
+
+    act(() => statusCallback()('authenticated'));
+
+    expect(screen.getByRole('status')).toHaveTextContent(/asks permission on every color change/);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledWith('zoom_connection_degraded', expect.objectContaining({
+      detected: 'mid_session',
+    }));
+
+    setTimerRunning(false, rerender);
+
+    const modal = within(screen.getByRole('dialog'));
+    expect(modal.getByText('Approve Toastmusters Timer in Zoom')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  // The rule is the modal's, not the trigger's: an app opened mid-speech (a
+  // webview Zoom tore down and the timer restored) waits too.
+  it('holds the on-open modal while a restored speech is still running', async () => {
+    inGuestMode();
+    setTimerRunning(true);
+    const { rerender } = renderNotice();
+
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    setTimerRunning(false, rerender);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  // Once per session still holds for a queued modal: one already seen stays
+  // closed when the speech ends, and the banner alone carries the fix.
+  it('does not open a queued modal on stop if it was already seen this session', async () => {
+    sessionStorage.setItem('toastmaster_reconnect_modal_seen', '1');
+    authorizedInZoom();
+    const { rerender } = renderNotice();
+    await settleMount();
+    setTimerRunning(true, rerender);
+    act(() => statusCallback()('authenticated'));
+
+    setTimerRunning(false, rerender);
+
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // Acting on the banner while the modal waits is acting on the notice: the
+  // explanation has nothing left to ask for once the speech ends.
+  it('drops the queued modal when the banner is used during the speech', async () => {
+    const user = userEvent.setup();
+    authorizedInZoom();
+    const { rerender } = renderNotice();
+    await settleMount();
+    setTimerRunning(true, rerender);
+    act(() => statusCallback()('authenticated'));
+
+    await user.click(within(screen.getByRole('status')).getByRole('button', { name: /approve in zoom/i }));
+    setTimerRunning(false, rerender);
+
+    expect(promptZoomAuthorize).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
   it('stops listening for status changes when it unmounts', async () => {
