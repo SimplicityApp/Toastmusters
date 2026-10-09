@@ -143,19 +143,19 @@ describe('handleAuthStart', () => {
 });
 
 describe('handleOAuthCallback', () => {
-  function zoomFetch({ tokenOk = true, meOk = true, id = 'zoom-user-1' } = {}) {
+  function zoomFetch({ tokenOk = true, meOk = true, id = 'zoom-user-1', me = { id, email: 'a@b.c' } } = {}) {
     return vi.fn(async (url) => {
       if (String(url).startsWith('https://zoom.us/oauth/token')) {
         return new Response(JSON.stringify(tokenOk ? { access_token: 'at', refresh_token: 'rt' } : { error: 'x' }), { status: tokenOk ? 200 : 400 });
       }
       if (String(url).startsWith('https://api.zoom.us/v2/users/me')) {
-        return new Response(JSON.stringify(meOk ? { id, email: 'a@b.c' } : {}), { status: meOk ? 200 : 401 });
+        return new Response(JSON.stringify(meOk ? me : {}), { status: meOk ? 200 : 401 });
       }
       throw new Error(`unexpected fetch ${url}`);
     });
   }
 
-  async function startAndCallback({ code = 'the-code', withNonce = true, tamperState = false, fetchImpl = zoomFetch(), stateOverride } = {}) {
+  async function startAndCallback({ code = 'the-code', withNonce = true, tamperState = false, fetchImpl = zoomFetch(), stateOverride, callbackEnv = env } = {}) {
     const startUrl = new URL('https://www.example.test/api/auth/zoom/start?returnTo=%2Faccount');
     const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW });
     const location = new URL(started.headers.get('location'));
@@ -167,7 +167,7 @@ describe('handleOAuthCallback', () => {
     cb.searchParams.set('state', state);
     if (code) cb.searchParams.set('code', code);
     const req = new Request(cb, { headers: withNonce ? { cookie: `tt_oauth=${nonce}` } : {} });
-    return { promise: handleOAuthCallback(req, cb, env, { fetchImpl, now: NOW + 1000 }), fetchImpl };
+    return { promise: handleOAuthCallback(req, cb, callbackEnv, { fetchImpl, now: NOW + 1000 }), fetchImpl };
   }
 
   it('exchanges the code, reads the Zoom user id and sets a 30-day session cookie', async () => {
@@ -214,6 +214,71 @@ describe('handleOAuthCallback', () => {
     const noProfile = await (await startAndCallback({ fetchImpl: zoomFetch({ meOk: false }) })).promise;
     expect(noProfile.headers.get('location')).toContain('reason=profile');
     expect(cookieValue(noProfile, SESSION_COOKIE)).toBeNull();
+  });
+
+  describe('saving the Zoom contact', () => {
+    const CONTACT_KEY = 'contact:zoom:zoom-user-1';
+    const fullMe = { id: 'zoom-user-1', email: ' Sarah@Example.com ', first_name: 'Sarah', last_name: 'Smith' };
+
+    function makeKv() {
+      const store = new Map();
+      return {
+        store,
+        get: async (key, type) => {
+          const raw = store.get(key);
+          if (raw === undefined) return null;
+          return type === 'json' ? JSON.parse(raw) : raw;
+        },
+        put: vi.fn(async (key, value) => { store.set(key, value); }),
+      };
+    }
+
+    it('stores the email and name Zoom returned, then signs the user in', async () => {
+      const kv = makeKv();
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: fullMe }), callbackEnv: { ...env, PROFILES: kv } });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+      expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
+      expect(JSON.parse(kv.store.get(CONTACT_KEY))).toEqual({
+        email: 'sarah@example.com', firstName: 'Sarah', lastName: 'Smith', updatedAt: NOW + 1000,
+      });
+    });
+
+    // A KV hiccup must never cost the user their sign-in.
+    it('still signs the user in when the write fails', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const kv = makeKv();
+      kv.put = vi.fn(async () => { throw new Error('kv down'); });
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: fullMe }), callbackEnv: { ...env, PROFILES: kv } });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+      expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
+      expect(kv.put).toHaveBeenCalledTimes(1);
+      expect(errors).toHaveBeenCalledWith('Failed to save Zoom contact for', 'zoom-user-1', 'kv down');
+      errors.mockRestore();
+    });
+
+    it('writes nothing when Zoom sends no email or name', async () => {
+      const kv = makeKv();
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: { id: 'zoom-user-1', email: '' } }), callbackEnv: { ...env, PROFILES: kv } });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+      expect(kv.put).not.toHaveBeenCalled();
+    });
+
+    it('signs in as before when no namespace is bound', async () => {
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: fullMe }) });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+    });
   });
 
   it('rejects an expired state', async () => {

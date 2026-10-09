@@ -15,7 +15,9 @@ bought inside Zoom is Pro on the web with nothing to link.
   → 302 https://zoom.us/oauth/authorize?...&redirect_uri=<WEB_ORIGIN>/oauth/redirect&state=…
 Zoom consent → 302 /oauth/redirect?code=…&state=…
   Worker: state verified + nonce cookie matches → POST zoom.us/oauth/token
-        → GET api.zoom.us/v2/users/me → id → 30-day session token
+        → GET api.zoom.us/v2/users/me → id
+        → save email + name under contact:zoom:<id> (best-effort, worker/contact.js)
+        → 30-day session token
         → Set-Cookie tt_session (HttpOnly; Secure; SameSite=Lax; host-only)
         → 302 <WEB_ORIGIN>/timer/app
 /api/me re-issues the cookie when it is older than a day (sliding session).
@@ -27,6 +29,14 @@ sends no `state`. Only a request carrying a state the Worker signed is treated
 as a sign-in; everything else falls through to the SPA's install-success page.
 A session is never set without a valid state and matching nonce cookie.
 
+An install or re-add that arrives with a `code` and no `state` still gets the
+install-success page at once, unchanged. In `ctx.waitUntil` the Worker spends
+that code (`captureInstallContact` in `worker/contact.js`, redirect URI
+`url.origin + /oauth/redirect`) only to call `users/me` and save the contact
+record described below. No session is minted from it, which is why it needs no
+state: a forged code can only save its own owner's details under their own uid.
+A reload re-sends a spent code, and that exchange fails harmlessly.
+
 ## What must be true in the Zoom Marketplace app
 
 1. **Redirect URL** `https://www.timer.simple-tech.app/oauth/redirect` (prod)
@@ -34,7 +44,8 @@ A session is never set without a valid state and matching nonce cookie.
    registered for the install flow. Must equal `WEB_ORIGIN + /oauth/redirect`.
 2. **Scope** for `GET /v2/users/me`: `user:read:user` (granular) — or
    `user:read` on a classic-scope app. Without it the callback fails with
-   `reason=profile` and nobody can sign in on the web.
+   `reason=profile` and nobody can sign in on the web. The same scope is what
+   returns the user's email and name, which the Worker saves (see below).
 
    Adding a scope does not cut existing users off at once: Zoom keeps their
    current authorization working for 90 days, then the refresh token expires
@@ -74,6 +85,17 @@ When the domain migration makes `timer.toastmusters.com` canonical, change
 - Zoom access/refresh tokens are never stored. Nothing calls Zoom on the
   user's behalf after sign-in.
 - Session tokens carry only `uid`, `iat`, `exp`. No email, no name.
+- The sign-in does store the user's Zoom email and name, outside the session:
+  between `users/me` and the session mint, the callback awaits
+  `saveZoomContact`, which writes `{ email, firstName, lastName, updatedAt }`
+  to `contact:zoom:<uid>` in `PROFILES`. It merges field by field, never
+  replaces a stored email with an empty or invalid one, and skips the write
+  when nothing changed. It runs inside its own `.catch`, so a missing binding
+  or a KV error is logged and the sign-in still succeeds. No endpoint returns
+  the record (the Zoom app learns only `contactKnown` from
+  `/api/zoom/session`), and it is deleted when the user uninstalls with "don't
+  retain data". The same record is filled by the install door above and by
+  the Zoom app's in-client `authorize` (`POST /api/zoom/contact`).
 
 ## Testing on dev
 
@@ -81,6 +103,8 @@ When the domain migration makes `timer.toastmusters.com` canonical, change
    **Sign in with Zoom** in the top bar, allow.
 2. You land back on `/timer/app`; the top bar shows **Account** (or **Pro**).
    PostHog now shows the person `zoom:<uid>` with `surface: web`.
+   `npx wrangler kv key get --binding PROFILES --env dev --remote 'contact:zoom:<uid>'`
+   shows your Zoom email and name. Signing in again leaves `updatedAt` as it was.
 3. Change a timing rule; `wrangler tail --env dev` shows `PUT /api/profile`
    (200 if Pro or unenforced, 402 otherwise). Open the Zoom app on dev: the rule
    is there.

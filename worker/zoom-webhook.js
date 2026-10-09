@@ -135,8 +135,9 @@ export async function handleZoomWebhook(request, env, ctx) {
     const accountId = payload?.account_id;
 
     // Zoom sends user_data_retention as the string "false" when the user asked
-    // us to forget them. Synced settings and artwork go; the Stripe customer
-    // link and any subscription record stay (billing history).
+    // us to forget them. Synced settings, artwork and the saved Zoom email and
+    // name go; the Stripe customer link and any subscription record stay
+    // (billing history).
     const retain = String(payload?.user_data_retention ?? 'true') !== 'false';
     if (!retain && userId) {
       ctx.waitUntil(

@@ -37,6 +37,7 @@ const ANONYMOUS = Object.freeze({
   entitlement: null,
   // Null, not a guess: the flag store reads it as "answered, all off".
   flags: null,
+  contactKnown: false,
 });
 
 /**
@@ -119,6 +120,9 @@ async function resolveOnce() {
       // Which unreleased features to show. Sent for guests and anonymous
       // loads too, so every load ends up knowing.
       flags: session.flags ?? null,
+      // Whether the Worker already holds this user's Zoom email and name.
+      // Only the yes/no; it decides whether utils/contactCapture.js asks.
+      contactKnown: session.contactKnown === true,
     };
   } catch {
     // Offline, the Worker is down, or local development with no endpoint. The
@@ -137,7 +141,7 @@ async function resolveOnce() {
  * @returns {Promise<{identified: boolean, isGuest: boolean, uid: string|null,
  *   token: string|null, authStatus: string|null, role: string|null,
  *   contextType: string|null, meetingId: string|null, entitlement: Object|null,
- *   flags: Object|null}>} never rejects
+ *   flags: Object|null, contactKnown: boolean}>} never rejects
  */
 export function resolveZoomIdentity() {
   if (!identityPromise) {

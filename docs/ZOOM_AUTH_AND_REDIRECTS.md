@@ -28,8 +28,10 @@ is nothing to prompt and the client lists it in `unsupportedApis`.
 
 Consequences:
 
-- **27/28 with only `promptAuthorize` missing is the healthy, fully-authorized
-  panel.** It is not misconfigured.
+- **29/30 with only `promptAuthorize` missing is the healthy, fully-authorized
+  panel.** It is not misconfigured. Until the Marketplace grants `authorize`
+  and `onAuthorized` (the in-client contact capture, see
+  `ZOOM_LISTING_PRO.md`), 27/30 with those two also missing is equally healthy.
 - Enabling it in the Marketplace changes nothing for an authorized user. It
   appears in the granted set exactly when the user is `authenticated`, which is
   exactly when the notice needs it, because `configureZoomSdk()` re-runs on

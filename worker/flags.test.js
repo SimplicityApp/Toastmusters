@@ -848,6 +848,9 @@ describe('the declared flags', () => {
   // expected wherever it has a gate.
   it.each([
     ['pro', ['worker', join('apps', 'zoom-app'), join('apps', 'web')]],
+    // App-only: the Worker endpoint it feeds is not gated, because the
+    // browser doors save the same record unflagged.
+    ['contact_capture', [join('apps', 'zoom-app')]],
   ])('sees the server gate and the UI gates for %s', (key, places) => {
     const files = [...(referencedFlags().get(key) ?? [])];
     for (const place of places) {
