@@ -10,11 +10,9 @@ import {
   Camera,
 } from 'lucide-react'
 import { trackEvent } from '../utils/posthog'
-import { TOOLS, ZOOM_MARKETPLACE_LISTING_URL } from '@toastmaster-timer/shared'
+import { TOOLS, ZOOM_MARKETPLACE_LISTING_URL, zoomAppDeeplink } from '@toastmaster-timer/shared'
 import YouTubePlayer from '../components/YouTubePlayer'
 import AccountMenu from '../components/AccountMenu'
-
-const ZOOM_APP_URL = 'https://marketplace.zoom.us/zoomapp/DsFHK5sNQs2_VFyeQky2sg/context/meeting/target/launch/deeplink'
 
 /**
  * A tutorial screenshot.
@@ -549,6 +547,7 @@ export default function Landing() {
   // Straight to Zoom's install screen for this build's Zoom app; a build
   // without one sends people to the Marketplace listing instead.
   const ADD_TO_ZOOM_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_MARKETPLACE_LISTING_URL
+  const ZOOM_APP_URL = zoomAppDeeplink(import.meta.env.VITE_ZOOM_OAUTH_REDIRECT)
   // The screenshot being viewed full size, or null. One at a time, so it lives
   // here rather than in each Shot.
   const [zoomedShot, setZoomedShot] = useState(null)
