@@ -15,13 +15,15 @@
 /**
  * The localStorage keys that follow the user between devices.
  *
- * `toastmaster_reports` is deliberately absent. Report records carry no stable
- * id and no timestamp ({name, role, duration, color, comments, disqualified}),
- * so there is nothing to merge on: union by value would silently collapse two
- * genuinely different speakers who happen to match, and last-write-wins would
- * drop a meeting recorded on the other device. They are also per-meeting scratch
- * data with a clear operation that a union merge would keep undoing. Syncing
- * them would be worse than not syncing them until the records grow an id.
+ * `toastmaster_reports` is deliberately absent, and stays absent now that the
+ * records have grown a `speechId` and a `finishedAt`. The id is not an
+ * invitation to add them here: the club archive supersedes syncing them
+ * (`clubArchive.js`). A finished speech goes straight to
+ * `speech:<clubId>:<meetingId>:<speechId>`, which is keyed by the *club* rather
+ * than by the person, so it reaches the co-timer on the other laptop — someone
+ * personal sync could never have reached — and survives the Clear button, which
+ * a union merge would keep undoing. Syncing them on top of that would put one
+ * meeting in two places with two different ideas of when it ended.
  */
 export const SYNCED_KEYS = Object.freeze([
   'toastmaster_agenda',

@@ -2,10 +2,53 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import {
+  CLUB_STORAGE_KEY,
+  CLUB_OUTBOX_STORAGE_KEY,
+  resetClubForTests,
+  resetClubArchiveForTests,
+  resetEntitlementForTests,
+} from '@toastmaster-timer/shared';
 import { TimerProvider, useTimer } from '../context/TimerContext';
 import { ToastProvider } from '../context/ToastContext';
 import ReportTab from './ReportTab';
 import { renderWithProviders } from '../test/helpers';
+
+vi.mock('../utils/posthog', () => ({ trackEvent: vi.fn(), initPostHog: vi.fn(), identifyUser: vi.fn() }));
+import { trackEvent } from '../utils/posthog';
+
+/** A club this device has joined, as the cache holds it. */
+const cachedClub = (over = {}) => ({
+  clubToken: 'club.tok',
+  ver: 1,
+  club: { id: 'club-1', name: 'Downtown Speakers' },
+  kit: { name: 'Downtown Speakers', logoUrl: null, primaryColor: '#772432', showOnCards: true, showOnReports: true },
+  badge: null,
+  timezone: 'America/Toronto',
+  role: null,
+  plan: 'pro',
+  entitled: true,
+  status: 'active',
+  currentPeriodEnd: null,
+  cancelAtPeriodEnd: false,
+  source: 'club',
+  lastRefreshAt: Date.now(),
+  ...over,
+});
+
+function joinClub(over) {
+  localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cachedClub(over)));
+  resetClubForTests();
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  localStorage.clear();
+  resetClubForTests();
+  resetClubArchiveForTests();
+  resetEntitlementForTests();
+  global.fetch = vi.fn();
+});
 
 // Wrapper that pre-populates reports before rendering ReportTab
 function ReportTabWithData() {
@@ -177,5 +220,203 @@ describe('ReportTab', () => {
       expect(screen.queryByText('Alice')).not.toBeInTheDocument();
       expect(screen.queryByText('Bob')).not.toBeInTheDocument();
     });
+  });
+
+  // The archive is the one Pro surface on this tab: a free device must not be
+  // able to tell any of it exists.
+  describe('the club archive', () => {
+    it('says nothing at all on a device with no club', () => {
+      renderWithProviders(<ReportTab />);
+      expect(screen.queryByTestId('club-archive-indicator')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /history/i })).not.toBeInTheDocument();
+    });
+
+    it('says nothing once the club has lapsed', () => {
+      joinClub({ entitled: false, plan: 'free', status: 'canceled' });
+      renderWithProviders(<ReportTab />);
+      expect(screen.queryByTestId('club-archive-indicator')).not.toBeInTheDocument();
+    });
+
+    it('names the club it is saving to, even before any speech is timed', () => {
+      joinClub();
+      renderWithProviders(<ReportTab />);
+      expect(screen.getByTestId('club-archive-indicator')).toHaveTextContent('Saved to Downtown Speakers');
+    });
+
+    // The indicator reads outbox emptiness, so a device that lost the network
+    // mid-meeting shows work pending rather than claiming success.
+    it('shows work pending while speeches are still queued', () => {
+      joinClub();
+      localStorage.setItem(
+        CLUB_OUTBOX_STORAGE_KEY,
+        JSON.stringify([
+          { speechId: 'a', meetingId: '20260929', name: 'Alice' },
+          { speechId: 'b', meetingId: '20260929', name: 'Bob' },
+        ])
+      );
+      renderWithProviders(<ReportTab />);
+      expect(screen.getByTestId('club-archive-indicator')).toHaveTextContent('2 speeches waiting to upload');
+    });
+
+    it('opens the club’s meetings, newest first, and tells analytics', async () => {
+      const user = userEvent.setup();
+      joinClub();
+      global.fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          meetings: [
+            { meetingId: '20260929', date: '2026-09-29', title: null, speeches: 6, overtime: 2, live: false },
+            { meetingId: '20260922', date: '2026-09-22', title: 'Contest night', speeches: 4, overtime: 0 },
+          ],
+        }),
+      });
+
+      renderWithProviders(<ReportTab />);
+      await user.click(screen.getByRole('button', { name: /history/i }));
+
+      expect(await screen.findByTestId('report-history-list')).toBeInTheDocument();
+      expect(screen.getByText('Contest night')).toBeInTheDocument();
+      expect(screen.getByText(/2 meetings · 10 speeches/)).toBeInTheDocument();
+      expect(global.fetch.mock.calls[0][0]).toBe('/api/club/meetings');
+      expect(global.fetch.mock.calls[0][1].headers['X-Club']).toBe('club.tok');
+      expect(trackEvent).toHaveBeenCalledWith('report_history_viewed', { meetings: 2, surface: 'web' });
+    });
+
+    it('opens one meeting and lists the speeches in it', async () => {
+      const user = userEvent.setup();
+      joinClub();
+      global.fetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ meetings: [{ meetingId: '20260929', date: '2026-09-29', speeches: 1, overtime: 0 }] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            meeting: {
+              meetingId: '20260929',
+              date: '2026-09-29',
+              speeches: [{ speechId: 's1', name: 'Priya', role: 'Ice Breaker', duration: '4:12', comments: '' }],
+            },
+          }),
+        });
+
+      renderWithProviders(<ReportTab />);
+      await user.click(screen.getByRole('button', { name: /history/i }));
+      await user.click(await screen.findByTestId('meeting-20260929'));
+
+      expect(await screen.findByText('Priya')).toBeInTheDocument();
+      expect(global.fetch.mock.calls[1][0]).toBe('/api/club/meetings/20260929');
+    });
+
+    // Offline in a church hall is the normal case. Nothing is lost, and the
+    // copy has to say so rather than looking like data loss.
+    it('says the club is unreachable rather than failing, when the network is down', async () => {
+      const user = userEvent.setup();
+      joinClub();
+      global.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      renderWithProviders(<ReportTab />);
+      await user.click(screen.getByRole('button', { name: /history/i }));
+
+      expect(await screen.findByTestId('report-history-error')).toHaveTextContent(/Nothing is lost/);
+    });
+  });
+});
+
+/**
+ * The meeting leaves the device two ways, and both are one tap. On a free
+ * device none of this is here at all.
+ */
+describe('end meeting & share', () => {
+  function renderWithClubData() {
+    return render(
+      <MemoryRouter>
+        <ToastProvider>
+          <TimerProvider>
+            <ReportTabWithData />
+          </TimerProvider>
+        </ToastProvider>
+      </MemoryRouter>
+    );
+  }
+
+  it('is not offered on a device with no club', async () => {
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    expect(screen.queryByTestId('end-meeting-share')).not.toBeInTheDocument();
+  });
+
+  it('is not offered once the club has lapsed', async () => {
+    joinClub({ entitled: false, plan: 'free', status: 'canceled' });
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    expect(screen.queryByTestId('end-meeting-share')).not.toBeInTheDocument();
+  });
+
+  it('asks for a title, then offers the four destinations', async () => {
+    const user = userEvent.setup();
+    joinClub();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'ABCDEFGHJKMNPQRS', url: 'https://x/r/ABCDEFGHJKMNPQRS' }),
+    });
+
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    await user.click(screen.getByTestId('end-meeting-share'));
+
+    await user.type(screen.getByLabelText(/give this meeting a name/i), 'Contest night');
+    await user.click(screen.getByTestId('confirm-end-meeting'));
+
+    expect(await screen.findByTestId('share-step')).toBeInTheDocument();
+    // The message is written before it is sent, so a timer about to post into
+    // their club's group chat can read it first.
+    expect(screen.getByTestId('share-message')).toHaveTextContent('Downtown Speakers — Contest night');
+    expect(screen.getByTestId('share-message')).toHaveTextContent('https://x/r/ABCDEFGHJKMNPQRS');
+    expect(screen.getByRole('link', { name: 'WhatsApp' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Email' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy image/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    expect(trackEvent).toHaveBeenCalledWith(
+      'meeting_ended',
+      expect.objectContaining({ speeches: 2, overtime: 1, titled: true, shared: true, surface: 'web' })
+    );
+  });
+
+  // Offline at the end of a meeting. The picture is the destination that needs
+  // no network, so it must not disappear with the link.
+  it('still offers the image when the link could not be created', async () => {
+    const user = userEvent.setup();
+    joinClub();
+    global.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    await user.click(screen.getByTestId('end-meeting-share'));
+    await user.click(screen.getByTestId('confirm-end-meeting'));
+
+    expect(await screen.findByTestId('share-error')).toHaveTextContent(/nothing is lost/i);
+    expect(screen.getByRole('button', { name: /copy link/i })).toBeDisabled();
+    expect(trackEvent).toHaveBeenCalledWith(
+      'meeting_ended',
+      expect.objectContaining({ shared: false, titled: false })
+    );
+  });
+
+  it('counts a copied-as-text report as a share too', async () => {
+    const user = userEvent.setup();
+    renderWithClubData();
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /copy report to clipboard/i }));
+
+    expect(trackEvent).toHaveBeenCalledWith('report_shared', { channel: 'text', surface: 'web' });
   });
 });

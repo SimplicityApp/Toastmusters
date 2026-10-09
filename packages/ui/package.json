@@ -1,1 +1,20 @@
-{ "name": "@toastmaster-timer/ui", "private": true, "version": "1.0.0" }
+{
+  "name": "@toastmaster-timer/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./BrandedReportHeader": "./BrandedReportHeader.jsx",
+    "./ClubBadge": "./ClubBadge.jsx",
+    "./ClubGraceBanner": "./ClubGraceBanner.jsx",
+    "./ClubSetupCard": "./ClubSetupCard.jsx",
+    "./ReportHistoryList": "./ReportHistoryList.jsx",
+    "./ShareStep": "./ShareStep.jsx",
+    "./content-pages.css": "./content-pages.css"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  }
+}

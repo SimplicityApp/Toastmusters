@@ -56,6 +56,19 @@ describe('the Content-Security-Policy the app ships', () => {
       expect(imgSrc, `img-src in ${path} must allow blob:`).toContain('blob:');
     }
   });
+
+  it('lets the club logo load from our own origin', () => {
+    // The brand kit's logo is served by the Worker at
+    // /api/club-assets/<clubId>/<name> — same origin on every host the apps run
+    // on, including zoom.<domain>, since that path is dispatched ahead of host
+    // routing. So 'self' is the whole requirement, and naming it here is what
+    // stops a future tightening of img-src taking the badge and the branded
+    // report header down silently.
+    for (const { path, policy } of policies()) {
+      const imgSrc = policy.match(/img-src ([^;]*)/)?.[1];
+      expect(imgSrc, `img-src in ${path} must allow same-origin images`).toContain("'self'");
+    }
+  });
 });
 
 describe('the root policy the Worker serves', () => {
@@ -65,6 +78,18 @@ describe('the root policy the Worker serves', () => {
 
   it('is defined', () => {
     expect(rootPolicy).toBeDefined();
+  });
+
+  it('lets the shared report page style and illustrate itself', () => {
+    // GET /r/<token> is Worker-rendered HTML with an inline <style> block and
+    // an <img> of the club's logo from /api/club-assets/ — both same-origin,
+    // which is why this phase needed no CSP change at all. Naming it here is
+    // what stops a future tightening of style-src taking a page nobody has a
+    // dev-server view of down silently: the dev server sends no CSP.
+    const styleSrc = rootPolicy.match(/style-src ([^;]*)/)?.[1];
+    const imgSrc = rootPolicy.match(/img-src ([^;]*)/)?.[1];
+    expect(styleSrc).toContain("'unsafe-inline'");
+    expect(imgSrc).toContain("'self'");
   });
 
   it('lets content pages load their Google Fonts', () => {

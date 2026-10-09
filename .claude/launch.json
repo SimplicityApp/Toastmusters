@@ -61,15 +61,6 @@
         "3011"
       ],
       "port": 3011
-    },
-    {
-      "name": "tabletopics-worker",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev:tabletopics"
-      ],
-      "port": 8789
     }
   ]
 }

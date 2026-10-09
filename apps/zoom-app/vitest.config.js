@@ -9,10 +9,12 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.test.{js,jsx}'],
+    setupFiles: ['../../test/jsdom-webstorage.js'],
   },
   resolve: {
     alias: {
       '@toastmaster-timer/shared': path.resolve(__dirname, '../../packages/shared'),
+      '@toastmaster-timer/ui': path.resolve(__dirname, '../../packages/ui'),
     },
   },
 });

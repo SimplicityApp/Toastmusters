@@ -1,4 +1,5 @@
-import { readAppContext, readZoomUserStatus } from './zoomSdk';
+import { clubHeaders } from '@toastmaster-timer/shared';
+import { readAppContext, readZoomUserSummary } from './zoomSdk';
 
 /**
  * Recognising a returning user, without ever asking them to sign in.
@@ -30,6 +31,12 @@ const ANONYMOUS = Object.freeze({
   uid: null,
   token: null,
   authStatus: null,
+  role: null,
+  contextType: null,
+  meetingId: null,
+  entitlement: null,
+  // Null, not a guess: the flag store reads it as "answered, all off".
+  flags: null,
 });
 
 /**
@@ -42,7 +49,9 @@ const ANONYMOUS = Object.freeze({
 async function requestSession(context) {
   const response = await fetch(SESSION_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // The club rides along so the entitlement that comes back is the combined
+    // one; without it the answer would overwrite club-derived Pro with free.
+    headers: { 'Content-Type': 'application/json', ...clubHeaders() },
     body: JSON.stringify(context ? { context } : {}),
     // Identity is per-user; a cached response would hand us someone else's.
     cache: 'no-store',
@@ -83,10 +92,12 @@ async function resolveOnce() {
   // Status is read alongside the context, not after it: it is the thing that
   // tells a guest apart from a client that failed us, and it is worth having
   // even when there is no identity to be had.
-  const [context, authStatus] = await Promise.all([
+  const [context, summary] = await Promise.all([
     readAppContext().catch(() => null),
-    readZoomUserStatus().catch(() => null),
+    readZoomUserSummary().catch(() => ({ status: null, role: null })),
   ]);
+  const authStatus = summary?.status ?? null;
+  const role = summary?.role ?? null;
 
   try {
     const session = await requestSession(context);
@@ -98,11 +109,21 @@ async function resolveOnce() {
       uid: session.uid ?? null,
       token: session.token ?? null,
       authStatus,
+      role,
+      // Where the app was opened ('meeting', 'panel', 'webinar') and in which
+      // meeting. Decrypted server-side with the uid, so they are trustworthy.
+      contextType: session.contextType ?? null,
+      meetingId: session.meetingId ?? null,
+      // What this user may use, as the server decided it. Null for guests.
+      entitlement: session.entitlement ?? null,
+      // Which unreleased features to show. Sent for guests and anonymous
+      // loads too, so every load ends up knowing.
+      flags: session.flags ?? null,
     };
   } catch {
     // Offline, the Worker is down, or local development with no endpoint. The
     // app is fully usable without an identity, so this is not worth surfacing.
-    return { ...ANONYMOUS, authStatus };
+    return { ...ANONYMOUS, authStatus, role };
   }
 }
 
@@ -114,7 +135,9 @@ async function resolveOnce() {
  * answer rather than starting another round trip.
  *
  * @returns {Promise<{identified: boolean, isGuest: boolean, uid: string|null,
- *   token: string|null, authStatus: string|null}>} never rejects
+ *   token: string|null, authStatus: string|null, role: string|null,
+ *   contextType: string|null, meetingId: string|null, entitlement: Object|null,
+ *   flags: Object|null}>} never rejects
  */
 export function resolveZoomIdentity() {
   if (!identityPromise) {

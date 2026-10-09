@@ -64,4 +64,28 @@ describe('TimerDisplay', () => {
       expect(screen.queryByText(/phase/i)).not.toBeInTheDocument();
     });
   });
+
+  describe('the club badge', () => {
+    const kit = { name: 'Claude Test Club', primaryColor: '#772432', logoUrl: null, showOnCards: true };
+    const placement = { x: 0.8, y: 0.12, scale: 0.12, visible: true };
+
+    // The tile is `aspect-square`, so 44% of *it* is barely half of 44% of the
+    // 16:9 frame the canvas renderer draws on — which is how a name that fitted
+    // on the video truncated to "C…" in the preview next to it.
+    it('caps its width against the 16:9 frame it will land on, not the square tile', () => {
+      render(<TimerDisplay elapsedTime={0} status="blue" clubKit={kit} badgePlacement={placement} />);
+
+      const badge = screen.getByTestId('club-badge');
+      expect(badge).toHaveTextContent('Claude Test Club');
+      // 44% of a 16:9 frame of this badge's own height.
+      expect(badge.style.maxWidth).toBe('calc(78.22cqh)');
+    });
+
+    it('draws nothing when the club turned the badge off', () => {
+      render(
+        <TimerDisplay elapsedTime={0} status="blue" clubKit={{ ...kit, showOnCards: false }} badgePlacement={placement} />
+      );
+      expect(screen.queryByTestId('club-badge')).not.toBeInTheDocument();
+    });
+  });
 });

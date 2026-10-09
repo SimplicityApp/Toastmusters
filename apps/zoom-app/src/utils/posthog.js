@@ -122,6 +122,26 @@ export function setUserProperties(properties = {}) {
 }
 
 /**
+ * Attach properties to every event captured from now on (PostHog "super
+ * properties"), for facts about this session rather than about the person —
+ * which meeting this is, where the app was opened. Not persisted: the next
+ * meeting must not inherit this one's id.
+ *
+ * @param {Object} properties
+ */
+export function registerSessionProperties(properties = {}) {
+  try {
+    if (posthog && posthog.__loaded) {
+      posthog.register(properties, { persistent: false });
+    }
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('PostHog register failed:', error);
+    }
+  }
+}
+
+/**
  * Reset user identification (for logout)
  */
 export function resetUser() {

@@ -1,0 +1,262 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { handleStripeWebhook } from './stripe-webhook.js';
+import { signStripePayload } from './stripe.js';
+import { entitlementKey, resolveEntitlement } from './entitlements.js';
+import { uidByCustomerKey, customerByUidKey } from './billing.js';
+import { clubPendingKey, clubByCustomerKey } from './club-admin.js';
+
+const WEBHOOK_SECRET = 'whsec_test';
+const NOW = 1_800_000_000_000;
+
+function makeKv(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  const puts = [];
+  return {
+    store,
+    puts,
+    get: async (key, type) => {
+      const raw = store.get(key);
+      if (raw === undefined) return null;
+      return type === 'json' ? JSON.parse(raw) : raw;
+    },
+    put: async (key, value, options) => { store.set(key, value); puts.push({ key, options }); },
+    delete: async (key) => { store.delete(key); },
+  };
+}
+
+const activeSub = (over = {}) => ({
+  id: 'sub_1',
+  status: 'active',
+  customer: 'cus_1',
+  cancel_at_period_end: false,
+  metadata: { uid: 'u1' },
+  items: { data: [{ price: { id: 'price_m', lookup_key: 'pro_monthly' }, current_period_end: 1_900_000_000 }] },
+  ...over,
+});
+
+let kv;
+let env;
+let stripe;
+
+beforeEach(() => {
+  kv = makeKv();
+  env = { PROFILES: kv, STRIPE_SECRET_KEY: 'sk_test', STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, ENTITLEMENT_ENFORCE: '1' };
+  stripe = { retrieveSubscription: vi.fn(async () => activeSub()) };
+});
+
+function deliver(event, { sign = true, at = NOW, secret = WEBHOOK_SECRET, method = 'POST' } = {}) {
+  const body = JSON.stringify(event);
+  const headers = { 'content-type': 'application/json' };
+  if (sign) headers['stripe-signature'] = signStripePayload(body, secret, Math.floor(at / 1000));
+  const request = new Request('https://www.example.test/api/stripe/webhook', {
+    method,
+    headers,
+    ...(method === 'GET' ? {} : { body }),
+  });
+  return handleStripeWebhook(request, env, { stripe, now: NOW });
+}
+
+const event = (type, object, id = 'evt_1') => ({ id, type, data: { object } });
+
+describe('handleStripeWebhook security', () => {
+  it('rejects unsigned, mis-signed and stale deliveries', async () => {
+    const e = event('customer.subscription.updated', activeSub());
+    expect((await deliver(e, { sign: false })).status).toBe(400);
+    expect((await deliver(e, { secret: 'whsec_wrong' })).status).toBe(400);
+    expect((await deliver(e, { at: NOW - 10 * 60 * 1000 })).status).toBe(400);
+    expect(kv.store.has(entitlementKey('u1'))).toBe(false);
+  });
+
+  it('only accepts POST and needs its secret configured', async () => {
+    expect((await deliver(event('x', {}), { method: 'GET' })).status).toBe(405);
+    env.STRIPE_WEBHOOK_SECRET = undefined;
+    expect((await deliver(event('x', {}))).status).toBe(503);
+  });
+});
+
+describe('subscription lifecycle', () => {
+  it('projects a checkout completion into a pro entitlement and links the customer', async () => {
+    const res = await deliver(
+      event('checkout.session.completed', { id: 'cs_1', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_1' })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, applied: true, uid: 'u1' });
+    expect(stripe.retrieveSubscription).toHaveBeenCalledWith('sub_1');
+    expect(kv.store.get(customerByUidKey('u1'))).toBe('cus_1');
+    expect(kv.store.get(uidByCustomerKey('cus_1'))).toBe('u1');
+    expect(await resolveEntitlement(env, 'u1', NOW)).toMatchObject({ plan: 'pro', entitled: true, source: 'subscription' });
+  });
+
+  // The event body is never the final word: the subscription is re-fetched, so
+  // an old "active" arriving after a newer "canceled" cannot resurrect access.
+  it('re-fetches the subscription so out-of-order events converge', async () => {
+    stripe.retrieveSubscription.mockResolvedValue(activeSub({ status: 'canceled', items: { data: [{ current_period_end: 1_700_000_000 }] } }));
+    await deliver(event('customer.subscription.updated', activeSub({ status: 'active' }), 'evt_late_active'));
+
+    const stored = JSON.parse(kv.store.get(entitlementKey('u1')));
+    expect(stored.status).toBe('canceled');
+    expect((await resolveEntitlement(env, 'u1', NOW)).entitled).toBe(false);
+  });
+
+  it('finds the uid through the customer link when metadata is missing', async () => {
+    kv.store.set(uidByCustomerKey('cus_1'), 'u1');
+    stripe.retrieveSubscription.mockResolvedValue(activeSub({ metadata: {} }));
+    const res = await deliver(event('customer.subscription.created', activeSub({ metadata: {} })));
+    expect(await res.json()).toMatchObject({ applied: true, uid: 'u1' });
+  });
+
+  it('acknowledges but cannot apply a subscription with no known user', async () => {
+    stripe.retrieveSubscription.mockResolvedValue(activeSub({ metadata: {}, customer: 'cus_stranger' }));
+    const res = await deliver(event('customer.subscription.created', activeSub({ metadata: {}, customer: 'cus_stranger' })));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ applied: false, reason: 'no_uid' });
+  });
+
+  it('marks deletion by projecting the canceled subscription', async () => {
+    kv.store.set(entitlementKey('u1'), JSON.stringify({ status: 'active', currentPeriodEnd: NOW + 1 }));
+    stripe.retrieveSubscription.mockResolvedValue(activeSub({ status: 'canceled', items: { data: [{ current_period_end: Math.floor(NOW / 1000) - 60 }] } }));
+    await deliver(event('customer.subscription.deleted', activeSub({ status: 'canceled' })));
+    expect((await resolveEntitlement(env, 'u1', NOW)).entitled).toBe(false);
+  });
+
+  it('treats a payment failure as a signal only', async () => {
+    const res = await deliver(event('invoice.payment_failed', { customer: 'cus_1' }));
+    expect(res.status).toBe(200);
+    expect(stripe.retrieveSubscription).not.toHaveBeenCalled();
+    expect(kv.store.has(entitlementKey('u1'))).toBe(false);
+  });
+
+  it('falls back to the event body when no secret key is available to re-fetch', async () => {
+    env.STRIPE_SECRET_KEY = undefined;
+    const res = await handleStripeWebhook(
+      new Request('https://x/api/stripe/webhook', {
+        method: 'POST',
+        headers: { 'stripe-signature': signStripePayload(JSON.stringify(event('customer.subscription.updated', activeSub())), WEBHOOK_SECRET, Math.floor(NOW / 1000)) },
+        body: JSON.stringify(event('customer.subscription.updated', activeSub())),
+      }),
+      env,
+      { now: NOW }
+    );
+    expect(await res.json()).toMatchObject({ applied: true, uid: 'u1' });
+  });
+});
+
+describe('the club a payment leaves behind', () => {
+  const checkout = (over = {}) => ({
+    id: 'cs_1',
+    client_reference_id: 'u1',
+    customer: 'cus_1',
+    subscription: 'sub_1',
+    metadata: { uid: 'u1', club_name: 'Downtown Speakers' },
+    customer_details: { email: 'treasurer@downtown.example' },
+    ...over,
+  });
+
+  const createdClub = () => {
+    const clubId = kv.store.get(clubByCustomerKey('cus_1'));
+    return clubId ? JSON.parse(kv.store.get(`club:${clubId}`)) : null;
+  };
+
+  // Payment is the one moment the club's name and an address both exist, and
+  // the one moment the buyer is paying attention. The club is theirs before
+  // they go looking for it, with no operator in the loop.
+  it('creates the club, carrying the name and the billing address into it', async () => {
+    await deliver(event('checkout.session.completed', checkout()));
+
+    expect(createdClub()).toMatchObject({
+      name: 'Downtown Speakers',
+      billingEmail: 'treasurer@downtown.example',
+      stripeCustomerId: 'cus_1',
+      plan: 'pro',
+      status: 'active',
+    });
+    // The operator path is the exception now, so nothing is queued.
+    expect(kv.store.has(clubPendingKey('cus_1'))).toBe(false);
+  });
+
+  it('makes the buyer the admin of the club they paid for', async () => {
+    await deliver(event('checkout.session.completed', checkout()));
+    const clubId = kv.store.get(clubByCustomerKey('cus_1'));
+    expect(JSON.parse(kv.store.get(`club-member:${clubId}:zoom:u1`))).toMatchObject({ role: 'admin' });
+  });
+
+  // An empty field never blocks checkout; the club is named after its code.
+  it('creates a club with a placeholder name when the buyer skipped the field', async () => {
+    await deliver(event('checkout.session.completed', checkout({ metadata: { uid: 'u1' } })));
+    expect(createdClub().name).toMatch(/^Club [0-9A-Z]{4}$/);
+  });
+
+  // Not 'active' by assumption: the club must lapse on the date the buyer was
+  // actually told, which only the subscription knows.
+  it('copies the plan off the subscription rather than assuming it is active', async () => {
+    stripe.retrieveSubscription = vi.fn(async () =>
+      activeSub({ status: 'past_due', cancel_at_period_end: true })
+    );
+    await deliver(event('checkout.session.completed', checkout()));
+
+    expect(createdClub()).toMatchObject({
+      status: 'past_due',
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: 1_900_000_000_000,
+    });
+  });
+
+  // The sale must never fail because the club could not be minted.
+  it('falls back to the pending record when creation cannot happen', async () => {
+    // No customer id: nothing to key a club on, and nothing to look one up by.
+    await deliver(event('checkout.session.completed', checkout({ customer: null })));
+    expect(createdClub()).toBeNull();
+  });
+
+  it('does not queue a second club for a customer who already has one', async () => {
+    kv.store.set(clubByCustomerKey('cus_1'), 'club-1');
+    await deliver(event('checkout.session.completed', checkout()));
+    expect(kv.store.has(clubPendingKey('cus_1'))).toBe(false);
+  });
+
+  // The pending record rides the same idempotency marker as everything else:
+  // a redelivered event short-circuits before any of this runs.
+  it('writes once, because a duplicate event never reaches it', async () => {
+    await deliver(event('checkout.session.completed', checkout(), 'evt_dup'));
+    kv.store.delete(clubPendingKey('cus_1'));
+
+    const again = await deliver(event('checkout.session.completed', checkout(), 'evt_dup'));
+
+    expect(await again.json()).toEqual({ received: true, duplicate: true });
+    expect(kv.store.has(clubPendingKey('cus_1'))).toBe(false);
+  });
+});
+
+describe('idempotency and retries', () => {
+  it('processes an event once and treats redelivery as a no-op', async () => {
+    await deliver(event('customer.subscription.updated', activeSub(), 'evt_same'));
+    const again = await deliver(event('customer.subscription.updated', activeSub(), 'evt_same'));
+    expect(await again.json()).toEqual({ received: true, duplicate: true });
+    expect(stripe.retrieveSubscription).toHaveBeenCalledTimes(1);
+
+    const marker = kv.puts.find((p) => p.key === 'stripe:event:evt_same');
+    expect(marker.options).toEqual({ expirationTtl: 30 * 24 * 60 * 60 });
+  });
+
+  it('returns 500 without remembering the event when processing fails, so Stripe retries', async () => {
+    stripe.retrieveSubscription.mockRejectedValue(new Error('stripe down'));
+    const res = await deliver(event('customer.subscription.updated', activeSub(), 'evt_fail'));
+    expect(res.status).toBe(500);
+    expect(kv.store.has('stripe:event:evt_fail')).toBe(false);
+  });
+
+  it('rejects malformed JSON and events without an id', async () => {
+    const raw = 'not json';
+    const res = await handleStripeWebhook(
+      new Request('https://x/api/stripe/webhook', {
+        method: 'POST',
+        headers: { 'stripe-signature': signStripePayload(raw, WEBHOOK_SECRET, Math.floor(NOW / 1000)) },
+        body: raw,
+      }),
+      env,
+      { stripe, now: NOW }
+    );
+    expect(res.status).toBe(400);
+    expect((await deliver({ type: 'x', data: {} })).status).toBe(400);
+  });
+});

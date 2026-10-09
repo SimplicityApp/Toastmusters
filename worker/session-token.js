@@ -33,12 +33,15 @@ function sign(encodedPayload, secret) {
  * @param {string} uid - Zoom user id, from a verified context decrypt only
  * @param {string} secret - SESSION_SIGNING_KEY
  * @param {number} [now] - epoch ms, injectable for tests
+ * @param {number} [ttlMs] - lifetime; defaults to 24h (the Zoom app re-mints on
+ *   every load). Web sessions pass a longer one.
  * @returns {string|null} `payload.signature`, or null if it cannot be signed
  */
-export function mintSessionToken(uid, secret, now = Date.now()) {
+export function mintSessionToken(uid, secret, now = Date.now(), ttlMs = TOKEN_TTL_MS) {
   if (!uid || typeof uid !== 'string' || !secret) return null;
+  const ttl = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : TOKEN_TTL_MS;
 
-  const encodedPayload = base64url(JSON.stringify({ uid, iat: now, exp: now + TOKEN_TTL_MS }));
+  const encodedPayload = base64url(JSON.stringify({ uid, iat: now, exp: now + ttl }));
   return `${encodedPayload}${SEPARATOR}${sign(encodedPayload, secret)}`;
 }
 
@@ -48,7 +51,7 @@ export function mintSessionToken(uid, secret, now = Date.now()) {
  * @param {string|null|undefined} token
  * @param {string|undefined} secret - SESSION_SIGNING_KEY
  * @param {number} [now] - epoch ms, injectable for tests
- * @returns {{uid: string, exp: number}|null} null whenever the token cannot be trusted
+ * @returns {{uid: string, exp: number, iat: number|null}|null} null whenever the token cannot be trusted
  */
 export function verifySessionToken(token, secret, now = Date.now()) {
   if (!token || typeof token !== 'string' || !secret) return null;
@@ -80,7 +83,7 @@ export function verifySessionToken(token, secret, now = Date.now()) {
   if (!payload || typeof payload.uid !== 'string' || !payload.uid) return null;
   if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
 
-  return { uid: payload.uid, exp: payload.exp };
+  return { uid: payload.uid, exp: payload.exp, iat: typeof payload.iat === 'number' ? payload.iat : null };
 }
 
 /**

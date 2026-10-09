@@ -1,4 +1,4 @@
-import { page, esc, attr } from './layout.mjs';
+import { page, esc, attr, zoomPitch } from './layout.mjs';
 import { questionList } from './widget.mjs';
 import { webPage, breadcrumb } from './seo.mjs';
 
@@ -20,6 +20,7 @@ ${questionList(config, path, set)}
           <button type="button" class="static-cta-primary tt-btn" data-tt-print>Print this set</button>
           <a class="static-cta-secondary tt-btn" href="/">Draw more questions</a>
         </div>
+        ${zoomPitch(config, 'today')}
       </section>
       <section class="static-card static-content">
         <h2>How to use today&rsquo;s set</h2>

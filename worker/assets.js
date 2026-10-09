@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
-import { verifySessionToken, readBearerToken } from './session-token.js';
+import { readSession, readClub } from './auth.js';
+import { resolveAccess } from './entitlements.js';
+import { verifiedClubId } from './club.js';
 
 /**
  * GET/PUT /api/assets/:hash — the custom card artwork a user uploaded.
@@ -51,7 +53,7 @@ export async function handleAsset(request, url, env) {
     return json({ error: 'Asset storage is not configured' }, 503);
   }
 
-  const session = verifySessionToken(readBearerToken(request), env.SESSION_SIGNING_KEY);
+  const session = readSession(request, env);
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const hash = url.pathname.slice('/api/assets/'.length);
@@ -76,6 +78,14 @@ export async function handleAsset(request, url, env) {
   }
 
   if (request.method !== 'PUT') return json({ error: 'Method not allowed' }, 405);
+
+  // Downloads stay open (see profile.js); uploads are the paid part — and a
+  // club code pays for them just as a personal subscription does.
+  const clubId = await verifiedClubId(env, readClub(request, env));
+  const entitlement = await resolveAccess(env, { uid: session.uid, clubId });
+  if (!entitlement.entitled) {
+    return json({ error: 'upgrade_required', entitlement }, 402);
+  }
 
   const declared = Number(request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > MAX_ASSET_BYTES) {

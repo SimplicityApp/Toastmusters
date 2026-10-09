@@ -13,6 +13,50 @@
 
   "observability": { "enabled": true },
 
+  // Non-secret configuration. `vars` are NOT inherited by environments, so the
+  // dev block below repeats them with its own values.
+  //  - WEB_ORIGIN: where Stripe sends people back to (Checkout success/cancel,
+  //    Billing Portal return). Never derived from the request Host.
+  //  - ENTITLEMENT_ENFORCE: "0" lets everyone use the paid features (dev, until
+  //    launch); anything else enforces. The UI still offers the upgrade to
+  //    free-plan users either way, so Checkout can be tested on dev.
+  //  - STRIPE_AUTOMATIC_TAX: "1" once Stripe Tax is enabled in the dashboard.
+  //  - MAGIC_LINK_FROM: the From address on the club admin link. Its domain has
+  //    to be onboarded for sending first (`npx wrangler email sending enable
+  //    toastmusters.com`, which auto-provisions SPF and DKIM; DMARC is not
+  //    auto-added and should be set alongside it). Dev needs its own onboarded
+  //    domain, since env.dev serves the *-dev hosts.
+  //  - ROOT_ORIGIN: the main site of this deployment (www.toastmusters.com on
+  //    prod, www.timer-dev.toastmusters.com on dev). The old toastmusters.com
+  //    subdomains (timer.*, tabletopics.*) 301 there, path for path. Table
+  //    Topics itself is served from this Worker's assets under /tabletopics.
+  //  - FLAGS_FORCE: short-circuits the release flags (worker/flags.js). "1"
+  //    turns every flag on, "0" turns every flag off, anything else asks
+  //    PostHog. Production leaves it "" and always asks. Never "1" here: that
+  //    would light up every dark feature at once, and worker/flags.test.js
+  //    fails if it is.
+  "vars": {
+    "WEB_ORIGIN": "https://www.timer.simple-tech.app",
+    "ROOT_ORIGIN": "https://www.toastmusters.com",
+    "ENTITLEMENT_ENFORCE": "1",
+    "STRIPE_AUTOMATIC_TAX": "0",
+    "MAGIC_LINK_FROM": "no-reply@toastmusters.com",
+    "FLAGS_FORCE": ""
+  },
+
+  // The club admin link, mailed to the club's billing address. A binding rather
+  // than an API key: nothing to store, rotate or leak, and no outbound HTTP
+  // call to wrap the way worker/stripe.js wraps Stripe.
+  //
+  // ⚠️ `"remote": true` on this binding makes `wrangler dev` send REAL mail. It
+  // is the only way to exercise delivery locally, and it belongs in a local
+  // override (wrangler.local.jsonc / --config) — never in this file.
+  //
+  // ⚠️ A hard bounce permanently suppresses the address on the account, and
+  // later sends fail with E_RECIPIENT_SUPPRESSED. The console never claims
+  // delivery; worker/club-magic.js logs suppression loudly instead.
+  "send_email": [{ "name": "EMAIL" }],
+
   // Cross-device user settings, keyed profile:zoom:<uid>. Values are a few KB
   // of preferences, so KV's eventual consistency is fine: the merge is
   // per-field last-write-wins and idempotent, and a stale read costs at most
@@ -40,6 +84,23 @@
     { "binding": "toastmaster_timer_card_assets", "bucket_name": "toastmaster-timer-card-assets", "remote": true },
     { "binding": "toastmaster_timer_card_assets_dev", "bucket_name": "toastmaster-timer-card-assets-dev", "remote": true }
   ],
+
+  // Club activation is the Worker's only public, guessable-input route, so it
+  // is the only one that is throttled. Entropy and throttling both stay because
+  // they fail differently: entropy does nothing against a leaked code, and
+  // throttling does nothing against a short one.
+  // `period` must be 10 or 60; namespace_id is a per-Worker identifier, not an
+  // account resource, so nothing has to be created before deploying.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "CLUB_ACTIVATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": { "limit": 10, "period": 60 }
+      }
+    ]
+  },
 
   // Static Assets: serves the combined monorepo build in ./dist.
   //  - web app (apps/web)        -> served at /
@@ -78,7 +139,11 @@
     // The bare root is parked on this Worker only until the suite landing
     // page exists; it then moves to that project.
     { "pattern": "toastmusters.com", "custom_domain": true },
-    { "pattern": "www.toastmusters.com", "custom_domain": true }
+    { "pattern": "www.toastmusters.com", "custom_domain": true },
+    // Table Topics' old home. It now lives at www.toastmusters.com/tabletopics;
+    // these hosts stay attached to this Worker only to 301 there.
+    { "pattern": "tabletopics.toastmusters.com", "custom_domain": true },
+    { "pattern": "www.tabletopics.toastmusters.com", "custom_domain": true }
   ],
 
   "env": {
@@ -92,7 +157,9 @@
         { "pattern": "zoom.timer-dev.simple-tech.app", "custom_domain": true },
         { "pattern": "timer-dev.toastmusters.com", "custom_domain": true },
         { "pattern": "www.timer-dev.toastmusters.com", "custom_domain": true },
-        { "pattern": "zoom.timer-dev.toastmusters.com", "custom_domain": true }
+        { "pattern": "zoom.timer-dev.toastmusters.com", "custom_domain": true },
+        { "pattern": "tabletopics-dev.toastmusters.com", "custom_domain": true },
+        { "pattern": "www.tabletopics-dev.toastmusters.com", "custom_domain": true }
       ],
       // Bindings are per-environment: the dev Worker needs its own namespace,
       // or staging writes would land in production users' profiles.
@@ -101,16 +168,51 @@
       ],
       "r2_buckets": [
         { "binding": "CARD_ASSETS", "bucket_name": "toastmaster-timer-card-assets-dev" }
-      ]
+      ],
+      // `send_email` is not inherited by environments either. Dev sends from
+      // its own onboarded domain; the magic link is answered with 200 whether
+      // or not the send succeeds, so an un-onboarded dev domain shows up only
+      // in the Worker log.
+      "send_email": [{ "name": "EMAIL" }],
+      // `unsafe` is not inherited by environments; repeated here so dev throttles too.
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "CLUB_ACTIVATE_LIMITER",
+            "type": "ratelimit",
+            "namespace_id": "1001",
+            "simple": { "limit": 10, "period": 60 }
+          }
+        ]
+      },
+      // FLAGS_FORCE "1" keeps dev working with every feature on, and makes no
+      // flag requests. "0" exercises the dark path; clear it to test the real
+      // PostHog round trip.
+      "vars": {
+        "WEB_ORIGIN": "https://www.timer-dev.simple-tech.app",
+        "ROOT_ORIGIN": "https://www.timer-dev.toastmusters.com",
+        "ENTITLEMENT_ENFORCE": "1",
+        "STRIPE_AUTOMATIC_TAX": "0",
+        "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com",
+        "FLAGS_FORCE": "1"
+      }
     }
   }
 
   // Secrets are NOT stored here. Set them per environment with `wrangler secret put`:
-  //   ZOOM_WEBHOOK_SECRET_TOKEN, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, POSTHOG_API_KEY,
+  //   ZOOM_WEBHOOK_SECRET_TOKEN, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
+  //   POSTHOG_API_KEY (the public project key, phc_…: server-side capture from the
+  //     Zoom webhook, and the release flags' POST /flags in worker/flags.js. Missing,
+  //     every flag is at its FLAG_FALLBACKS value, so every gated feature is dark
+  //     unless FLAGS_FORCE says otherwise. See docs/FEATURE_FLAGS.md.)
   //   POSTHOG_QUERY_API_KEY (personal key with Query read scope, for /api/stats)
   //   SESSION_SIGNING_KEY (HMAC key for /api/profile session tokens; generate with
   //     `openssl rand -base64 32`. Deliberately NOT ZOOM_CLIENT_SECRET — that one is
   //     a Zoom credential and the two should rotate independently.)
+  //   STRIPE_SECRET_KEY (sk_test_… on dev, sk_live_… on prod)
+  //   STRIPE_WEBHOOK_SECRET (whsec_… of the endpoint pointing at <WEB_ORIGIN>/api/stripe/webhook)
+  // Entitlement records live in the PROFILES namespace under entitlement:/grant:/stripe:
+  // prefixes. Bind a namespace as ENTITLEMENTS to move them without a code change.
   //   prod: `wrangler secret put NAME`     dev: `wrangler secret put NAME --env dev`
   // For local dev, put them in .dev.vars (see .dev.vars.example).
 }

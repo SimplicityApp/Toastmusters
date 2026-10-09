@@ -1,4 +1,5 @@
 import { verifyZoomSignature, generateCrcResponse } from './zoom-verify.js';
+import { purgeUserData } from './user-data.js';
 
 /** JSON Response helper. */
 function json(data, status = 200) {
@@ -132,6 +133,18 @@ export async function handleZoomWebhook(request, env, ctx) {
     const payload = body.payload;
     const userId = payload?.user_id;
     const accountId = payload?.account_id;
+
+    // Zoom sends user_data_retention as the string "false" when the user asked
+    // us to forget them. Synced settings and artwork go; the Stripe customer
+    // link and any subscription record stay (billing history).
+    const retain = String(payload?.user_data_retention ?? 'true') !== 'false';
+    if (!retain && userId) {
+      ctx.waitUntil(
+        purgeUserData(env, userId)
+          .then((r) => console.log('Purged user data on deauthorization:', userId, JSON.stringify(r)))
+          .catch((err) => console.error('User data purge error:', err.message))
+      );
+    }
 
     await capturePostHogEvent(env, 'zoom_app_uninstalled', {
       distinct_id: userId || 'unknown',

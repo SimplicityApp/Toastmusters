@@ -38,3 +38,9 @@ test-results/
 
 # Synced from packages/ui by apps/web `npm run sync:ui` (predev/prebuild)
 apps/web/public/content-pages.css
+
+# Riptide artifacts (cloud-synced)
+.humanlayer/tasks/
+
+# Intro video work-in-progress clips (large; kept out of git and the deploy via apps/web/public/.assetsignore)
+apps/web/public/video/tmp/

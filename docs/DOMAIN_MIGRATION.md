@@ -1,5 +1,11 @@
 # Migration: `timer.simple-tech.app` → `timer.toastmusters.com`
 
+> **Superseded (2026-10-03).** The suite moved from one subdomain per tool to
+> paths on `www.toastmusters.com` (#81). The current URL map, deploy order and
+> remaining steps are in [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md). This
+> document is kept for its Zoom analysis (why the Zoom host moves last, and
+> the measured storage data behind dropping the bridge).
+
 Moves the site and the Zoom app to a new root domain. `toastmusters.com` will
 host a suite of tools, **one subdomain per tool** (`timer.`, `tabletopics.`, …),
 so the timer keeps its old host shape under the new root. Companion to
@@ -22,7 +28,7 @@ different name is bought, substitute it everywhere below. Hosts used:
 `www` stays the canonical form so the apex→www logic in the Worker is reused
 unchanged in shape. Every other tool follows the same shape in its own Worker;
 the first is the Table Topics generator at `www.tabletopics.toastmusters.com`
-(`toastmusters-tabletopics`, see [TABLE_TOPICS.md](TABLE_TOPICS.md)), which is
+(served by the timer Worker, see [TABLE_TOPICS.md](TABLE_TOPICS.md)), which is
 new on this domain and needs no migration.
 
 Trade-off accepted 2026-09-02: subdomains pool search authority less well than

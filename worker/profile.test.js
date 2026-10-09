@@ -23,7 +23,7 @@ let env;
 
 beforeEach(() => {
   kv = makeKv();
-  env = { PROFILES: kv, SESSION_SIGNING_KEY: SIGNING_KEY };
+  env = { PROFILES: kv, SESSION_SIGNING_KEY: SIGNING_KEY, ENTITLEMENT_ENFORCE: '0' };
 });
 
 const tokenFor = (uid) => mintSessionToken(uid, SIGNING_KEY);
@@ -188,7 +188,7 @@ describe('handleProfile rejects bad input', () => {
 
   // Identity ships before storage, so an unattached binding is a real state.
   it('reports 503 when the KV binding is missing, rather than throwing', async () => {
-    const res = await handleProfile(req('GET', { uid: 'u1' }), { SESSION_SIGNING_KEY: SIGNING_KEY });
+    const res = await handleProfile(req('GET', { uid: 'u1' }), { SESSION_SIGNING_KEY: SIGNING_KEY, ENTITLEMENT_ENFORCE: '0' });
 
     expect(res.status).toBe(503);
   });

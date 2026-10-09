@@ -1,10 +1,14 @@
 # Table Topics Generator (`apps/table-topics`)
 
 Random Table Topics questions for Toastmasters meetings, served at
-**https://www.tabletopics.toastmusters.com** by its own Cloudflare Worker
-(`toastmusters-tabletopics`). First sibling of the timer in the Toastmusters
-suite: one subdomain per tool, cross-linked through `TOOLS` in
-`packages/shared/appLinks.js`.
+**https://www.toastmusters.com/tabletopics/** by the timer Worker itself: the
+build writes the whole site under `/tabletopics`, and `npm run build` copies it
+into the timer's `dist/`, so one Worker and one deploy serve both products
+(`worker/tabletopics.js` adds its 404 page, CSP and cache headers). First sibling of the timer in the Toastmusters
+suite: one path per tool on `www.toastmusters.com`, cross-linked through
+`TOOLS` in `packages/shared/appLinks.js`. The old host,
+`www.tabletopics.toastmusters.com`, 301s every URL to the same page under
+`/tabletopics` (see [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md)).
 
 ## How it works
 
@@ -41,14 +45,23 @@ suite: one subdomain per tool, cross-linked through `TOOLS` in
   dev`), assets, `/404.html` with a real 404, CSP without `unsafe-inline` for
   scripts, HSTS, `X-Robots-Tag: noindex` on `-dev.` hosts, immutable caching for
   `/assets/*`, one hour for `/questions.json`.
+- **Zoom pitch.** The home, Today and category pages carry one line,
+  `zoomPitch()` in `src/templates/layout.mjs`, pointing Zoom meetings at the
+  timer's Zoom app (`www.toastmusters.com/add-to-zoom`), the suite's main
+  product.
 - **Analytics.** `src/analytics.js` loads posthog-js from the proxy
   `e.simple-tech.app` (same key as the timer, read from the repo-root `.env` or
   `VITE_PUBLIC_POSTHOG_*`). Events: `tt_set_shown {question_ids, category, source, count}`,
   `tt_question_shown {question_id, category, source, position}`, `tt_category_selected`, `tt_question_copied`,
   `tt_share_copied`, `tt_timer_deeplink_clicked`, `tt_print_clicked`,
-  `tt_today_viewed {date, swapped}`, `tt_list_expanded`.
+  `tt_today_viewed {date, swapped}`, `tt_list_expanded`. Clicks on any element
+  with `data-cta` send `cta_clicked {cta, location, page}`, the same event as
+  the timer site (see [TOASTMUSTERS_PATHS.md](TOASTMUSTERS_PATHS.md#calls-to-action-and-analytics)).
 
 ## URL map
+
+Paths are under `/tabletopics` on `www.toastmusters.com` (`/` below is
+`www.toastmusters.com/tabletopics/`).
 
 | Path | Page | JSON-LD |
 | --- | --- | --- |
@@ -64,7 +77,9 @@ and `WebSite` nodes.
 
 ## Timer deep link
 
-"Time this" opens `https://www.timer.toastmusters.com/app?role=Table%20Topics%20Speech&name=<question>`.
+"Time this" opens `https://www.toastmusters.com/timer/app?role=Table%20Topics%20Speech&name=<question>`
+(`TIMER_APP_URL`). The link is `rel="nofollow"` and the timer answers these URLs
+with `X-Robots-Tag: noindex`, so the one-per-question deep links stay out of search.
 The web timer (`apps/web/src/utils/speakerDeepLink.js`, used by `LiveTab.jsx`)
 reads `role` and `name` on first mount when no speaker is set, selects the
 role, fills the name, and strips the params. The role must be the exact rules
@@ -76,13 +91,13 @@ key; a persisted speaker wins over the URL.
 npm run install:tabletopics        # once; links packages/shared
 npm run validate:tabletopics       # content check
 npm run build:tabletopics          # -> apps/table-topics/dist
-npm run dev:tabletopics            # build + wrangler dev on :8789 (launch.json: tabletopics-worker)
+npm run build                      # timer + Zoom app + Table Topics -> dist/ (then `npx wrangler dev`)
 npx vitest run --root apps/table-topics   # app only; root `npm test` also covers it once every app is installed
-npm run cf:deploy:tabletopics:dev  # www.tabletopics-dev.toastmusters.com (noindex)
-npm run cf:deploy:tabletopics:prod
 ```
 
-Env for the build: `SITE_ORIGIN` (default prod), `BUILD_DATE`, `QUESTIONS_FILE`,
+Env for the build: `SITE_ORIGIN` (default `https://www.toastmusters.com/tabletopics`;
+its path becomes the base path every page, asset and link is built under),
+`BUILD_DATE`, `QUESTIONS_FILE`,
 `VITE_PUBLIC_POSTHOG_KEY`, `VITE_PUBLIC_POSTHOG_HOST`.
 
 ## Automation
@@ -92,13 +107,17 @@ Env for the build: `SITE_ORIGIN` (default prod), `BUILD_DATE`, `QUESTIONS_FILE`,
   `content/GENERATION_PROMPT.md` (append 3 questions per category, validate,
   test), and opens a PR against `master`. It never merges. Manage it at
   https://claude.ai/code/routines.
-- **Deploy on merge**: `.github/workflows/deploy-tabletopics.yml` runs on push
-  to `master` when `apps/table-topics/**`, `packages/shared/appLinks.js` or
-  `packages/ui/**` change: validate → test → build → `wrangler deploy` →
-  smoke test. Secrets `CLOUDFLARE_API_TOKEN` (Workers Scripts:Edit, Account
-  Settings:Read, Zone DNS:Edit + Workers Routes:Edit on `toastmusters.com`) and
-  `CLOUDFLARE_ACCOUNT_ID`; variables `VITE_PUBLIC_POSTHOG_KEY/HOST`. The timer
-  Worker is never deployed by CI.
+- **Deploy on merge**: there is no separate Table Topics Worker or build. The
+  timer Workers' Cloudflare Workers Builds (`toastmaster-timer` on `master`,
+  `toastmaster-timer-dev` on `dev`) build and deploy it with the timer.
+  Workers Builds renames every `wrangler deploy` to the connected Worker, so a
+  second deploy command would overwrite the timer. Settings:
+  - build: `npm run install:web && npm run install:zoom && npm run install:tabletopics && npm run validate:tabletopics && npx vitest run --root apps/table-topics && npm run build`
+  - deploy: `npx wrangler deploy` (prod), `npx wrangler deploy --env dev` (dev)
+  - dev build variable `SITE_ORIGIN=https://www.timer-dev.toastmusters.com/tabletopics`
+    (canonicals on the noindexed dev host); prod leaves it unset and gets
+    `https://www.toastmusters.com/tabletopics`.
+  - `VITE_PUBLIC_POSTHOG_KEY/HOST` are already build variables.
 
 ## Known trade-offs
 

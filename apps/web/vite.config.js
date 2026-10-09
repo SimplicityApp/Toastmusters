@@ -61,11 +61,35 @@ function serveZoomPublic() {
   }
 }
 
+// The static pages load public/site-analytics.js, which Vite copies as is.
+// Fill in its PostHog key and host after the build, from the same env the
+// React app reads. Without a key the placeholders stay and the script does
+// nothing.
+function fillSiteAnalytics() {
+  let config
+  return {
+    name: 'fill-site-analytics',
+    apply: 'build',
+    configResolved(resolved) {
+      config = resolved
+    },
+    closeBundle() {
+      const file = path.resolve(config.root, config.build.outDir, 'site-analytics.js')
+      const key = config.env.VITE_PUBLIC_POSTHOG_KEY
+      const host = config.env.VITE_PUBLIC_POSTHOG_HOST
+      if (!fs.existsSync(file) || !key || !host) return
+      const filled = fs.readFileSync(file, 'utf8').replace('__POSTHOG_KEY__', key).replace('__POSTHOG_HOST__', host)
+      fs.writeFileSync(file, filled)
+    },
+  }
+}
+
 export default defineConfig(async () => {
   const plugins = [
     react(),
     serveContentPages(),
     serveZoomPublic(),
+    fillSiteAnalytics(),
   ]
 
   if (process.env.ANALYZE) {
@@ -76,6 +100,14 @@ export default defineConfig(async () => {
   return {
     base,
     plugins,
+    resolve: {
+      alias: {
+        // Aliased rather than installed: packages/ui is a source directory in
+        // this repo, and a file: dependency would put it in the lockfile and
+        // need an install before a new shared component was reachable.
+        '@toastmaster-timer/ui': path.resolve(__dirname, '../../packages/ui'),
+      },
+    },
     envDir: path.resolve(__dirname, '../..'),
     server: {
       port: 3001,

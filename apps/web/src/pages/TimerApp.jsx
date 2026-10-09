@@ -1,16 +1,50 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import { PanelLeftClose, PanelRightOpen, Square } from 'lucide-react'
+import { clubBadgePlacement } from '@toastmaster-timer/shared'
+import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge'
 import { TimerProvider, useTimer, useTimerTick } from '../context/TimerContext'
 import { resetPageBackground, setPageBackgroundFromStatus } from '../utils/pageBackground'
 import { ToastProvider } from '../context/ToastContext'
+import { useClub } from '../hooks/useClub'
 import NavTabs from '../components/NavTabs'
 import LiveTab from '../components/LiveTab'
 const AgendaTab = lazy(() => import('../components/AgendaTab'))
 import ReportTab from '../components/ReportTab'
 import Footer from '../components/Footer'
 import PeriodicPrompts from '../components/PeriodicPrompts'
+import AccountMenu from '../components/AccountMenu'
+import ClubStatusBanner from '../components/ClubStatusBanner'
 import '../App.css'
+
+/**
+ * The club's badge on the full-screen card.
+ *
+ * Minimising the panel is how the browser app becomes the shared surface: the
+ * card fills the window and the window is what the meeting sees. Until now
+ * nothing drew the badge there — the background is set on `document.body` by
+ * `pageBackground.js`, and no component owns that surface — so a club that had
+ * branded every timer card lost its badge at the exact moment the card was
+ * being shown to everybody.
+ */
+function FullScreenClubBadge() {
+  const { kit } = useClub()
+  if (!kit?.showOnCards) return null
+  const placement = clubBadgePlacement()
+  if (!placement.visible) return null
+  return (
+    <div className="fixed inset-0 z-40 pointer-events-none">
+      <ClubBadgeLayer>
+        <ClubBadge
+          name={kit.name}
+          primaryColor={kit.primaryColor}
+          logoUrl={kit.logoUrl}
+          placement={placement}
+        />
+      </ClubBadgeLayer>
+    </div>
+  )
+}
 
 function MinimizedFloatingButtons({ onRestore }) {
   const { isRunning } = useTimerTick()
@@ -48,21 +82,33 @@ function TimerAppContent() {
   const [panelMinimized, setPanelMinimized] = useState(false)
 
   if (panelMinimized) {
-    return <MinimizedFloatingButtons onRestore={() => setPanelMinimized(false)} />
+    return (
+      <>
+        <FullScreenClubBadge />
+        <MinimizedFloatingButtons onRestore={() => setPanelMinimized(false)} />
+      </>
+    )
   }
 
   return (
     <div className="app-container w-full h-screen flex flex-col bg-white">
       <div className="flex items-center justify-between px-2 py-1 border-b border-gray-200 bg-white/90">
         <Link to="/" className="text-sm text-gray-500 hover:text-gray-700">← Back to home</Link>
-        <button
-          onClick={() => setPanelMinimized(true)}
+        <div className="flex items-center gap-1">
+          <AccountMenu compact />
+          <button
+            onClick={() => setPanelMinimized(true)}
           className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100"
           title="Minimize panel"
         >
           <PanelLeftClose className="h-5 w-5" />
-        </button>
+          </button>
+        </div>
       </div>
+      {/* Above the tabs, ahead of everything: the week of warning a club gets
+          before it loses Pro has to be seen by whoever is timing, who is rarely
+          whoever pays. */}
+      <ClubStatusBanner />
       <NavTabs activeTab={activeTab} onTabChange={setActiveTab} />
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'live' && <LiveTab onTimerStart={() => setPanelMinimized(true)} />}

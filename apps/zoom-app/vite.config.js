@@ -16,6 +16,14 @@ export default defineConfig(async () => {
   return {
     base: '/zoom/',
     plugins,
+    resolve: {
+      alias: {
+        // Aliased rather than installed: packages/ui is a source directory in
+        // this repo, and a file: dependency would put it in the lockfile and
+        // need an install before a new shared component was reachable.
+        '@toastmaster-timer/ui': path.resolve(__dirname, '../../packages/ui'),
+      },
+    },
     // The .env files live at the repo root, as in apps/web. Without this the
     // zoom build gets no VITE_* values at all, which silently disables PostHog.
     envDir: path.resolve(__dirname, '../..'),

@@ -5,10 +5,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // @zoom/appssdk out of the module graph entirely, which is what hangs jsdom.
 vi.mock('./zoomSdk', () => ({
   readAppContext: vi.fn(),
-  readZoomUserStatus: vi.fn(),
+  readZoomUserSummary: vi.fn(),
 }));
 
-const { readAppContext, readZoomUserStatus } = await import('./zoomSdk');
+const { readAppContext, readZoomUserSummary } = await import('./zoomSdk');
 const { resolveZoomIdentity, getSessionToken, resetZoomIdentityForTests } = await import(
   './zoomIdentity'
 );
@@ -20,7 +20,7 @@ function respondWith(body, { ok = true, status = 200 } = {}) {
 beforeEach(() => {
   resetZoomIdentityForTests();
   readAppContext.mockResolvedValue('encrypted-context');
-  readZoomUserStatus.mockResolvedValue('authorized');
+  readZoomUserSummary.mockResolvedValue({ status: 'authorized', role: 'host' });
 });
 
 afterEach(() => {
@@ -32,7 +32,16 @@ describe('resolveZoomIdentity', () => {
   it('identifies the user and keeps the session token', async () => {
     vi.stubGlobal(
       'fetch',
-      respondWith({ identified: true, isGuest: false, uid: 'uid-1', token: 'tok-1' })
+      respondWith({
+        identified: true,
+        isGuest: false,
+        uid: 'uid-1',
+        token: 'tok-1',
+        contextType: 'meeting',
+        meetingId: 'mid-1',
+        entitlement: { plan: 'pro', entitled: true },
+        flags: { pro: true },
+      })
     );
 
     expect(await resolveZoomIdentity()).toEqual({
@@ -41,6 +50,11 @@ describe('resolveZoomIdentity', () => {
       uid: 'uid-1',
       token: 'tok-1',
       authStatus: 'authorized',
+      role: 'host',
+      contextType: 'meeting',
+      meetingId: 'mid-1',
+      entitlement: { plan: 'pro', entitled: true },
+      flags: { pro: true },
     });
     expect(getSessionToken()).toBe('tok-1');
   });
@@ -72,8 +86,8 @@ describe('resolveZoomIdentity', () => {
   });
 
   it('reports a guest as unidentified, with the status that explains why', async () => {
-    readZoomUserStatus.mockResolvedValue('unauthenticated');
-    vi.stubGlobal('fetch', respondWith({ identified: false, isGuest: true }));
+    readZoomUserSummary.mockResolvedValue({ status: 'unauthenticated', role: 'attendee' });
+    vi.stubGlobal('fetch', respondWith({ identified: false, isGuest: true, flags: { pro: false } }));
 
     expect(await resolveZoomIdentity()).toEqual({
       identified: false,
@@ -81,14 +95,27 @@ describe('resolveZoomIdentity', () => {
       uid: null,
       token: null,
       authStatus: 'unauthenticated',
+      role: 'attendee',
+      contextType: null,
+      meetingId: null,
+      entitlement: null,
+      // A guest has no entitlement but does get flags: the everyone position.
+      flags: { pro: false },
     });
     expect(getSessionToken()).toBeNull();
   });
 
+  it('carries no flags from a server that sent none', async () => {
+    vi.stubGlobal('fetch', respondWith({ identified: true, uid: 'uid-1', token: 't' }));
+
+    expect((await resolveZoomIdentity()).flags).toBeNull();
+  });
+
+  // Null rather than a guess, which the flag store records as "known, all off".
   it('falls back to anonymous when the endpoint fails', async () => {
     vi.stubGlobal('fetch', respondWith({}, { ok: false, status: 500 }));
 
-    expect(await resolveZoomIdentity()).toMatchObject({ identified: false, uid: null });
+    expect(await resolveZoomIdentity()).toMatchObject({ identified: false, uid: null, flags: null });
   });
 
   it('falls back to anonymous when the network is gone', async () => {
@@ -101,7 +128,7 @@ describe('resolveZoomIdentity', () => {
   // their club. It must never reject into the caller.
   it('never rejects, whatever the SDK does', async () => {
     readAppContext.mockRejectedValue(new Error('sdk exploded'));
-    readZoomUserStatus.mockRejectedValue(new Error('sdk exploded'));
+    readZoomUserSummary.mockRejectedValue(new Error('sdk exploded'));
     vi.stubGlobal('fetch', respondWith({ identified: false, isGuest: false }));
 
     await expect(resolveZoomIdentity()).resolves.toMatchObject({ identified: false });

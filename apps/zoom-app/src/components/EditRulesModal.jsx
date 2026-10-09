@@ -3,14 +3,32 @@ import { X, Plus, Trash2 } from 'lucide-react';
 import { useTimer } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
 import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, BREAK_ROLE } from '@toastmaster-timer/shared';
+import {
+  activeClubName,
+  canPublishPresets,
+  lapsedClubName,
+  clubPresetsAvailable,
+  clubPresetsLive,
+  ensureForked,
+  loadClub,
+  loadClubPresets,
+  presetSource,
+  publishPresets,
+  resetToClub,
+  resolveActiveRules,
+  useClubPresets,
+  usePersonalPresets,
+} from '@toastmaster-timer/shared';
 import ConfirmModal from './ConfirmModal';
+import ClubPresetBanner from './ClubPresetBanner';
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
 import { trackEvent } from '../utils/posthog';
+import { getSessionToken } from '../utils/zoomIdentity';
 
 const isBuiltInRole = (role) => role in DEFAULT_ROLE_RULES;
 
 export default function EditRulesModal({ isOpen, onClose }) {
-  const { roleRules, roleOptions, updateRoleRules, addRoleRules, removeRoleRules, resetAllRoleRulesToDefaults } = useTimer();
+  const { roleRules, roleOptions, updateRoleRules, addRoleRules, removeRoleRules, resetAllRoleRulesToDefaults, reloadRoleRules } = useTimer();
   const { showToast } = useToast();
   const [editedRules, setEditedRules] = useState({});
   const [newRoleNames, setNewRoleNames] = useState({});
@@ -18,11 +36,88 @@ export default function EditRulesModal({ isOpen, onClose }) {
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const prevOpenRef = useRef(false);
 
+  // --- the club's list -----------------------------------------------------
+  // Read once per open and kept in state, because every one of these answers
+  // changes underneath the modal as soon as the switch moves or a publish lands.
+  const [source, setSource] = useState(presetSource);
+  const [publishing, setPublishing] = useState(false);
+  const [showForkConfirm, setShowForkConfirm] = useState(false);
+  const forkResolverRef = useRef(null);
+
+  const clubName = activeClubName();
+  const clubHasPresets = clubPresetsAvailable();
+  // A lapse leaves the club's list where it is and simply stops applying it, so
+  // the editor owes the timer an explanation rather than a silent reversion.
+  const lapsedClub = lapsedClubName();
+  const clubList = clubHasPresets ? loadClubPresets() : null;
+  const clubId = loadClub()?.club?.id ?? null;
+  const mayPublish = canPublishPresets();
+
+  /** Re-seed the editor from whichever list just became live. */
+  const showLiveList = () => {
+    reloadRoleRules();
+    const merged = resolveActiveRules();
+    delete merged[BREAK_ROLE];
+    setEditedRules(merged);
+    setNewRoleNames({});
+    setSource(presetSource());
+  };
+
+  /**
+   * The one confirmation that stands between the club's list and an edit.
+   *
+   * Resolved by the modal below rather than returned directly, so every
+   * mutating path can `await` the same promise and do nothing at all on cancel.
+   */
+  const confirmFork = () => new Promise((resolve) => {
+    forkResolverRef.current = resolve;
+    setShowForkConfirm(true);
+  });
+
+  const settleFork = (confirmed) => {
+    setShowForkConfirm(false);
+    const resolve = forkResolverRef.current;
+    forkResolverRef.current = null;
+    resolve?.(confirmed);
+  };
+
+  /**
+   * Add, update, remove and reset-all all run this first, so they cannot drift
+   * into four behaviours. False means the timer cancelled: write nothing, and
+   * leave the modal exactly as it was.
+   */
+  const guardEdit = async () => {
+    const wasClubList = clubPresetsLive();
+    const proceed = await ensureForked(confirmFork);
+    if (proceed && wasClubList) {
+      setSource(presetSource());
+      trackEvent('club_presets_forked', { surface: 'zoom', club_id: clubId });
+    }
+    return proceed;
+  };
+
+  const handleUseClubPresets = () => {
+    useClubPresets();
+    showLiveList();
+  };
+
+  const handleUseMyPresets = () => {
+    usePersonalPresets();
+    showLiveList();
+  };
+
+  const handleResetToClub = () => {
+    if (!resetToClub()) return;
+    showLiveList();
+    trackEvent('club_presets_reset', { surface: 'zoom', club_id: clubId });
+  };
+
   // Initialize edited rules only when modal opens (not when roleRules changes while open)
   useEffect(() => {
     if (isOpen && !prevOpenRef.current) {
       setEditedRules({ ...roleRules });
       setNewRoleNames({});
+      setSource(presetSource());
     }
     prevOpenRef.current = isOpen;
   }, [isOpen, roleRules]);
@@ -63,7 +158,8 @@ export default function EditRulesModal({ isOpen, onClose }) {
     });
   };
 
-  const handleRemoveRole = (role) => {
+  const handleRemoveRole = async (role) => {
+    if (!(await guardEdit())) return;
     setEditedRules(prev => {
       const next = { ...prev };
       delete next[role];
@@ -80,7 +176,67 @@ export default function EditRulesModal({ isOpen, onClose }) {
     ...Object.keys(editedRules).filter((k) => k.startsWith('__new_'))
   ];
 
-  const handleSave = () => {
+  /**
+   * What "Share with my club" would send: the timings on screen right now.
+   *
+   * Built from the editor rather than from storage because the saves below run
+   * inside a state updater, so what is on disk lags what the officer is looking
+   * at by a render. A publish that silently shared the previous list would be
+   * the worst possible bug in this feature.
+   */
+  const publishablePresets = () => {
+    const rules = {};
+    for (const role of rolesToShow) {
+      const edited = editedRules[role];
+      if (!edited) continue;
+      const name = role.startsWith('__new_') ? (newRoleNames[role] || '').trim() : role;
+      if (!name) continue;
+      rules[name] = {
+        green: edited.green,
+        yellow: edited.yellow,
+        red: edited.red,
+        graceAfterRed: edited.graceAfterRed ?? getDefaultGraceAfterRed(name),
+      };
+    }
+    return {
+      rules,
+      order: Object.keys(rules).filter((role) => !(role in DEFAULT_ROLE_RULES)),
+      // A built-in missing from the list is a built-in the officer removed, and
+      // every device in the club has to stop offering it.
+      hiddenBuiltins: Object.keys(DEFAULT_ROLE_RULES).filter((role) => !(role in rules)),
+    };
+  };
+
+  const handlePublish = async () => {
+    if (publishing || !validate()) return;
+    setPublishing(true);
+    const result = await publishPresets(publishablePresets(), { getToken: getSessionToken });
+    setPublishing(false);
+
+    if (!result.ok) {
+      showToast(
+        result.error === 'forbidden'
+          ? 'Only a club admin or editor can share presets.'
+          : "Couldn't share these presets with your club. Try again.",
+        'error'
+      );
+      return;
+    }
+
+    // rememberPublishedPresets already took the new list and version, so a
+    // device sitting on the club's list is showing what was just shared.
+    if (presetSource() === 'club') showLiveList();
+    showToast(`Shared with ${clubName || 'your club'}.`, 'success');
+    trackEvent('club_presets_published', {
+      surface: 'zoom',
+      club_id: clubId,
+      role: loadClub()?.role ?? null,
+      roles: Object.keys(publishablePresets().rules).length,
+    });
+  };
+
+  /** Every reason the list on screen could not be saved or shared. */
+  const validate = () => {
     const seenNames = new Set();
 
     for (const role of rolesToShow) {
@@ -88,21 +244,29 @@ export default function EditRulesModal({ isOpen, onClose }) {
       if (!rules || rules.green <= 0 || rules.yellow <= rules.green || rules.red <= rules.yellow) {
         const displayName = role.startsWith('__new_') ? (newRoleNames[role] || role) : role;
         showToast(`Invalid timing rules for ${displayName}. Green must be > 0, Yellow must be > Green, and Red must be > Yellow.`, 'error');
-        return;
+        return false;
       }
       if (role.startsWith('__new_')) {
         const name = (newRoleNames[role] || '').trim();
         if (!name) {
           showToast('Please enter a name for the new role.', 'error');
-          return;
+          return false;
         }
         if (seenNames.has(name) || roleOptions.includes(name)) {
           showToast(`A role named "${name}" already exists.`, 'error');
-          return;
+          return false;
         }
         seenNames.add(name);
       }
     }
+    return true;
+  };
+
+  const handleSave = async () => {
+    if (!validate()) return;
+    // Nothing is written until the club's list has been forked, so cancelling
+    // the confirmation leaves the modal open with the edit still on screen.
+    if (!(await guardEdit())) return;
 
     for (const role of rolesToShow) {
       const rules = editedRules[role];
@@ -148,13 +312,14 @@ export default function EditRulesModal({ isOpen, onClose }) {
     setShowResetAllConfirm(true);
   };
 
-  const handleConfirmResetAll = () => {
+  const handleConfirmResetAll = async () => {
+    setShowResetAllConfirm(false);
+    if (!(await guardEdit())) return;
     resetAllRoleRulesToDefaults();
     setEditedRules(prev => ({
       ...DEFAULT_ROLE_RULES,
       ...Object.fromEntries(Object.entries(prev).filter(([k]) => !(k in DEFAULT_ROLE_RULES)))
     }));
-    setShowResetAllConfirm(false);
   };
 
   if (!isOpen) return null;
@@ -181,6 +346,27 @@ export default function EditRulesModal({ isOpen, onClose }) {
             <TimeInputModeToggle mode={timeInputMode} onModeChange={(m) => { saveTimeInputMode(m); setTimeInputMode(m); }} />
           </div>
         </div>
+
+        {clubHasPresets ? (
+          <ClubPresetBanner
+            clubName={clubName || 'Your club'}
+            source={source}
+            onUseClub={handleUseClubPresets}
+            onUseMine={handleUseMyPresets}
+            onResetToClub={handleResetToClub}
+          />
+        ) : lapsedClub ? (
+          /* The club's list is still sitting in its own key, untouched. Saying
+             so is the difference between "our presets were deleted" and "our
+             subscription ended", and only one of those is worth renewing over. */
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-semibold text-gray-900">{lapsedClub}&apos;s Pro has ended</p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              These are your own timings again. Nothing was deleted — when the club renews, its
+              shared presets come back on the next refresh with nothing to re-enter.
+            </p>
+          </div>
+        ) : null}
 
         <div className="space-y-4">
           {rolesToShow.map((role) => {
@@ -251,6 +437,30 @@ export default function EditRulesModal({ isOpen, onClose }) {
           Add role
         </button>
 
+        {mayPublish && (
+          <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{clubName || 'Your club'}</p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  {clubList?.publishedAt
+                    ? `Last shared ${new Date(clubList.publishedAt).toLocaleDateString()}.`
+                    : 'Nothing shared with your club yet.'}
+                  {' '}Sharing replaces the list on every device in the club.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handlePublish}
+                disabled={publishing}
+                className="px-3 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white font-semibold rounded-lg transition-colors text-sm flex-shrink-0"
+              >
+                {publishing ? 'Sharing…' : 'Share with my club'}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-2 mt-6">
           <button
             onClick={handleResetAll}
@@ -273,6 +483,17 @@ export default function EditRulesModal({ isOpen, onClose }) {
           </button>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showForkConfirm}
+        title="Make your own copy?"
+        message={`These are ${clubName || 'your club'}'s presets. Saving makes your own copy and switches this device to it. The club's list stays where it is, one tap away.`}
+        confirmText="Make my copy"
+        cancelText="Cancel"
+        onConfirm={() => settleFork(true)}
+        onCancel={() => settleFork(false)}
+        confirmButtonClass="bg-blue-500 hover:bg-blue-600"
+      />
 
       <ConfirmModal
         isOpen={showResetAllConfirm}
