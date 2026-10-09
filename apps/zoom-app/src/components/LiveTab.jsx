@@ -405,8 +405,9 @@ export default memo(function LiveTab() {
       const imageUrl = getBackgroundUrl(desiredStatus);
       // A custom card is a data: URL that can run to a megabyte; never log it whole.
       addDebugLog(`Applying overlay: ${desiredStatus} -> ${imageUrl.startsWith('data:') ? 'custom image' : imageUrl}`, 'info');
-      // Usually redundant with TimerContext's own push on status change; the
-      // already-showing guard in applyOverlay makes the duplicate free.
+      // Usually redundant with TimerContext's own push on status change;
+      // applyOverlay joins it onto that push while it is queued or running,
+      // so the duplicate costs no second SDK call.
       applyOverlay(imageUrl);
       // Idle, so the organizer gets their video back: whichever pipeline holds
       // the card comes off, and neither is touched when nothing of ours is up.

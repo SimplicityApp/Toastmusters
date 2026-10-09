@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   drawClubBadge,
+  clubBadgeRect,
   badgeUnchanged,
   normalizeBadgePlacement,
   clampBadgeScale,
@@ -150,6 +151,43 @@ describe('drawClubBadge', () => {
     // badge that left textAlign on 'left' would move the time.
     expect(ops[0]).toEqual(['save']);
     expect(ops[ops.length - 1]).toEqual(['restore']);
+  });
+});
+
+describe('clubBadgeRect', () => {
+  it.each([
+    ['the default corner', KIT, PLACE, {}],
+    ['a logo beside the name', { ...KIT, logo: { nodeName: 'IMG' } }, PLACE, {}],
+    ['a logo and no name', { ...KIT, name: '', logo: { nodeName: 'IMG' } }, PLACE, {}],
+    ['a long name', { ...KIT, name: 'Greater Vancouver Advanced Communicators Club' }, PLACE, { charWidth: 40 }],
+    ['dragged to the bottom-right', KIT, { ...PLACE, x: 1, y: 1 }, {}],
+    ['dragged to the top-left and scaled up', KIT, { ...PLACE, x: 0, y: 0, scale: 0.28 }, {}],
+  ])('matches the rect drawClubBadge returns: %s', (_label, kit, placement, measure) => {
+    // The camera foreground is cropped to this rect before anything is drawn,
+    // so a mismatch would cut the badge off.
+    const { ctx } = stubContext(measure);
+    const drawn = drawClubBadge(ctx, FRAME.width, FRAME.height, kit, placement);
+
+    expect(clubBadgeRect(stubContext(measure).ctx, FRAME.width, FRAME.height, kit, placement)).toEqual(drawn);
+  });
+
+  it('draws nothing and leaves the context as it found it', () => {
+    const { ctx, ops } = stubContext();
+    ctx.font = 'bold 40px sans-serif';
+
+    clubBadgeRect(ctx, FRAME.width, FRAME.height, KIT, PLACE);
+
+    expect(ops.map(([op]) => op)).toEqual(['save', 'restore']);
+  });
+
+  it('is null whenever drawClubBadge would draw nothing', () => {
+    const { ctx, ops } = stubContext();
+
+    expect(clubBadgeRect(ctx, FRAME.width, FRAME.height, { ...KIT, showOnCards: false }, PLACE)).toBeNull();
+    expect(clubBadgeRect(ctx, FRAME.width, FRAME.height, KIT, { ...PLACE, visible: false })).toBeNull();
+    expect(clubBadgeRect(ctx, FRAME.width, FRAME.height, null, PLACE)).toBeNull();
+    expect(clubBadgeRect(null, FRAME.width, FRAME.height, KIT, PLACE)).toBeNull();
+    expect(ops).toHaveLength(0);
   });
 });
 

@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
-import { initializeZoomSdk, preloadBackgroundImages } from './utils/zoomSdk'
+import { initializeZoomSdk, preloadBackgroundImages, setOverlayTimingReporter } from './utils/zoomSdk'
 import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, setFlags, initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter } from '@toastmaster-timer/shared'
 import { initPostHog, identifyUser, setUserProperties, registerSessionProperties, trackEvent } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
@@ -57,6 +57,10 @@ refreshClub({ getToken: getSessionToken }).catch((error) => {
 // An upload that does not go out is invisible from here — the device keeps its
 // own copy and the timer sees nothing wrong — so it has to report itself.
 setArchiveReporter(trackEvent);
+
+// How long each threshold color change took to reach the video. Only visible
+// from inside the overlay queue, and on a slow machine it is the whole story.
+setOverlayTimingReporter(trackEvent);
 
 // Speeches the last session could not hand over — a webview reload mid-meeting
 // is routine here, which is exactly why the queue lives in localStorage.
