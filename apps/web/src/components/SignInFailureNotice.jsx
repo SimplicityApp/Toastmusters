@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, X } from 'lucide-react'
-import { signinFailureMessage } from '../utils/signinFailure'
+import { readSigninFailure } from '../utils/signinFailure'
+import SignInFailureActions from './SignInFailureActions'
 
 /**
  * The one place a failed sign-in is guaranteed to be seen.
@@ -20,8 +21,8 @@ export default function SignInFailureNotice() {
   const { pathname } = useLocation()
   const [dismissed, setDismissed] = useState(false)
 
-  const message = signinFailureMessage(searchParams)
-  if (!message || dismissed || pathname === '/account') return null
+  const failure = readSigninFailure(searchParams)
+  if (!failure || dismissed || pathname === '/account') return null
 
   return (
     <div
@@ -29,7 +30,10 @@ export default function SignInFailureNotice() {
       className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900"
     >
       <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-      <p className="flex-1">{message}</p>
+      <div className="flex-1">
+        <p>{failure.message}</p>
+        <SignInFailureActions failure={failure} surface="banner" tone="light" />
+      </div>
       <button
         type="button"
         onClick={() => setDismissed(true)}

@@ -79,3 +79,27 @@ export const ZOOM_INSTALL_URL =
 /** Support page section explaining why Zoom drops an app's access. */
 export const ZOOM_RECONNECT_HELP_URL =
   'https://www.timer.simple-tech.app/support#lost-access';
+
+/**
+ * The user's own list of added apps in the Zoom App Marketplace
+ * (Manage → Added Apps), where they can remove this app and add it again.
+ *
+ * The way out of a web sign-in that came back without the user-read
+ * permission. "Sign in again" normally fixes that, because Zoom shows its
+ * consent screen again when the requested permissions changed; but Zoom can
+ * also quietly reuse the old grant and never ask. Removing the app here and
+ * adding it back forces a fresh consent. Zoom documents this page only by its
+ * menu path, not by URL, so check it still lands there when Zoom redesigns the
+ * Marketplace.
+ */
+export const ZOOM_MANAGE_APPS_URL = 'https://marketplace.zoom.us/user/installed';
+
+/**
+ * Support page section explaining what the "see your account" permission
+ * shows us, why "Sign in with Zoom" needs it, and how to grant it. Linked as
+ * "Why does Zoom ask?" from the scope-not-granted sign-in notice, for users who
+ * declined on purpose and want to know before they allow it. Same host as
+ * ZOOM_RECONNECT_HELP_URL so the two move together in the domain migration.
+ */
+export const ZOOM_SIGNIN_PERMISSION_HELP_URL =
+  'https://www.timer.simple-tech.app/support#zoom-permission';

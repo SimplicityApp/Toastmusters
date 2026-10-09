@@ -1,16 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   readSession,
   parseCookies,
   verifyState,
   sanitizeReturnTo,
+  withoutSigninParams,
   handleAuthStart,
   handleOAuthCallback,
   handleLogout,
+  tokenLacksUserRead,
+  classifyProfileFailure,
   SESSION_COOKIE,
   WEB_SESSION_TTL_MS,
 } from './auth.js';
 import { mintSessionToken, verifySessionToken } from './session-token.js';
+import { POSTHOG_CAPTURE_URL } from './posthog.js';
 
 const SIGNING_KEY = 'test-session-signing-key';
 const NOW = 1_800_000_000_000;
@@ -42,6 +46,19 @@ describe('parseCookies / sanitizeReturnTo', () => {
     expect(sanitizeReturnTo('//evil.test/x')).toBe('/timer/app');
     expect(sanitizeReturnTo('/a\\b')).toBe('/timer/app');
     expect(sanitizeReturnTo(undefined)).toBe('/timer/app');
+  });
+});
+
+describe('withoutSigninParams', () => {
+  it('drops an earlier failure from the return path, keeping everything else', () => {
+    expect(withoutSigninParams('/account?signin=failed&reason=x&tab=1')).toBe('/account?tab=1');
+    expect(withoutSigninParams('/account?signin=failed&reason=denied')).toBe('/account');
+    expect(withoutSigninParams('/club/admin?tab=1&signin=failed&reason=profile#members')).toBe('/club/admin?tab=1#members');
+  });
+
+  it('leaves a path without failure params exactly as it was', () => {
+    expect(withoutSigninParams('/account')).toBe('/account');
+    expect(withoutSigninParams('/timer/app?q=a%20b')).toBe('/timer/app?q=a%20b');
   });
 });
 
@@ -142,21 +159,134 @@ describe('handleAuthStart', () => {
   });
 });
 
+// What Zoom answers GET /v2/users/me with, per research §7.
+const MISSING_SCOPE_BODY = {
+  code: 4711,
+  message: 'Invalid access token, does not contain scopes:[user:read:user:admin, user:read:user].',
+};
+const BAD_TOKEN_BODY = { code: 124, message: 'Invalid access token.' };
+
+const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status });
+
+describe('tokenLacksUserRead', () => {
+  it('is false when Zoom sent no scope string: unknown is not missing', () => {
+    expect(tokenLacksUserRead(undefined)).toBe(false);
+    expect(tokenLacksUserRead(null)).toBe(false);
+    expect(tokenLacksUserRead(42)).toBe(false);
+    expect(tokenLacksUserRead(['zoomapp:inmeeting'])).toBe(false);
+  });
+
+  it('is false when any user-read scope is granted', () => {
+    expect(tokenLacksUserRead('user:read:user')).toBe(false);
+    expect(tokenLacksUserRead('user:read:user:admin')).toBe(false);
+    expect(tokenLacksUserRead('user:read')).toBe(false);
+    expect(tokenLacksUserRead('user:read:admin')).toBe(false);
+    expect(tokenLacksUserRead('zoomapp:inmeeting user:read:user')).toBe(false);
+    expect(tokenLacksUserRead('  zoomapp:inmeeting   user:read:user  ')).toBe(false);
+  });
+
+  it('is true when the scope string names none of them', () => {
+    expect(tokenLacksUserRead('zoomapp:inmeeting')).toBe(true);
+    expect(tokenLacksUserRead('zoomapp:inmeeting user:read:token')).toBe(true);
+    expect(tokenLacksUserRead('user:read:user:extra')).toBe(true);
+    expect(tokenLacksUserRead('')).toBe(true);
+  });
+});
+
+describe('classifyProfileFailure', () => {
+  let logged;
+  beforeEach(() => {
+    logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logged.mockRestore();
+  });
+
+  it('labels Zoom\'s 400 / 4711 "does not contain scopes" a missing scope', async () => {
+    const result = await classifyProfileFailure(jsonResponse(MISSING_SCOPE_BODY, 400), undefined);
+    expect(result).toEqual({
+      reason: 'scope_not_granted',
+      details: { zoom_status: 400, zoom_code: 4711, scope_signal: 'error_code' },
+    });
+  });
+
+  it('labels a bad or expired token (401 / 124) a profile failure, not a scope one', async () => {
+    const result = await classifyProfileFailure(jsonResponse(BAD_TOKEN_BODY, 401), 'user:read:user');
+    expect(result).toEqual({ reason: 'profile', details: { zoom_status: 401, zoom_code: 124 } });
+  });
+
+  it('recognises the rare code 104 by its message', async () => {
+    const body = { code: 104, message: 'Invalid access token, does not contain scopes:[user:read:user].' };
+    const result = await classifyProfileFailure(jsonResponse(body, 400), 'user:read:user');
+    expect(result).toMatchObject({ reason: 'scope_not_granted', details: { zoom_code: 104, scope_signal: 'error_code' } });
+  });
+
+  it('trusts a granted scope that names no user-read scope, whatever the error', async () => {
+    const result = await classifyProfileFailure(jsonResponse(BAD_TOKEN_BODY, 401), 'zoomapp:inmeeting');
+    expect(result).toEqual({
+      reason: 'scope_not_granted',
+      details: { zoom_status: 401, zoom_code: 124, scope_signal: 'token_scope' },
+    });
+  });
+
+  it('says "both" when the scope and the error agree', async () => {
+    const result = await classifyProfileFailure(jsonResponse(MISSING_SCOPE_BODY, 400), 'zoomapp:inmeeting');
+    expect(result.details.scope_signal).toBe('both');
+  });
+
+  it('never throws on an unreadable body: it counts as "no code"', async () => {
+    const result = await classifyProfileFailure(new Response('<html>oops</html>', { status: 502 }), undefined);
+    expect(result).toEqual({ reason: 'profile', details: { zoom_status: 502, zoom_code: null } });
+  });
+
+  it('logs the status, the code and the signal, never the token', async () => {
+    await classifyProfileFailure(jsonResponse(MISSING_SCOPE_BODY, 400), 'zoomapp:inmeeting');
+    expect(logged).toHaveBeenCalledWith('Zoom users/me failed:', 400, 4711, 'token-scope,error-code');
+
+    await classifyProfileFailure(jsonResponse({}, 500), undefined);
+    expect(logged).toHaveBeenLastCalledWith('Zoom users/me failed:', 500, '-', 'no-scope-signal');
+  });
+});
+
 describe('handleOAuthCallback', () => {
-  function zoomFetch({ tokenOk = true, meOk = true, id = 'zoom-user-1' } = {}) {
+  /**
+   * Routes by URL: Zoom's token endpoint, /users/me, and PostHog's capture
+   * (which only sees calls when POSTHOG_API_KEY is set).
+   */
+  function zoomFetch({ tokenOk = true, meOk = true, id = 'zoom-user-1', scope, meStatus = 401, meBody = {}, posthog } = {}) {
     return vi.fn(async (url) => {
+      if (String(url).startsWith(POSTHOG_CAPTURE_URL)) {
+        return posthog ? posthog() : new Response('{"status":1}');
+      }
       if (String(url).startsWith('https://zoom.us/oauth/token')) {
-        return new Response(JSON.stringify(tokenOk ? { access_token: 'at', refresh_token: 'rt' } : { error: 'x' }), { status: tokenOk ? 200 : 400 });
+        const tokens = { access_token: 'at', refresh_token: 'rt', ...(scope !== undefined && { scope }) };
+        return new Response(JSON.stringify(tokenOk ? tokens : { error: 'x' }), { status: tokenOk ? 200 : 400 });
       }
       if (String(url).startsWith('https://api.zoom.us/v2/users/me')) {
-        return new Response(JSON.stringify(meOk ? { id, email: 'a@b.c' } : {}), { status: meOk ? 200 : 401 });
+        return meOk ? jsonResponse({ id, email: 'a@b.c' }) : jsonResponse(meBody, meStatus);
       }
       throw new Error(`unexpected fetch ${url}`);
     });
   }
 
-  async function startAndCallback({ code = 'the-code', withNonce = true, tamperState = false, fetchImpl = zoomFetch(), stateOverride } = {}) {
-    const startUrl = new URL('https://www.example.test/api/auth/zoom/start?returnTo=%2Faccount');
+  /** The PostHog events this fetch mock carried, as parsed bodies. */
+  const captures = (fetchImpl) =>
+    fetchImpl.mock.calls
+      .filter(([url]) => String(url).startsWith(POSTHOG_CAPTURE_URL))
+      .map(([, init]) => JSON.parse(init.body));
+
+  async function startAndCallback({
+    code = 'the-code',
+    withNonce = true,
+    tamperState = false,
+    fetchImpl = zoomFetch(),
+    stateOverride,
+    callbackEnv = env,
+    ctx,
+    returnTo = '/account',
+  } = {}) {
+    const startUrl = new URL('https://www.example.test/api/auth/zoom/start');
+    startUrl.searchParams.set('returnTo', returnTo);
     const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW });
     const location = new URL(started.headers.get('location'));
     let state = stateOverride ?? location.searchParams.get('state');
@@ -167,7 +297,7 @@ describe('handleOAuthCallback', () => {
     cb.searchParams.set('state', state);
     if (code) cb.searchParams.set('code', code);
     const req = new Request(cb, { headers: withNonce ? { cookie: `tt_oauth=${nonce}` } : {} });
-    return { promise: handleOAuthCallback(req, cb, env, { fetchImpl, now: NOW + 1000 }), fetchImpl };
+    return { promise: handleOAuthCallback(req, cb, callbackEnv, { fetchImpl, now: NOW + 1000, ctx }), fetchImpl, nonce };
   }
 
   it('exchanges the code, reads the Zoom user id and sets a 30-day session cookie', async () => {
@@ -216,12 +346,198 @@ describe('handleOAuthCallback', () => {
     expect(cookieValue(noProfile, SESSION_COOKIE)).toBeNull();
   });
 
+  // A retry from a failed URL carries the failure params in its returnTo; a
+  // sign-in that works must not land back on them.
+  it('strips an earlier failure from returnTo on success', async () => {
+    const res = await (await startAndCallback({ returnTo: '/account?signin=failed&reason=x&tab=1' })).promise;
+    expect(res.headers.get('location')).toBe('https://www.example.test/account?tab=1');
+    expect(cookieValue(res, SESSION_COOKIE)).not.toBeNull();
+  });
+
+  it('replaces, not appends to, an earlier failure when the retry fails too', async () => {
+    const fetchImpl = zoomFetch({ tokenOk: false });
+    const res = await (await startAndCallback({ fetchImpl, returnTo: '/account?signin=failed&reason=denied&tab=1' })).promise;
+    expect(res.headers.get('location')).toBe('https://www.example.test/account?signin=failed&reason=exchange&tab=1');
+  });
+
   it('rejects an expired state', async () => {
     const startUrl = new URL('https://www.example.test/api/auth/zoom/start');
     const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW - 11 * 60 * 1000 });
     const state = new URL(started.headers.get('location')).searchParams.get('state');
     const cb = new URL(`https://www.example.test/oauth/redirect?code=x&state=${encodeURIComponent(state)}`);
     expect(await handleOAuthCallback(new Request(cb, { headers: { cookie: `tt_oauth=${cookieValue(started, 'tt_oauth')}` } }), cb, env, { now: NOW })).toBeNull();
+  });
+
+  describe('a missing permission is told apart from a bad token', () => {
+    let logged;
+    beforeEach(() => {
+      logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      logged.mockRestore();
+    });
+
+    it('sends 400 / 4711 back as reason=scope_not_granted, without a session', async () => {
+      const fetchImpl = zoomFetch({ meOk: false, meStatus: 400, meBody: MISSING_SCOPE_BODY });
+      const res = await (await startAndCallback({ fetchImpl })).promise;
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.example.test/account?signin=failed&reason=scope_not_granted');
+      expect(cookieValue(res, SESSION_COOKIE)).toBeNull();
+      expect(cookieValue(res, 'tt_oauth')).toBe('');
+      expect(logged).toHaveBeenCalledWith('Zoom users/me failed:', 400, 4711, 'error-code');
+    });
+
+    it('keeps 401 / 124 (a bad or expired token) as reason=profile', async () => {
+      const fetchImpl = zoomFetch({ meOk: false, meStatus: 401, meBody: BAD_TOKEN_BODY, scope: 'user:read:user' });
+      const res = await (await startAndCallback({ fetchImpl })).promise;
+      expect(res.headers.get('location')).toBe('https://www.example.test/account?signin=failed&reason=profile');
+    });
+
+    it('labels a failure scope_not_granted when the granted scope lacks user-read', async () => {
+      const fetchImpl = zoomFetch({ meOk: false, meStatus: 401, meBody: BAD_TOKEN_BODY, scope: 'zoomapp:inmeeting' });
+      const res = await (await startAndCallback({ fetchImpl })).promise;
+      expect(res.headers.get('location')).toContain('reason=scope_not_granted');
+    });
+
+    // The scope can lag a Marketplace change: a profile read that works wins.
+    it('still signs in when the granted scope looks narrow but /users/me answers', async () => {
+      const fetchImpl = zoomFetch({ scope: 'zoomapp:inmeeting' });
+      const res = await (await startAndCallback({ fetchImpl })).promise;
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+      expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
+      expect(logged).not.toHaveBeenCalled();
+    });
+
+    it('keeps a 2xx without an id as reason=profile', async () => {
+      const fetchImpl = zoomFetch({ id: '' });
+      const res = await (await startAndCallback({ fetchImpl })).promise;
+      expect(res.headers.get('location')).toContain('reason=profile');
+    });
+  });
+
+  describe('every outcome is recorded to PostHog', () => {
+    const trackedEnv = { ...env, POSTHOG_API_KEY: 'phc_test' };
+
+    function waitUntilCtx() {
+      const pending = [];
+      return { waitUntil: vi.fn((p) => pending.push(p)), settle: () => Promise.allSettled(pending) };
+    }
+
+    let logged;
+    beforeEach(() => {
+      logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      logged.mockRestore();
+    });
+
+    it('records one web_signin_succeeded under the Zoom id, person-less, on success', async () => {
+      const { promise, fetchImpl } = await startAndCallback({ callbackEnv: trackedEnv });
+      const res = await promise;
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+
+      const events = captures(fetchImpl);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        api_key: 'phc_test',
+        event: 'web_signin_succeeded',
+        properties: { distinct_id: 'zoom:zoom-user-1', $process_person_profile: false, surface: 'web' },
+      });
+    });
+
+    it('records web_signin_failed and zoom_scope_not_granted for a missing scope, under one attempt id', async () => {
+      const fetchImpl = zoomFetch({ meOk: false, meStatus: 400, meBody: MISSING_SCOPE_BODY, scope: 'zoomapp:inmeeting' });
+      const { promise, nonce } = await startAndCallback({ callbackEnv: trackedEnv, fetchImpl });
+      await promise;
+
+      const events = captures(fetchImpl);
+      expect(events.map((e) => e.event)).toEqual(['web_signin_failed', 'zoom_scope_not_granted']);
+      const base = { distinct_id: `signin:${nonce}`, $process_person_profile: false, surface: 'web' };
+      expect(events[0].properties).toEqual({
+        ...base,
+        reason: 'scope_not_granted',
+        zoom_status: 400,
+        zoom_code: 4711,
+        scope_signal: 'both',
+      });
+      expect(events[1].properties).toEqual({ ...base, zoom_status: 400, zoom_code: 4711, scope_signal: 'both' });
+    });
+
+    it('records only web_signin_failed, with the Zoom status and code, for a bad token', async () => {
+      const fetchImpl = zoomFetch({ meOk: false, meStatus: 401, meBody: BAD_TOKEN_BODY });
+      await (await startAndCallback({ callbackEnv: trackedEnv, fetchImpl })).promise;
+
+      const events = captures(fetchImpl);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        event: 'web_signin_failed',
+        properties: { reason: 'profile', zoom_status: 401, zoom_code: 124 },
+      });
+      expect(events[0].properties).not.toHaveProperty('scope_signal');
+    });
+
+    it('records failures that never reach Zoom, with their reason', async () => {
+      const mismatch = await startAndCallback({ callbackEnv: trackedEnv, withNonce: false });
+      await mismatch.promise;
+      expect(captures(mismatch.fetchImpl)).toEqual([
+        expect.objectContaining({ event: 'web_signin_failed', properties: expect.objectContaining({ reason: 'state_mismatch' }) }),
+      ]);
+
+      const noCode = await startAndCallback({ callbackEnv: trackedEnv, code: null });
+      await noCode.promise;
+      expect(captures(noCode.fetchImpl).map((e) => e.properties.reason)).toEqual(['no_code']);
+
+      const exchange = await startAndCallback({ callbackEnv: trackedEnv, fetchImpl: zoomFetch({ tokenOk: false }) });
+      await exchange.promise;
+      expect(captures(exchange.fetchImpl)).toEqual([
+        expect.objectContaining({ properties: expect.objectContaining({ reason: 'exchange', zoom_status: 400 }) }),
+      ]);
+    });
+
+    it('records nothing for a request that is not a sign-in', async () => {
+      const { promise, fetchImpl } = await startAndCallback({ callbackEnv: trackedEnv, tamperState: true });
+      expect(await promise).toBeNull();
+      expect(captures(fetchImpl)).toEqual([]);
+    });
+
+    it('records nothing without a PostHog key', async () => {
+      const { promise, fetchImpl } = await startAndCallback();
+      await promise;
+      expect(captures(fetchImpl)).toEqual([]);
+    });
+
+    it('hands the capture to ctx.waitUntil, so the redirect never waits on PostHog', async () => {
+      // A PostHog that never answers: the callback must still resolve.
+      const fetchImpl = zoomFetch({ posthog: () => new Promise(() => {}) });
+      const ctx = waitUntilCtx();
+      const res = await (await startAndCallback({ callbackEnv: trackedEnv, fetchImpl, ctx })).promise;
+
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+      expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+      expect(captures(fetchImpl).map((e) => e.event)).toEqual(['web_signin_succeeded']);
+    });
+
+    it('hands both scope events to ctx.waitUntil', async () => {
+      const fetchImpl = zoomFetch({ meOk: false, meStatus: 400, meBody: MISSING_SCOPE_BODY });
+      const ctx = waitUntilCtx();
+      const res = await (await startAndCallback({ callbackEnv: trackedEnv, fetchImpl, ctx })).promise;
+      await ctx.settle();
+
+      expect(res.headers.get('location')).toContain('reason=scope_not_granted');
+      expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
+      expect(captures(fetchImpl).map((e) => e.event)).toEqual(['web_signin_failed', 'zoom_scope_not_granted']);
+    });
+
+    it('still redirects when PostHog is down', async () => {
+      const fetchImpl = zoomFetch({
+        posthog: () => {
+          throw new Error('posthog down');
+        },
+      });
+      const res = await (await startAndCallback({ callbackEnv: trackedEnv, fetchImpl })).promise;
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+      expect(logged).toHaveBeenCalledWith('PostHog capture failed:', 'posthog down');
+    });
   });
 });
 

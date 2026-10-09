@@ -46,7 +46,8 @@ them after Step 3b.
 
 > **This submission adds the `user:read:user` scope** (it backs "Sign in with
 > Zoom" on the website — see Step P1). Re-authorize before testing, or the
-> callback fails with `reason=profile` and nobody can sign in on the web.
+> callback fails with `reason=scope_not_granted` and nobody can sign in on the
+> web (Step P1b shows what that looks like).
 >
 > **Re-run this step after an OAuth scope change, within 90 days.** Zoom keeps
 > the old grant working for 90 days after a scope change and only then expires
@@ -110,6 +111,38 @@ in-client fix.
 7. On a client that refuses `promptAuthorize` (older desktop, or the
    capability not yet granted in the Marketplace), the button must open the
    OAuth URL in the browser instead and log `promptAuthorize not granted`.
+
+---
+
+## Step 1d: A grant that drops mid-session
+
+The open-time check above only runs once. This step checks that a grant Zoom
+drops while the panel is already open raises the same notice without a
+reload, and that the modal waits until the speech is over.
+
+1. Open the app in a meeting as an `authorized` user, using the two-account
+   setup from "Reaching the `authenticated` state deliberately" in
+   `ZOOM_AUTH_AND_REDIRECTS.md`. No banner shows.
+2. Start a speech, then drop the grant while the timer runs (remove the app
+   for that account in the Marketplace, or switch it to the guest-mode
+   account's state as that section describes).
+3. Expected, if the client fires `onMyUserContextChange` on the drop: the
+   debug log shows `User context changed; Zoom now reports the user as
+   authenticated`, and the amber banner appears at once with **Approve in
+   Zoom**. No modal covers the running timer.
+4. Click **Stop**. Expected: the "Approve Toastmusters Timer in Zoom" modal
+   opens now, unless it was already closed once in this Zoom session, in which
+   case only the banner stays.
+5. PostHog shows `zoom_connection_degraded` with `connection_state:
+   unauthorized` and `detected: mid_session`. The Step 1c open-time event
+   carries `detected: on_open`.
+6. Approve as in Step 1c, steps 4–5: the banner clears with the "Approved"
+   toast and `zoom_reauthorized`.
+7. If nothing appears in step 3 and the log shows no `User context changed`
+   line, the client did not fire the event on a drop. That is not a bug in the
+   app: the drop is caught at the next open, as before. Record the result,
+   with the date and client version, in the status-contract assumptions in
+   `ZOOM_AUTH_AND_REDIRECTS.md`.
 
 ---
 
@@ -193,6 +226,53 @@ and no sign-in at all, which is Step P4 and the claim most worth checking.
 4. Decline the Zoom consent screen instead of allowing it.
    - Expected: you return to the page you started from and a banner names the
      reason. A sign-in that fails must never look like one that never happened.
+   - The banner offers **Sign in again**. Click it and allow this time: you land
+     on the same page with no `signin`/`reason` params and no banner.
+
+## Step P1b: A sign-in without the user-read permission
+
+The failure this catches: Zoom completes the sign-in but the token lacks
+`user:read:user`, so the Worker cannot read who this is. It must be named as a
+missing permission, with a way to fix it, and never look like an outage. This
+step also records what Zoom really answers for a scope-less token, which Zoom
+does not document. Run it on **dev only**, and restore the scope afterwards.
+
+1. In the Marketplace, open the dev app → **Scopes** and remove
+   `user:read:user`. Save.
+2. Run `npx wrangler tail --env dev` in a terminal.
+3. In a browser, open `https://www.timer-dev.simple-tech.app/` and **Sign in
+   with Zoom** → **Allow**. (If you land signed in with no failure, Zoom reused
+   the old grant: remove the dev app under **Manage → Added Apps**, re-run the
+   Step 1 authorize URL, and try again.)
+   - Expected: you return to the landing page with
+     `?signin=failed&reason=scope_not_granted`. The amber strip says Zoom signed
+     you in but didn't give Toastmusters Timer permission to see your account,
+     and offers **Sign in again**, **Manage in Zoom** and **Why does Zoom ask?**.
+   - The tail shows `Zoom users/me failed: <status> <code> <signals>`. **Record
+     the status, code and signals here** with the date; they are expected to be
+     `400 4711 token-scope,error-code`, but that is inferred from forum reports,
+     not documented. If the signals read `no-scope-signal`, the Worker is
+     misclassifying the failure as `profile`: stop and fix `classifyProfileFailure`
+     in `worker/auth.js`.
+   - PostHog shows, from the Worker, one `web_signin_failed` with
+     `reason: scope_not_granted` and one `zoom_scope_not_granted` carrying
+     `zoom_status`, `zoom_code` and `scope_signal`. From the browser it shows
+     `signin_failure_shown` with `reason: scope_not_granted, surface: banner`.
+4. Open `/account?signin=failed&reason=scope_not_granted`: the same message and
+   three actions appear inline on the dark card, and the strip does not appear
+   as well. PostHog records `signin_failure_shown` with `surface: account`.
+5. Click **Manage in Zoom**: a new tab opens on your added apps in the Zoom App
+   Marketplace (**Manage → Added Apps**), and PostHog records
+   `zoom_manage_app_clicked`. If it lands anywhere else, fix
+   `ZOOM_MANAGE_APPS_URL` in `packages/shared/appLinks.js`.
+6. Click **Why does Zoom ask?**: a new tab opens on the support page, scrolled
+   to "Why does Zoom ask permission to see my account…", and PostHog records
+   `signin_help_clicked`.
+7. Add `user:read:user` back to the dev app, save, and click **Sign in again**.
+   - Expected: Zoom shows its consent screen again (or, if it reuses the old
+     grant and the failure repeats, remove and re-add the app from **Manage in
+     Zoom** first). After allowing, you land on the landing page with no failure
+     params and no banner, and PostHog shows `web_signin_succeeded`.
 
 ## Step P2: Buy Pro from inside Zoom
 

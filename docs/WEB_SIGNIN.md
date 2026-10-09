@@ -34,7 +34,8 @@ A session is never set without a valid state and matching nonce cookie.
    registered for the install flow. Must equal `WEB_ORIGIN + /oauth/redirect`.
 2. **Scope** for `GET /v2/users/me`: `user:read:user` (granular) — or
    `user:read` on a classic-scope app. Without it the callback fails with
-   `reason=profile` and nobody can sign in on the web.
+   `reason=scope_not_granted` and nobody can sign in on the web (see
+   [Why a sign-in failed](#why-a-sign-in-failed)).
 
    Adding a scope does not cut existing users off at once: Zoom keeps their
    current authorization working for 90 days, then the refresh token expires
@@ -45,6 +46,109 @@ A session is never set without a valid state and matching nonce cookie.
 3. Confirm once, on dev, that `users/me.id` equals the `uid` the app context
    carries (sign in on the web, then compare the PostHog person id with the
    one the Zoom app reports). Both are documented as the Zoom user id.
+
+## Why a sign-in failed
+
+The Worker cannot render a page, so every failure after the state check is a
+302 back to `returnTo` with `?signin=failed&reason=<key>`. The web app turns the
+key into copy (`apps/web/src/utils/signinFailure.js`); an unknown key shows the
+generic "Sign-in did not finish" line.
+
+Every failure notice offers **Sign in again** (`SignInFailureActions`). It
+restarts `/api/auth/zoom/start` with the current page as `returnTo`, minus
+`signin` and `reason`. The Worker also strips those two params from `returnTo`
+on success, so a retry that works never lands back on the old failure, even
+from a link that carried them (the header's sign-in link uses
+`pathname + search`). A retry that fails again overwrites both params with the
+new reason.
+
+`scope_not_granted` gets two more links, both opening in a new tab so the retry
+stays one click away (constants in `packages/shared/appLinks.js`):
+
+- **Manage in Zoom** (`ZOOM_MANAGE_APPS_URL`): the user's added apps in the
+  Zoom App Marketplace (**Manage → Added Apps**). "Sign in again" normally
+  fixes a missing scope, because Zoom shows its consent screen again when the
+  requested permissions changed. If Zoom quietly reuses the old grant instead,
+  removing and re-adding the app here forces a fresh consent. Zoom documents
+  that page only by its menu path, so the URL is the one confirmed in a browser;
+  re-check it when Zoom redesigns the Marketplace.
+- **Why does Zoom ask?** (`ZOOM_SIGNIN_PERMISSION_HELP_URL`): the
+  `#zoom-permission` section of the support page
+  (`apps/zoom-app/public/support.html`). It says what the permission shows us,
+  why sign-in needs it, and how to grant it, for users who declined on purpose.
+
+| `reason` | Cause |
+|---|---|
+| `state_mismatch` | The `tt_oauth` nonce cookie is missing or differs (expired link, other host) |
+| `denied` | The user declined Zoom's consent screen (`error=access_denied`) |
+| `no_code` | Zoom came back with no `code` for any other reason |
+| `not_configured` | `ZOOM_CLIENT_ID` / `ZOOM_CLIENT_SECRET` missing |
+| `exchange` | The token exchange failed, or returned no access token |
+| `scope_not_granted` | `/users/me` failed **because the user-read permission is missing** |
+| `profile` | `/users/me` failed for any other reason (bad or expired token, outage), or answered without an `id` |
+| `session` | The session token could not be minted |
+| `network` | Anything threw (network, unparseable response) |
+
+`scope_not_granted` is told apart from `profile` by either of two signals, and
+neither one ever blocks a sign-in whose `/users/me` call succeeds:
+
+- **The granted scopes.** The token response's `scope` is a string that names
+  none of `user:read:user`, `user:read:user:admin`, `user:read` or
+  `user:read:admin`. An absent `scope` is "unknown", not "missing": one report
+  says it can lag a Marketplace change.
+- **Zoom's error.** `code: 4711`, or a message containing "does not contain
+  scope" (Zoom has also been seen sending that message with `code: 104`). A bad
+  or expired token is `401` with `code: 124` and stays `profile`.
+
+The answer Zoom really gives a scope-less token is not documented, so the
+Worker logs it: `wrangler tail` shows
+`Zoom users/me failed: <status> <code|-> <token-scope,error-code|no-scope-signal>`.
+The token is never logged.
+
+### Server-side events
+
+Every callback that gets past the state check (that is, every `failed(reason)`
+and every success) records exactly one outcome to PostHog from the Worker, so
+the two counts together are every sign-in that reached Zoom's callback. An ad
+blocker cannot hide these.
+
+| Event | When | Properties |
+|---|---|---|
+| `web_signin_succeeded` | A session was minted | — |
+| `web_signin_failed` | Any `failed(reason)` | `reason`, plus `zoom_status` (and `zoom_code` from `/users/me`) when a Zoom call failed |
+| `zoom_scope_not_granted` | `reason=scope_not_granted`, in addition to `web_signin_failed` | `zoom_status`, `zoom_code`, `scope_signal: token_scope \| error_code \| both` |
+
+- Every event carries `surface: 'web'` and `$process_person_profile: false`:
+  they are counters and never create a PostHog person.
+- `distinct_id` is `zoom:<uid>` on success (the id the clients identify as) and
+  `signin:<nonce>` on failure, one per attempt, since a failure never learns
+  the Zoom id.
+- The capture runs under `ctx.waitUntil`, so the redirect never waits on
+  PostHog, and a capture failure is logged and swallowed. With no
+  `POSTHOG_API_KEY` nothing is sent. The helper is `worker/posthog.js`, shared
+  with the Zoom webhook.
+
+### Browser events
+
+The server counts outcomes; only the browser can follow one person from a
+failure to a later success, because a failed sign-in never learns the Zoom id.
+`SignInFailureActions` records these through `trackEvent`, each with `reason`
+(the raw query value, so an unknown reason is still reported as sent) and
+`surface: 'banner' | 'account'`:
+
+| Event | When |
+|---|---|
+| `signin_failure_shown` | A failure notice is on screen (fires once, when the actions mount) |
+| `signin_retry_clicked` | **Sign in again** clicked, on any failure |
+| `zoom_manage_app_clicked` | **Manage in Zoom** clicked (`scope_not_granted` only) |
+| `signin_help_clicked` | **Why does Zoom ask?** clicked (`scope_not_granted` only) |
+
+The global strip skips `/account`, so only one surface fires on any page.
+Recovery needs no extra plumbing: the anonymous browser person that saw the
+failure is merged into `zoom:<uid>` when the next successful sign-in calls
+`identifyUser` (`apps/web/src/utils/webIdentity.js`). "Recovered" is
+`signin_failure_shown` with `reason=scope_not_granted` followed by a sign-in
+within 24 hours.
 
 ## Hosts
 
@@ -80,7 +184,9 @@ When the domain migration makes `timer.toastmusters.com` canonical, change
 1. Deploy dev, open `https://www.timer-dev.simple-tech.app/timer/app`, click
    **Sign in with Zoom** in the top bar, allow.
 2. You land back on `/timer/app`; the top bar shows **Account** (or **Pro**).
-   PostHog now shows the person `zoom:<uid>` with `surface: web`.
+   PostHog now shows the person `zoom:<uid>` with `surface: web`, and one
+   `web_signin_succeeded` event from the Worker. `wrangler tail --env dev`
+   shows no `Zoom users/me failed` line.
 3. Change a timing rule; `wrangler tail --env dev` shows `PUT /api/profile`
    (200 if Pro or unenforced, 402 otherwise). Open the Zoom app on dev: the rule
    is there.

@@ -4,8 +4,9 @@
 ZOOM_WEBHOOK_SECRET_TOKEN=
 ZOOM_CLIENT_ID=
 ZOOM_CLIENT_SECRET=
-# Public project key (phc_…). Server-side capture from the Zoom webhook, and the
-# release flags (POST /flags in worker/flags.js). Leave it empty and every flag
+# Public project key (phc_…). Server-side capture from the Zoom webhook and web
+# sign-in (worker/posthog.js), and the release flags (POST /flags in
+# worker/flags.js). Leave it empty and every flag
 # is at its checked-in fallback, which is off.
 POSTHOG_API_KEY=
 # Release flags (docs/FEATURE_FLAGS.md). `npm run cf:dev` runs without --env dev,

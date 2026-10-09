@@ -6,6 +6,8 @@ import {
   ZOOM_INSTALL_URL,
   ZOOM_OAUTH_REDIRECT_URL,
   ZOOM_RECONNECT_HELP_URL,
+  ZOOM_MANAGE_APPS_URL,
+  ZOOM_SIGNIN_PERMISSION_HELP_URL,
 } from '../appLinks.js';
 
 describe('TOOLS registry', () => {
@@ -63,5 +65,22 @@ describe('ZOOM_INSTALL_URL', () => {
 describe('ZOOM_RECONNECT_HELP_URL', () => {
   it('points at the support page section that explains a dropped install', () => {
     expect(ZOOM_RECONNECT_HELP_URL).toMatch(/\/support#lost-access$/);
+  });
+});
+
+describe('ZOOM_MANAGE_APPS_URL', () => {
+  it('is a page on the Zoom App Marketplace', () => {
+    expect(new URL(ZOOM_MANAGE_APPS_URL).origin).toBe('https://marketplace.zoom.us');
+  });
+});
+
+describe('ZOOM_SIGNIN_PERMISSION_HELP_URL', () => {
+  it('points at the support page section that explains the sign-in permission', () => {
+    expect(ZOOM_SIGNIN_PERMISSION_HELP_URL).toMatch(/^https:\/\/[^/]+\/support#zoom-permission$/);
+  });
+
+  // The two help links share a host, so a domain move cannot strand one of them.
+  it('lives on the same host as the reconnect help', () => {
+    expect(new URL(ZOOM_SIGNIN_PERMISSION_HELP_URL).origin).toBe(new URL(ZOOM_RECONNECT_HELP_URL).origin);
   });
 });
