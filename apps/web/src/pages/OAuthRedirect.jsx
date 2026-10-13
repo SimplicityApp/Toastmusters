@@ -92,8 +92,8 @@ export default function OAuthRedirect() {
           <h3 className="text-lg font-semibold text-white mb-4">Watch the Full Product Demo</h3>
           <div className="rounded-xl overflow-hidden">
             <YouTubePlayer
-              videoId="1VkED9sXE6Q"
-              title="Toastmasters Timer – Product Demo"
+              videoId="D_9bbL9eSJY"
+              title="Best Toastmasters Timer Tool in Zoom"
               page="oauth_redirect"
             />
           </div>
