@@ -209,21 +209,22 @@ export async function handleZoomContact(request, env, { fetchImpl = fetch, now =
 /**
  * /oauth/redirect?code=… with no state — the browser install and re-add door.
  *
- * The Marketplace "Add" flow (and the stamped /add-to-zoom link) lands on the
- * SPA's install-success page with Zoom's one-time code, which nothing else
- * spends. index.js hands it here in ctx.waitUntil, so the page is served
- * exactly as fast as before, and this spends the code only to learn who
- * installed: no session is minted from it. That is why it needs no state of
- * ours: a forged or replayed code can at most save its own owner's details
- * under their own uid.
+ * The Marketplace "Add" flow (and the stamped /add-to-zoom link) lands on
+ * /oauth/redirect with Zoom's one-time code, which nothing else spends.
+ * index.js hands the original URL here in ctx.waitUntil, so the redirect on to
+ * the install-success page (worker/reconnect.js) is answered exactly as fast as
+ * before, and this spends the code only to learn who installed: no session is
+ * minted from it. That is why it needs no state of ours: a forged or replayed
+ * code can at most save its own owner's details under their own uid.
  *
  * The redirect URI must be the one the authorize request named, and the code
  * landed on exactly that URI, so url.origin is right by construction.
  *
- * Logs and stops on any failure; nothing here ever reaches the user. A reload
- * re-sends a code already spent, and that exchange fails harmlessly. Before
- * the user:read:user scope is granted it is users/me that fails. Network
- * failures and KV errors reject, for the caller's .catch to log.
+ * Logs and stops on any failure; nothing here ever reaches the user. The
+ * success page's URL no longer carries the code, so a reload does not re-send
+ * it; a code spent twice anyway fails harmlessly. Before the user:read:user
+ * scope is granted it is users/me that fails. Network failures and KV errors
+ * reject, for the caller's .catch to log.
  *
  * @param {Object} env - PROFILES, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
  * @param {URL} url - the /oauth/redirect request URL

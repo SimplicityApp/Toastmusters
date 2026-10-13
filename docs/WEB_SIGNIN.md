@@ -26,16 +26,30 @@ POST /api/auth/logout clears it.
 
 `/oauth/redirect` is shared with the Marketplace **Add** (install) flow, which
 sends no `state`. Only a request carrying a state the Worker signed is treated
-as a sign-in; everything else falls through to the SPA's install-success page.
+as a sign-in; everything else ends on the SPA's install-success page.
 A session is never set without a valid state and matching nonce cookie.
 
-An install or re-add that arrives with a `code` and no `state` still gets the
-install-success page at once, unchanged. In `ctx.waitUntil` the Worker spends
-that code (`captureInstallContact` in `worker/contact.js`, redirect URI
-`url.origin + /oauth/redirect`) only to call `users/me` and save the contact
+An install or re-add that arrives with a `code` and no `state` is answered at
+once with a `302` to `/oauth/redirect?welcome=new`, or `?welcome=back` when the
+request already carried the `tt_approved` cookie, and that response sets the
+cookie (`worker/reconnect.js`):
+
+```
+tt_approved=1; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax   (host-only, one year)
+```
+
+It means "this browser has added the app from our site before". The page shows
+"You're reconnected" for `?welcome=back` and the install-success page for
+anything else. Web sign-in never sets it. The redirect also drops Zoom's
+one-time code from the address bar before the page loads.
+
+In `ctx.waitUntil` the Worker spends that code, read from the original request
+(`captureInstallContact` in `worker/contact.js`, redirect URI
+`url.origin + /oauth/redirect`), only to call `users/me` and save the contact
 record described below. No session is minted from it, which is why it needs no
 state: a forged code can only save its own owner's details under their own uid.
-A reload re-sends a spent code, and that exchange fails harmlessly.
+The success page's URL no longer carries the code, so a reload does not re-send
+it; a code spent twice anyway fails harmlessly.
 
 ## What must be true in the Zoom Marketplace app
 

@@ -2,6 +2,7 @@ import { handleZoomWebhook } from './zoom-webhook.js';
 import { handleStats } from './stats.js';
 import { handleZoomSession } from './session.js';
 import { handleZoomContact, captureInstallContact } from './contact.js';
+import { installLandingRedirect } from './reconnect.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
@@ -206,15 +207,19 @@ export default {
       if (signedIn) return signedIn;
     }
     // A Marketplace install or re-add: no state of ours, just Zoom's code. The
-    // page below renders unchanged; the code is spent in the background only
-    // to learn the user's contact details (worker/contact.js). No session is
-    // minted from it, and it is not flagged. Ahead of every redirect, so the
-    // origin it sends back to Zoom is the one the code was issued for.
+    // code is spent in the background only to learn the user's contact details
+    // (worker/contact.js), from this original URL. No session is minted from
+    // it, and it is not flagged. Then the browser is marked as one that has
+    // approved the app, and sent to a clean URL that says whether it had been
+    // here before (worker/reconnect.js). Ahead of every other redirect, so the
+    // origin sent back to Zoom is the one the code was issued for.
     if (pathname === '/oauth/redirect' && url.searchParams.has('code') && !url.searchParams.has('state')) {
       ctx.waitUntil(
         captureInstallContact(env, url).catch((error) =>
           console.error('Install contact capture error:', error?.message || error))
       );
+      const landing = installLandingRedirect(request, url);
+      if (landing) return landing;
     }
 
     // 2a. The old toastmusters.com timer hosts move to the main site. After
