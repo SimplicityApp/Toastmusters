@@ -820,6 +820,92 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
   });
 });
 
+// GitHub issue #96: Zoom drops a user whose approval lapsed on the root of the
+// web host. A browser the install landing marked goes to the reconnect page
+// instead of the marketing homepage. The rule itself is in reconnect.test.js;
+// these prove where it sits among the Worker's other redirects.
+describe('a marked browser opening a bare / goes to the reconnect page', () => {
+  const MARK = 'tt_approved=1';
+
+  it('302s www / to /reconnect, uncached, before any asset is looked up', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(get('https://www.timer-dev.simple-tech.app/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer-dev.simple-tech.app/reconnect');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  // The mark the install landing writes is the one the homepage reads.
+  it('recognises the browser the install landing just marked', async () => {
+    const landing = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), makeEnv(['/index.html']), createCtx());
+    const cookie = setCookies(landing)[0].split(';')[0];
+
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie }), makeEnv(['/index.html']), ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/reconnect');
+  });
+
+  // The apex canonicalizes first, in one hop; www then asks about the mark.
+  it('301s a marked apex / to www first', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(get('https://timer-dev.simple-tech.app/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.timer-dev.simple-tech.app/');
+  });
+
+  it('moves the old timer.toastmusters.com host first, too', async () => {
+    const env = { ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' };
+    const res = await worker.fetch(get('https://www.timer.toastmusters.com/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.toastmusters.com/');
+  });
+
+  // The zoom.<domain> host is the Zoom app: its / is the sidebar shell, mark
+  // or no mark.
+  it('leaves the zoom host serving the Zoom shell', async () => {
+    const env = makeEnv(['/zoom/index.html']);
+    const res = await worker.fetch(get('https://zoom.timer-dev.simple-tech.app/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/zoom/index.html');
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('serves an unmarked browser the homepage, unchanged', async () => {
+    for (const cookie of [undefined, 'tt_session=x.y']) {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie }), makeEnv(['/index.html']), ctx);
+
+      expect(res.status, String(cookie)).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+      expect(res.headers.get('location')).toBeNull();
+      expect(res.headers.get('x-robots-tag')).toBeNull();
+    }
+  });
+
+  // "Go to the homepage" on the reconnect page is /?home, and marketing links
+  // carry ?utm_…: a query string always reaches the homepage.
+  it.each(['/?home', '/?utm_source=newsletter'])('serves a marked browser the homepage at %s', async (path) => {
+    const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`, { cookie: MARK }), makeEnv(['/index.html']), ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('serves the reconnect page itself to a marked browser, with no loop', async () => {
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/reconnect', { cookie: MARK }), makeEnv(['/index.html']), ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+  });
+});
+
 describe('zoom launch marker', () => {
   // The real shell, near enough: the marker is injected right after <head>.
   // `/zoom/` answers as well as `/zoom/index.html` because that is what the

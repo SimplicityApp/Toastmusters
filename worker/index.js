@@ -2,7 +2,7 @@ import { handleZoomWebhook } from './zoom-webhook.js';
 import { handleStats } from './stats.js';
 import { handleZoomSession } from './session.js';
 import { handleZoomContact, captureInstallContact } from './contact.js';
-import { installLandingRedirect } from './reconnect.js';
+import { installLandingRedirect, reconnectRedirect } from './reconnect.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
@@ -81,7 +81,8 @@ const SPA_ROUTES = new Set([
   '/club/admin',
   '/club/manage',
   // The page for users whose Zoom approval lapsed (GitHub issue #96). Linked
-  // from the homepage's "Already use the Zoom app? Reconnect it" line.
+  // from the homepage's "Already use the Zoom app? Reconnect it" line, and
+  // where a browser that added the app before is sent from a bare /.
   '/reconnect',
 ]);
 
@@ -292,6 +293,16 @@ export default {
     if (pathname === '/timer' || pathname === '/timer/') {
       return Response.redirect(new URL('/', url.origin).toString(), 302);
     }
+
+    // 4a. A browser that has added the app before (the tt_approved mark set on
+    //     the install landing above) and opens a bare / goes to the reconnect
+    //     page: that is where Zoom drops a user whose approval lapsed. Any query
+    //     string, the zoom.<domain> host and unmarked browsers fall through to
+    //     the homepage (worker/reconnect.js). After the apex redirect, so a bare
+    //     apex visit canonicalizes to www first, and before the asset lookup, so
+    //     no cached homepage answers ahead of it.
+    const reconnect = reconnectRedirect(request, url);
+    if (reconnect) return reconnect;
 
     // 4b. "Add to Zoom" from the static pages, which cannot know which Zoom app
     //     this deployment installs. Straight to Zoom's install screen for the

@@ -6,7 +6,7 @@ Read this first. Update it in the same PR as any spec change.
 |---|---|---|---|
 | [timer-core](timer-core.md) | draft | never | start/colours/finish, resume after close |
 | auth-identity | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 1, 1b, 1c |
-| [reauth-landing](reauth-landing.md) | draft | never | install landing: `tt_approved` mark, `?welcome=new` / `?welcome=back`, "You're reconnected" and Open in Zoom (#96) |
+| [reauth-landing](reauth-landing.md) | draft | never | install landing: `tt_approved` mark, `?welcome=new` / `?welcome=back`, "You're reconnected" and Open in Zoom; a marked browser's bare `/` redirects to `/reconnect` (`/?home` and the `zoom.` host do not); where Zoom lands a guest after approving (#96) |
 | [contact-capture](contact-capture.md) | draft | never | Zoom email/name capture: authorize, "Stay in touch" card, browser and web sign-in doors, purge on uninstall (#83) |
 | pro-club | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` P1–P7, plus the internal Club Pro plan (`06-zoom-client-test-plan-club-pro.md`); reference run `test-runs/2026-09-28-club-pro/run.md` |
 | webhooks-lifecycle | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 4, 5, 6 |

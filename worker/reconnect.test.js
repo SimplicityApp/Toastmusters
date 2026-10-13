@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { APPROVED_COOKIE, approvedBefore, installLandingRedirect } from './reconnect.js';
+import { APPROVED_COOKIE, approvedBefore, installLandingRedirect, reconnectRedirect } from './reconnect.js';
 
 const ONE_YEAR_SEC = 365 * 24 * 60 * 60;
 
@@ -84,4 +84,62 @@ describe('installLandingRedirect', () => {
       expect(installLandingRedirect(...landing(url, { cookie: 'tt_approved=1' }))).toBeNull();
     }
   });
+});
+
+describe('reconnectRedirect', () => {
+  const MARK = 'tt_approved=1';
+
+  it('sends a marked browser opening a bare / to the reconnect page', () => {
+    const res = reconnectRedirect(...landing('https://www.timer-dev.simple-tech.app/', { cookie: MARK }));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer-dev.simple-tech.app/reconnect');
+  });
+
+  it('finds the mark among other cookies', () => {
+    const res = reconnectRedirect(...landing('https://www.timer.simple-tech.app/', { cookie: 'tt_session=x.y; tt_approved=1; ph_x=1' }));
+
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/reconnect');
+  });
+
+  // The answer depends on the request's cookie, so no cache may keep it.
+  it('is never cached, and sets nothing', () => {
+    const res = reconnectRedirect(...landing('https://www.timer.simple-tech.app/', { cookie: MARK }));
+
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(setCookies(res)).toEqual([]);
+  });
+
+  it('stays on the host it was asked on', () => {
+    const res = reconnectRedirect(...landing('http://localhost:8787/', { cookie: MARK }));
+
+    expect(res.headers.get('location')).toBe('http://localhost:8787/reconnect');
+  });
+
+  // Marketing links carry ?utm_…, and the reconnect page's own "Go to the
+  // homepage" is /?home: a query string always reaches the homepage, also on a
+  // reload.
+  it.each(['/?home', '/?utm_source=newsletter&utm_medium=email', '/?ref=x'])('lets %s through to the homepage', (path) => {
+    expect(reconnectRedirect(...landing(`https://www.timer.simple-tech.app${path}`, { cookie: MARK }))).toBeNull();
+  });
+
+  it('leaves an unmarked browser on the homepage', () => {
+    for (const cookie of [undefined, 'tt_session=x.y', 'tt_approved=0', 'tt_approved=']) {
+      expect(reconnectRedirect(...landing('https://www.timer.simple-tech.app/', { cookie })), String(cookie)).toBeNull();
+    }
+  });
+
+  // The zoom.<domain> host serves the Zoom shell for every path, / included.
+  it('leaves the zoom host alone', () => {
+    for (const url of ['https://zoom.timer.simple-tech.app/', 'https://zoom.timer-dev.simple-tech.app/']) {
+      expect(reconnectRedirect(...landing(url, { cookie: MARK }))).toBeNull();
+    }
+  });
+
+  it.each(['/reconnect', '/timer/app', '/oauth/redirect', '/index.html', '/toastmasters-timing-chart', '/zoom/'])(
+    'leaves %s alone',
+    (path) => {
+      expect(reconnectRedirect(...landing(`https://www.timer.simple-tech.app${path}`, { cookie: MARK }))).toBeNull();
+    },
+  );
 });

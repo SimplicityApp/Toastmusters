@@ -3,11 +3,12 @@ import { test, expect } from '@playwright/test';
 // The re-auth landing (GitHub issue #96) in a plain browser.
 //
 // This runs on the Vite dev server, with no Worker in front of it, so neither
-// redirect happens here: the Worker's answer to /oauth/redirect?code=… (a 302
-// to ?welcome=back|new that sets tt_approved) is proven in
-// worker/routing.test.js and worker/reconnect.test.js. These tests open the
-// URLs the Worker redirects to and check the page each one shows, plus the
-// reconnect page and the links between it and the homepage.
+// of the Worker's redirects happens here: /oauth/redirect?code=… (a 302 to
+// ?welcome=back|new that sets tt_approved) and a marked browser's bare /
+// (a 302 to /reconnect) are proven in worker/routing.test.js and
+// worker/reconnect.test.js. These tests open the URLs the Worker redirects to
+// and check the page each one shows, plus the reconnect page and the links
+// between it and the homepage.
 
 // The build's install screen, or the Marketplace listing when it has none.
 const INSTALL_HREF = /^https:\/\/(zoom\.us\/oauth\/authorize\?|marketplace\.zoom\.us\/apps\/)/;

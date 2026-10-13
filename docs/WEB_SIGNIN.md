@@ -43,6 +43,11 @@ It means "this browser has added the app from our site before". The page shows
 anything else. Web sign-in never sets it. The redirect also drops Zoom's
 one-time code from the address bar before the page loads.
 
+The Worker also reads the cookie on a bare `/`: a marked browser gets a `302`
+to `/reconnect` (`Cache-Control: no-store`), because that is where Zoom drops a
+user whose approval lapsed. Any query string (`/?home`, `?utm_…`), any other
+path, an unmarked browser and the `zoom.` host get what they got before.
+
 In `ctx.waitUntil` the Worker spends that code, read from the original request
 (`captureInstallContact` in `worker/contact.js`, redirect URI
 `url.origin + /oauth/redirect`), only to call `users/me` and save the contact

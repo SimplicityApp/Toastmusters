@@ -14,7 +14,10 @@ import { trackEvent } from '../utils/posthog'
  * to be true for anyone who reads it. Visitors who did not need to reconnect
  * get quiet ways out: open the app, or go to the homepage.
  *
- * Reached from the homepage's "Already use the Zoom app? Reconnect it" line.
+ * Reached two ways. A browser that has added the app from our site before is
+ * sent here by the Worker when it opens a bare / (worker/reconnect.js), which
+ * is where Zoom drops a user whose approval lapsed. Anyone else can follow the
+ * homepage's "Already use the Zoom app? Reconnect it" line.
  * Same light look as the homepage, so it reads as part of the same site.
  */
 
