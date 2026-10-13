@@ -80,6 +80,9 @@ const SPA_ROUTES = new Set([
   // and a magic link cannot open inside the Zoom sidebar.
   '/club/admin',
   '/club/manage',
+  // The page for users whose Zoom approval lapsed (GitHub issue #96). Linked
+  // from the homepage's "Already use the Zoom app? Reconnect it" line.
+  '/reconnect',
 ]);
 
 // Root SPA routes whose tail is data rather than a page: /pro/<code> is the
@@ -434,6 +437,13 @@ function withSecurityHeaders(response, request, url) {
   // crawling it; this also keeps the URL itself out of the index.
   if (url.pathname.startsWith('/oauth/')) {
     headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
+
+  // The reconnect page speaks to people whose Zoom approval lapsed. It is a
+  // way back for existing users, not something a search result should offer
+  // a stranger.
+  if (url.pathname === '/reconnect' || url.pathname === '/reconnect/') {
+    headers.set('X-Robots-Tag', 'noindex');
   }
 
   // Deep links like /timer/app?role=…&name=… (one per Table Topics question)

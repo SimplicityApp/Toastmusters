@@ -319,7 +319,7 @@ describe('404 handling', () => {
   it('serves the SPA shell with 200 for real app routes', async () => {
     const env = makeEnv(['/index.html']);
 
-    for (const path of ['/', '/timer/app', '/oauth/redirect', '/club/admin', '/club/manage']) {
+    for (const path of ['/', '/timer/app', '/oauth/redirect', '/club/admin', '/club/manage', '/reconnect', '/reconnect/']) {
       const res = await worker.fetch(
         get(`https://www.timer.simple-tech.app${path}`),
         env,
@@ -477,6 +477,26 @@ describe('indexing headers', () => {
     expect(deep.status).toBe(200);
     expect(deep.headers.get('x-robots-tag')).toBe('noindex');
     expect(bare.headers.get('x-robots-tag')).toBeNull();
+  });
+
+  // A way back for existing users, not a page for search results.
+  it('marks the reconnect page noindex', async () => {
+    const env = makeEnv(['/index.html']);
+
+    for (const path of ['/reconnect', '/reconnect/', '/reconnect?from=zoom']) {
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`), env, ctx);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('x-asset-path'), path).toBe('/index.html');
+      expect(res.headers.get('x-robots-tag'), path).toBe('noindex');
+    }
+  });
+
+  it('does not mark look-alike paths noindex', async () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/reconnect-old'), env, ctx);
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('x-robots-tag')).toBeNull();
   });
 
   it('does not mark ordinary pages noindex', async () => {
