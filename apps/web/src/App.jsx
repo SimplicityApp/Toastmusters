@@ -7,6 +7,7 @@ import './App.css'
 const Landing = lazy(() => import('./pages/Landing'))
 const TimerApp = lazy(() => import('./pages/TimerApp'))
 const OAuthRedirect = lazy(() => import('./pages/OAuthRedirect'))
+const Reconnect = lazy(() => import('./pages/Reconnect'))
 const BillingSuccess = lazy(() => import('./pages/BillingSuccess'))
 const BillingCancel = lazy(() => import('./pages/BillingCancel'))
 const Account = lazy(() => import('./pages/Account'))
@@ -52,6 +53,9 @@ function App() {
         <Route path="/timer" element={<Navigate to="/" replace />} />
         <Route path="/app" element={<LegacyAppRoute />} />
         <Route path="/oauth/redirect" element={<OAuthRedirect />} />
+        {/* For users whose Zoom approval lapsed: why Zoom sent them here, and
+            "Approve in Zoom". Also a Worker SPA route (worker/index.js). */}
+        <Route path="/reconnect" element={<Reconnect />} />
         <Route path="/billing/success" element={<BillingSuccess />} />
         <Route path="/billing/cancel" element={<BillingCancel />} />
         <Route path="/account" element={<Account />} />

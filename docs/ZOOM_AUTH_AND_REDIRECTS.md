@@ -88,7 +88,7 @@ The marketing site's "Add to Zoom" is not stamped either:
   (`ZOOM_MARKETPLACE_LISTING_URL`) when a build has none.
   `ReviewPromptModal.jsx` reads it too and hides its button without it.
 - Every "Open Zoom app" / "Open in Zoom" deeplink (`OAuthRedirect.jsx`,
-  `BillingSuccess.jsx`, `Landing.jsx`) is built by `zoomAppDeeplink()` from the
+  `BillingSuccess.jsx`, `Reconnect.jsx`) is built by `zoomAppDeeplink()` from the
   `client_id` of that same `VITE_ZOOM_OAUTH_REDIRECT`, so it launches the app the
   build's "Add to Zoom" installs (a Zoom app's id is its OAuth client id). The
   variable has to be a Workers Builds **build** variable to reach the bundle.

@@ -10,7 +10,7 @@ import {
   Camera,
 } from 'lucide-react'
 import { trackEvent } from '../utils/posthog'
-import { TOOLS, ZOOM_MARKETPLACE_LISTING_URL, zoomAppDeeplink } from '@toastmaster-timer/shared'
+import { TOOLS, ZOOM_MARKETPLACE_LISTING_URL } from '@toastmaster-timer/shared'
 import YouTubePlayer from '../components/YouTubePlayer'
 import AccountMenu from '../components/AccountMenu'
 
@@ -539,15 +539,15 @@ const BTN_SECONDARY = 'inline-flex items-center justify-center rounded-full bord
 
 // One event for every call to action on the page, so installs can be traced
 // to the button that started them. `cta` is what it does (add_to_zoom,
-// web_timer, marketplace, open_in_zoom); `location` is where it sits. The
-// static guide pages send the same event (public/site-analytics.js).
+// web_timer, marketplace, reconnect); `location` is where it sits. The
+// static guide pages and the reconnect page send the same event
+// (public/site-analytics.js, Reconnect.jsx).
 const trackCta = (cta, location) => () => trackEvent('cta_clicked', { cta, location, page: '/' })
 
 export default function Landing() {
   // Straight to Zoom's install screen for this build's Zoom app; a build
   // without one sends people to the Marketplace listing instead.
   const ADD_TO_ZOOM_URL = import.meta.env.VITE_ZOOM_OAUTH_REDIRECT || ZOOM_MARKETPLACE_LISTING_URL
-  const ZOOM_APP_URL = zoomAppDeeplink(import.meta.env.VITE_ZOOM_OAUTH_REDIRECT)
   // The screenshot being viewed full size, or null. One at a time, so it lives
   // here rather than in each Shot.
   const [zoomedShot, setZoomedShot] = useState(null)
@@ -630,7 +630,9 @@ export default function Landing() {
             <p className="mt-5 text-sm text-stone-500">
               <a href={ZOOM_MARKETPLACE_LISTING_URL} target="_blank" rel="noopener noreferrer" onClick={trackCta('marketplace', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">See it on the Zoom Marketplace</a>
               {' · '}Already use the Zoom app?{' '}
-              <a href={ZOOM_APP_URL} onClick={trackCta('open_in_zoom', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Open in Zoom</a>
+              {/* To the reconnect page, which still has "Open in Zoom" for a
+                  healthy app, and explains "Approve in Zoom" for a lapsed one. */}
+              <Link to="/reconnect" onClick={trackCta('reconnect', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Reconnect it</Link>
             </p>
 
             <HeroTimerMock />

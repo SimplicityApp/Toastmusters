@@ -50,13 +50,17 @@ function makeKv() {
   };
 }
 
-function get(url, { host, method = 'GET' } = {}) {
+function get(url, { host, method = 'GET', cookie } = {}) {
   const parsed = new URL(url);
-  return new Request(url, {
-    method,
-    headers: { host: host ?? parsed.host },
-  });
+  const headers = { host: host ?? parsed.host };
+  if (cookie) headers.cookie = cookie;
+  return new Request(url, { method, headers });
 }
+
+const setCookies = (res) => res.headers.getSetCookie?.() ?? [res.headers.get('set-cookie')].filter(Boolean);
+
+// The "approved before" mark the install landing sets (worker/reconnect.js).
+const APPROVED_SET_COOKIE = /^tt_approved=1; Path=\/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax$/;
 
 describe('canonical host redirect', () => {
   it('301s the bare apex host to www, preserving path and query', async () => {
@@ -315,7 +319,7 @@ describe('404 handling', () => {
   it('serves the SPA shell with 200 for real app routes', async () => {
     const env = makeEnv(['/index.html']);
 
-    for (const path of ['/', '/timer/app', '/oauth/redirect', '/club/admin', '/club/manage']) {
+    for (const path of ['/', '/timer/app', '/oauth/redirect', '/club/admin', '/club/manage', '/reconnect', '/reconnect/']) {
       const res = await worker.fetch(
         get(`https://www.timer.simple-tech.app${path}`),
         env,
@@ -475,6 +479,26 @@ describe('indexing headers', () => {
     expect(bare.headers.get('x-robots-tag')).toBeNull();
   });
 
+  // A way back for existing users, not a page for search results.
+  it('marks the reconnect page noindex', async () => {
+    const env = makeEnv(['/index.html']);
+
+    for (const path of ['/reconnect', '/reconnect/', '/reconnect?from=zoom']) {
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`), env, ctx);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('x-asset-path'), path).toBe('/index.html');
+      expect(res.headers.get('x-robots-tag'), path).toBe('noindex');
+    }
+  });
+
+  it('does not mark look-alike paths noindex', async () => {
+    const env = makeEnv(['/index.html', '/404.html']);
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/reconnect-old'), env, ctx);
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('x-robots-tag')).toBeNull();
+  });
+
   it('does not mark ordinary pages noindex', async () => {
     const env = makeEnv(['/index.html']);
     const res = await worker.fetch(
@@ -585,12 +609,35 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
     FLAGS_FORCE,
   });
 
-  // The Marketplace "Add" flow lands here with a code and no state. It must
-  // still get the SPA's install-success page, and never a session — whether or
-  // not web sign-in is released.
-  it('serves the SPA for an install callback without state', async () => {
+  // The Marketplace "Add" flow lands here with a code and no state. It is sent
+  // on to a clean URL that names the outcome, and the browser is marked as one
+  // that has approved the app; never a session, whether or not web sign-in is
+  // released.
+  it('redirects an install callback without state to ?welcome=new and marks the browser', async () => {
     for (const FLAGS_FORCE of ['1', '0']) {
-      const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), authEnv(FLAGS_FORCE), ctx);
+      const env = authEnv(FLAGS_FORCE);
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), env, ctx);
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      const cookies = setCookies(res);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(APPROVED_SET_COOKIE);
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    }
+  });
+
+  it('redirects a browser that already carries the mark to ?welcome=back, and renews it', async () => {
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc', { cookie: 'tt_approved=1' }), authEnv(), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=back');
+    expect(setCookies(res)[0]).toMatch(APPROVED_SET_COOKIE);
+  });
+
+  // Where the redirect lands: the install-success page, served as before.
+  it('serves the SPA for the redirected landing, and sets nothing', async () => {
+    for (const welcome of ['new', 'back']) {
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app/oauth/redirect?welcome=${welcome}`, { cookie: 'tt_approved=1' }), authEnv(), ctx);
       expect(res.status).toBe(200);
       expect(res.headers.get('x-asset-path')).toBe('/index.html');
       expect(res.headers.get('set-cookie')).toBeNull();
@@ -598,10 +645,19 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
     }
   });
 
+  // The zoom.<domain> host serves the Zoom shell for every path, this one too.
+  it('leaves an install callback on the zoom host to the Zoom shell', async () => {
+    const env = { ...authEnv(), ...makeEnv(['/zoom/index.html']) };
+    const res = await worker.fetch(get('https://zoom.timer.simple-tech.app/oauth/redirect?code=abc', { cookie: 'tt_approved=1' }), env, createCtx());
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/zoom/index.html');
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
   // The install door spends Zoom's code in the background to save the user's
-  // contact. The page must not wait for it: Zoom is held here until the page
-  // has already been served.
-  it('saves the installing user\'s contact in the background, after serving the page', async () => {
+  // contact. The redirect must not wait for it: Zoom is held here until the
+  // redirect has already been answered.
+  it('saves the installing user\'s contact in the background, after answering the redirect', async () => {
     for (const FLAGS_FORCE of ['1', '0']) {
       const kv = makeKv();
       const env = { ...authEnv(FLAGS_FORCE), PROFILES: kv };
@@ -618,9 +674,10 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       });
       try {
         const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), env, backgroundCtx);
-        expect(res.status).toBe(200);
-        expect(res.headers.get('x-asset-path')).toBe('/index.html');
-        expect(res.headers.get('set-cookie')).toBeNull();
+        expect(res.status).toBe(302);
+        expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
+        expect(setCookies(res)).toHaveLength(1);
+        expect(setCookies(res)[0]).toMatch(APPROVED_SET_COOKIE);
         expect(kv.store.size).toBe(0);
         expect(backgroundCtx.pending()).toBe(1);
 
@@ -641,7 +698,7 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
   });
 
   // A failed capture (here: a reused code) is logged, never surfaced.
-  it('serves the install page unchanged when the background capture fails', async () => {
+  it('redirects and marks the browser unchanged when the background capture fails', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const kv = makeKv();
     const backgroundCtx = createCtx();
@@ -651,8 +708,9 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=used'), { ...authEnv(), PROFILES: kv }, backgroundCtx);
       await backgroundCtx._settle();
 
-      expect(res.status).toBe(200);
-      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
+      expect(setCookies(res)[0]).toMatch(APPROVED_SET_COOKIE);
       expect(kv.store.size).toBe(0);
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     } finally {
@@ -669,7 +727,9 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), authEnv(), backgroundCtx);
       await backgroundCtx._settle();
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
+      expect(setCookies(res)[0]).toMatch(APPROVED_SET_COOKIE);
       expect(globalThis.fetch).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = realFetch;
@@ -757,6 +817,92 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('x-asset-path')).toBe('/index.html');
     }
+  });
+});
+
+// GitHub issue #96: Zoom drops a user whose approval lapsed on the root of the
+// web host. A browser the install landing marked goes to the reconnect page
+// instead of the marketing homepage. The rule itself is in reconnect.test.js;
+// these prove where it sits among the Worker's other redirects.
+describe('a marked browser opening a bare / goes to the reconnect page', () => {
+  const MARK = 'tt_approved=1';
+
+  it('302s www / to /reconnect, uncached, before any asset is looked up', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(get('https://www.timer-dev.simple-tech.app/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer-dev.simple-tech.app/reconnect');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  // The mark the install landing writes is the one the homepage reads.
+  it('recognises the browser the install landing just marked', async () => {
+    const landing = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), makeEnv(['/index.html']), createCtx());
+    const cookie = setCookies(landing)[0].split(';')[0];
+
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie }), makeEnv(['/index.html']), ctx);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/reconnect');
+  });
+
+  // The apex canonicalizes first, in one hop; www then asks about the mark.
+  it('301s a marked apex / to www first', async () => {
+    const env = makeEnv(['/index.html']);
+    const res = await worker.fetch(get('https://timer-dev.simple-tech.app/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.timer-dev.simple-tech.app/');
+  });
+
+  it('moves the old timer.toastmusters.com host first, too', async () => {
+    const env = { ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' };
+    const res = await worker.fetch(get('https://www.timer.toastmusters.com/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.toastmusters.com/');
+  });
+
+  // The zoom.<domain> host is the Zoom app: its / is the sidebar shell, mark
+  // or no mark.
+  it('leaves the zoom host serving the Zoom shell', async () => {
+    const env = makeEnv(['/zoom/index.html']);
+    const res = await worker.fetch(get('https://zoom.timer-dev.simple-tech.app/', { cookie: MARK }), env, ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/zoom/index.html');
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('serves an unmarked browser the homepage, unchanged', async () => {
+    for (const cookie of [undefined, 'tt_session=x.y']) {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie }), makeEnv(['/index.html']), ctx);
+
+      expect(res.status, String(cookie)).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+      expect(res.headers.get('location')).toBeNull();
+      expect(res.headers.get('x-robots-tag')).toBeNull();
+    }
+  });
+
+  // "Go to the homepage" on the reconnect page is /?home, and marketing links
+  // carry ?utm_…: a query string always reaches the homepage.
+  it.each(['/?home', '/?utm_source=newsletter'])('serves a marked browser the homepage at %s', async (path) => {
+    const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`, { cookie: MARK }), makeEnv(['/index.html']), ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('serves the reconnect page itself to a marked browser, with no loop', async () => {
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/reconnect', { cookie: MARK }), makeEnv(['/index.html']), ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
   });
 });
 

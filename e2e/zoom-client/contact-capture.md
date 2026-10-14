@@ -43,9 +43,11 @@ nags after Not now, a record that is not saved or not purged on uninstall, and a
 ### CC-01 · auto · Browser door saves the contact
 Do: after a fresh install or a re-add from `https://www.timer-dev.simple-tech.app/add-to-zoom`,
 read the KV key. Reload the success page.
-Expect: record exists with your Zoom email and name. The reload re-sends a spent code, fails
-harmlessly, and changes nothing.
-Evidence: KV value before and after the reload.
+Expect: record exists with your Zoom email and name. The success page's URL is
+`/oauth/redirect?welcome=new` (or `?welcome=back`) with no `code`, because the Worker redirects
+away from Zoom's landing URL (reauth-landing RL-01), so the reload sends nothing to Zoom and
+changes nothing.
+Evidence: KV value before and after the reload; the reloaded URL carries no `code`.
 
 ### CC-02 · auto · In-client authorize, automatic
 Do: delete the KV key and the webview `localStorage` key `tt_contact_capture:<uid>`. Open the
