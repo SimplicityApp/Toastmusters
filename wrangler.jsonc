@@ -28,8 +28,10 @@
   //    domain, since env.dev serves the *-dev hosts.
   //  - ROOT_ORIGIN: the main site of this deployment (www.toastmusters.com on
   //    prod, www.timer-dev.toastmusters.com on dev). The old toastmusters.com
-  //    subdomains (timer.*, tabletopics.*) 301 there, path for path. Table
-  //    Topics itself is served from this Worker's assets under /tabletopics.
+  //    subdomains (timer.*, tabletopics.*) 301 there, path for path, and so do
+  //    the public pages of the old (www.)timer(-dev).simple-tech.app hosts
+  //    (the list is in worker/old-web-host.js). Table Topics itself is served
+  //    from this Worker's assets under /tabletopics.
   //  - FLAGS_FORCE: short-circuits the release flags (worker/flags.js). "1"
   //    turns every flag on, "0" turns every flag off, anything else asks
   //    PostHog. Production leaves it "" and always asks. Never "1" here: that
@@ -139,7 +141,10 @@
     // New domain (docs/DOMAIN_MIGRATION.md). toastmusters.com hosts a suite of
     // tools, one subdomain each; the timer keeps its old host shape under it.
     // Served side by side with the old hosts until the Zoom home URL has
-    // moved; no redirects yet.
+    // moved. The old simple-tech.app hosts' public pages 301 to
+    // www.toastmusters.com (step 2, public pages; the list is in
+    // worker/old-web-host.js). Their app routes and WEB_ORIGIN have not moved
+    // yet (step 2, app routes, still open).
     { "pattern": "timer.toastmusters.com", "custom_domain": true },
     { "pattern": "www.timer.toastmusters.com", "custom_domain": true },
     { "pattern": "zoom.timer.toastmusters.com", "custom_domain": true },

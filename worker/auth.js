@@ -7,6 +7,7 @@ import { flagEnabled } from './flags.js';
 // neither module touches the other's exports until a request is handled.
 import { saveZoomContact } from './contact.js';
 import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
+import { oldWebHostTarget } from './old-web-host.js';
 
 /**
  * Who is calling, and how the web app signs in.
@@ -384,8 +385,13 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
     return null;
   }
 
-  const returnTo = sanitizeReturnTo(payload.returnTo);
+  let returnTo = sanitizeReturnTo(payload.returnTo);
   const origin = env.WEB_ORIGIN || url.origin;
+  // A page that has moved off WEB_ORIGIN (worker/old-web-host.js) would 301 to a
+  // host that never saw the session cookie set below, and the user would look
+  // signed out. Land on the timer instead, which stays on this host. Switches
+  // itself off if WEB_ORIGIN moves: the helper then answers null for it.
+  if (oldWebHostTarget(new URL(returnTo, origin), env)) returnTo = '/timer/app';
   const failed = (reason) => {
     const target = new URL(returnTo, origin);
     target.searchParams.set('signin', 'failed');

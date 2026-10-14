@@ -110,15 +110,9 @@ describe('canonical host redirect', () => {
     expect(res.headers.get('location')).toBe('https://www.toastmusters.com/');
   });
 
-  // Dual-serve (docs/DOMAIN_MIGRATION.md): the old www host keeps serving its
-  // own content and must NOT redirect to the new domain until Phase 4.
-  it('does not redirect the old www host to the new domain', async () => {
-    const env = makeEnv(['/index.html']);
-    const res = await worker.fetch(get('https://www.timer.simple-tech.app/'), env, ctx);
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('location')).toBeNull();
-  });
+  // The old www host's public pages do move to the new domain, but only with
+  // ROOT_ORIGIN set; see "the old simple-tech web host's public pages move to
+  // www.toastmusters.com" below. Without it (these tests) nothing redirects.
 
   // The redirect must never manufacture www.zoom.timer.simple-tech.app — that
   // host does not exist and every Zoom-registered URL depends on the zoom
@@ -207,7 +201,7 @@ describe('the old toastmusters.com timer hosts move to www.toastmusters.com', ()
   // zoom.timer.toastmusters.com may become the Zoom app's home; a cached 301
   // there would outlive any change of plan.
   it.each([
-    'https://www.timer.simple-tech.app/',
+    'https://www.timer.simple-tech.app/timer/app',
     'https://zoom.timer.simple-tech.app/',
     'https://zoom.timer.toastmusters.com/',
     'https://www.toastmusters.com/',
@@ -222,6 +216,83 @@ describe('the old toastmusters.com timer hosts move to www.toastmusters.com', ()
     const local = await worker.fetch(get('http://www.timer.toastmusters.com/'), prod(), ctx);
 
     expect(dev.status).toBe(200);
+    expect(local.status).toBe(200);
+  });
+});
+
+// The old simple-tech.app host (#98). Its public pages exist on the main site
+// too, so serving them here makes Google pick this host as canonical. Its app
+// routes stay: sign-in, Stripe and the Zoom install all come back to WEB_ORIGIN.
+describe("the old simple-tech web host's public pages move to www.toastmusters.com", () => {
+  const prod = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' });
+  const dev = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.timer-dev.toastmusters.com' });
+
+  it.each([
+    // The bare host takes one hop here, not two (apex to www, then off-site).
+    ['https://timer.simple-tech.app/', 'https://www.toastmusters.com/', prod],
+    ['https://www.timer.simple-tech.app/?utm=x', 'https://www.toastmusters.com/?utm=x', prod],
+    ['https://www.timer-dev.simple-tech.app/', 'https://www.timer-dev.toastmusters.com/', dev],
+    ['https://timer-dev.simple-tech.app/', 'https://www.timer-dev.toastmusters.com/', dev],
+  ])('301s %s to %s in one hop, cacheable for a day', async (from, to, makeEnvFor) => {
+    const env = makeEnvFor();
+    const res = await worker.fetch(get(from), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(to);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=86400');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  // The app on the old host is not a public page: the apex still goes to the
+  // old www host, and the app is served from there.
+  it('still sends an app path on the bare host to the old www host', async () => {
+    const env = prod();
+    const res = await worker.fetch(get('https://timer.simple-tech.app/timer/app'), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer/app');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('serves the web timer on the old www host as before', async () => {
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/timer/app'), prod(), ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+  });
+
+  // A 301 on a POST would drop its body; the API routes are matched first.
+  it('never redirects an API call on the old www host', async () => {
+    const res = await worker.fetch(
+      new Request('https://www.timer.simple-tech.app/api/zoom/webhook', {
+        method: 'POST',
+        headers: { host: 'www.timer.simple-tech.app', 'content-type': 'application/json' },
+        body: JSON.stringify({ event: 'endpoint.url_validation', payload: {} }),
+      }),
+      prod(),
+      ctx
+    );
+
+    expect(res.status).not.toBe(301);
+  });
+
+  // The Zoom app lives on zoom.<domain>, and www.toastmusters.com is where the
+  // page moves to: a 301 from either would break the app or loop.
+  it.each([
+    'https://zoom.timer.simple-tech.app/',
+    'https://zoom.timer-dev.simple-tech.app/',
+    'https://www.toastmusters.com/',
+  ])('leaves %s alone', async (url) => {
+    const res = await worker.fetch(get(url), prod(), ctx);
+
+    expect(res.status).not.toBe(301);
+  });
+
+  it('does nothing without ROOT_ORIGIN (dev) or over http (wrangler dev)', async () => {
+    const noRoot = await worker.fetch(get('https://www.timer.simple-tech.app/'), makeEnv(['/index.html']), ctx);
+    const local = await worker.fetch(get('http://www.timer.simple-tech.app/'), prod(), ctx);
+
+    expect(noRoot.status).toBe(200);
     expect(local.status).toBe(200);
   });
 });

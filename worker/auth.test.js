@@ -155,15 +155,19 @@ describe('handleOAuthCallback', () => {
     });
   }
 
-  async function startAndCallback({ code = 'the-code', withNonce = true, tamperState = false, fetchImpl = zoomFetch(), stateOverride, callbackEnv = env } = {}) {
-    const startUrl = new URL('https://www.example.test/api/auth/zoom/start?returnTo=%2Faccount');
-    const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW });
+  // The sign-in starts and comes back on callbackEnv's WEB_ORIGIN (the start
+  // would otherwise hand off to it), and carries `returnTo` through the state.
+  async function startAndCallback({ code = 'the-code', withNonce = true, tamperState = false, fetchImpl = zoomFetch(), stateOverride, callbackEnv = env, returnTo = '/account' } = {}) {
+    const startEnv = { ...env, WEB_ORIGIN: callbackEnv.WEB_ORIGIN };
+    const startUrl = new URL('/api/auth/zoom/start', callbackEnv.WEB_ORIGIN);
+    startUrl.searchParams.set('returnTo', returnTo);
+    const started = await handleAuthStart(new Request(startUrl), startUrl, startEnv, { now: NOW });
     const location = new URL(started.headers.get('location'));
     let state = stateOverride ?? location.searchParams.get('state');
     if (tamperState) state = state.slice(0, -2) + 'zz';
     const nonce = cookieValue(started, 'tt_oauth');
 
-    const cb = new URL('https://www.example.test/oauth/redirect');
+    const cb = new URL('/oauth/redirect', callbackEnv.WEB_ORIGIN);
     cb.searchParams.set('state', state);
     if (code) cb.searchParams.set('code', code);
     const req = new Request(cb, { headers: withNonce ? { cookie: `tt_oauth=${nonce}` } : {} });
@@ -214,6 +218,65 @@ describe('handleOAuthCallback', () => {
     const noProfile = await (await startAndCallback({ fetchImpl: zoomFetch({ meOk: false }) })).promise;
     expect(noProfile.headers.get('location')).toContain('reason=profile');
     expect(cookieValue(noProfile, SESSION_COOKIE)).toBeNull();
+  });
+
+  // A page that moved to ROOT_ORIGIN (worker/old-web-host.js) would 301 to a
+  // host that never saw the session cookie set here, so the user would look
+  // signed out. The callback lands on the timer instead.
+  describe('a sign-in that started on a page that has moved off WEB_ORIGIN', () => {
+    const oldHost = {
+      ...env,
+      WEB_ORIGIN: 'https://www.timer.simple-tech.app',
+      ROOT_ORIGIN: 'https://www.toastmusters.com',
+    };
+
+    it('lands on /timer/app, signed in', async () => {
+      const { promise, fetchImpl } = await startAndCallback({ callbackEnv: oldHost, returnTo: '/' });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer/app');
+      expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
+      // The code is still spent against the URI Zoom issued it for.
+      expect(new URLSearchParams(fetchImpl.mock.calls[0][1].body).get('redirect_uri')).toBe(
+        'https://www.timer.simple-tech.app/oauth/redirect'
+      );
+    });
+
+    it('leaves a returnTo that stays on this host unchanged', async () => {
+      for (const returnTo of ['/account', '/timer/app', '/club/admin']) {
+        const { promise } = await startAndCallback({ callbackEnv: oldHost, returnTo });
+        const res = await promise;
+        expect(res.headers.get('location')).toBe(`https://www.timer.simple-tech.app${returnTo}`);
+        expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+      }
+    });
+
+    // SignInFailureNotice is app-wide, so /timer/app shows the failure too.
+    it('reports a failure on /timer/app too', async () => {
+      const { promise, fetchImpl } = await startAndCallback({ callbackEnv: oldHost, returnTo: '/', withNonce: false });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(
+        'https://www.timer.simple-tech.app/timer/app?signin=failed&reason=state_mismatch'
+      );
+      expect(cookieValue(res, SESSION_COOKIE)).toBeNull();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    // Nothing moved for these, so / is a page the user can land on.
+    it.each([
+      ['WEB_ORIGIN is not an old web host', { ...env, ROOT_ORIGIN: 'https://www.toastmusters.com' }],
+      ['ROOT_ORIGIN is not set', { ...env, WEB_ORIGIN: 'https://www.timer.simple-tech.app' }],
+      ['WEB_ORIGIN has moved to the main site', { ...env, WEB_ORIGIN: 'https://www.toastmusters.com', ROOT_ORIGIN: 'https://www.toastmusters.com' }],
+    ])('leaves / alone when %s', async (_why, callbackEnv) => {
+      const { promise } = await startAndCallback({ callbackEnv, returnTo: '/' });
+      const res = await promise;
+
+      expect(res.headers.get('location')).toBe(`${callbackEnv.WEB_ORIGIN}/`);
+      expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+    });
   });
 
   describe('saving the Zoom contact', () => {
