@@ -91,6 +91,20 @@ The privacy policy (`apps/zoom-app/public/privacy.html`) carries all of these.
 - Terms of use with billing and refunds: https://www.timer.simple-tech.app/terms-of-use
 - Support: https://www.timer.simple-tech.app/support
 
+These URLs, and the privacy and support URLs in
+`apps/zoom-app/public/manifest.json`, now 301 to
+`https://www.toastmusters.com/privacy`, `/terms-of-use` and `/support`
+(issue #98; see [Step 2a in TOASTMUSTERS_PATHS.md](./TOASTMUSTERS_PATHS.md#step-2a-public-pages-built)).
+A browser, and a reviewer, follows the redirect, so the listing needs no
+change in the Marketplace and the old links keep working. Leave them as they
+are until the `toastmusters.com` domain allow-list review is approved; updating
+the listing to the `www.toastmusters.com` URLs is then optional. The in-client
+"lost access" help link (`ZOOM_RECONNECT_HELP_URL`) also keeps its old-host
+URL for the same reason: `zoomSdk.openUrl` opens only allow-listed domains, and
+the system browser follows the 301 after it has left Zoom. The Zoom app itself
+(`zoom.timer.simple-tech.app`) and the install landing
+(`https://www.timer.simple-tech.app/oauth/redirect`) do not move.
+
 ## Test instructions for the reviewer
 
 1. Open the app in a meeting. The footer shows **Upgrade**.
