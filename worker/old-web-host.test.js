@@ -19,6 +19,66 @@ describe('oldWebHostTarget', () => {
     expect(target('https://www.timer.simple-tech.app/?utm_source=x&ref=y', PROD)).toBe(
       'https://www.toastmusters.com/?utm_source=x&ref=y'
     );
+    expect(target('https://www.timer.simple-tech.app/privacy?lang=fr', PROD)).toBe(
+      'https://www.toastmusters.com/privacy?lang=fr'
+    );
+    expect(target('https://www.timer.simple-tech.app/tabletopics/today/?q=1', PROD)).toBe(
+      'https://www.toastmusters.com/tabletopics/today/?q=1'
+    );
+  });
+
+  // The guides, the video pages and the Zoom listing's legal pages all move.
+  it.each([
+    ['/toastmasters-timer-role-guide', '/toastmasters-timer-role-guide'],
+    ['/toastmasters-timing-chart', '/toastmasters-timing-chart'],
+    ['/best-toastmasters-timer-apps', '/best-toastmasters-timer-apps'],
+    ['/toastmasters-timer-zoom-demo', '/toastmasters-timer-zoom-demo'],
+    ['/privacy', '/privacy'],
+    ['/support', '/support'],
+    ['/terms-of-use', '/terms-of-use'],
+    ['/documentation', '/documentation'],
+  ])('moves the public page %s to the same path on ROOT_ORIGIN', (path, expected) => {
+    expect(target(`https://www.timer.simple-tech.app${path}`, PROD)).toBe(`https://www.toastmusters.com${expected}`);
+    expect(target(`https://www.timer-dev.simple-tech.app${path}`, DEV)).toBe(`https://www.timer-dev.toastmusters.com${expected}`);
+  });
+
+  // A page is matched, and lands, without its trailing slash.
+  it('drops the trailing slash of a page', () => {
+    expect(target('https://www.timer.simple-tech.app/best-toastmasters-timer-apps/', PROD)).toBe(
+      'https://www.toastmusters.com/best-toastmasters-timer-apps'
+    );
+    expect(target('https://www.timer.simple-tech.app/privacy/?x=1', PROD)).toBe('https://www.toastmusters.com/privacy?x=1');
+  });
+
+  // Everything under /tabletopics moves, and keeps its path exactly: that site
+  // is pre-rendered with trailing slashes, so the slash is part of the address.
+  it.each([
+    ['/tabletopics', '/tabletopics'],
+    ['/tabletopics/', '/tabletopics/'],
+    ['/tabletopics/topics/', '/tabletopics/topics/'],
+    ['/tabletopics/topics', '/tabletopics/topics'],
+    ['/tabletopics/assets/index-abc123.js', '/tabletopics/assets/index-abc123.js'],
+    ['/tabletopics/sitemap.xml', '/tabletopics/sitemap.xml'],
+  ])('moves the Table Topics path %s as it is', (path, expected) => {
+    expect(target(`https://www.timer.simple-tech.app${path}`, PROD)).toBe(`https://www.toastmusters.com${expected}`);
+    expect(target(`https://timer-dev.simple-tech.app${path}`, DEV)).toBe(`https://www.timer-dev.toastmusters.com${expected}`);
+  });
+
+  // Only /tabletopics itself and what is under it; not any path that starts with
+  // the same letters.
+  it.each(['/tabletopics-old', '/tabletopicsx/', '/table-topics', '/tabletopic/'])(
+    'leaves the look-alike path %s alone',
+    (path) => {
+      expect(target(`https://www.timer.simple-tech.app${path}`, PROD)).toBeNull();
+    }
+  );
+
+  // The prefix rule sits behind the same guards as the page list.
+  it('leaves Table Topics paths alone on other hosts, over http and without ROOT_ORIGIN', () => {
+    expect(target('https://zoom.timer.simple-tech.app/tabletopics/', PROD)).toBeNull();
+    expect(target('https://www.toastmusters.com/tabletopics/', PROD)).toBeNull();
+    expect(target('http://www.timer.simple-tech.app/tabletopics/', PROD)).toBeNull();
+    expect(target('https://www.timer.simple-tech.app/tabletopics/', {})).toBeNull();
   });
 
   it('takes the ROOT_ORIGIN host from env, whichever old host asked', () => {
@@ -57,10 +117,28 @@ describe('oldWebHostTarget', () => {
 
   // The app stays on this host: sign-in, Stripe and the Zoom install all come
   // back to WEB_ORIGIN.
-  it.each(['/timer/app', '/oauth/redirect', '/account', '/api/stats', '/zoom/', '/add-to-zoom'])(
-    'keeps the app path %s on the old host',
-    (path) => {
-      expect(target(`https://www.timer.simple-tech.app${path}`, PROD)).toBeNull();
-    }
-  );
+  it.each([
+    '/timer/app',
+    '/timer',
+    '/app',
+    '/web',
+    '/oauth/redirect',
+    '/account',
+    '/billing/success',
+    '/club/admin',
+    '/pro/ABC',
+    '/r/ABCDEFGHJKMNPQRS',
+    '/api/stats',
+    '/zoom/',
+    '/zoom/privacy.html',
+    '/add-to-zoom',
+    '/assets/index.js',
+    '/robots.txt',
+    '/sitemap.xml',
+    '/llms.txt',
+    '/404.html',
+    '/does-not-exist',
+  ])('keeps the path %s on the old host', (path) => {
+    expect(target(`https://www.timer.simple-tech.app${path}`, PROD)).toBeNull();
+  });
 });
