@@ -8,6 +8,7 @@ import {
   Monitor,
   Video,
   Camera,
+  Play,
 } from 'lucide-react'
 import { trackEvent } from '../utils/posthog'
 import { TOOLS, ZOOM_MARKETPLACE_LISTING_URL } from '@toastmaster-timer/shared'
@@ -627,6 +628,18 @@ export default function Landing() {
               <Link to="/timer/app" onClick={trackCta('web_timer', 'hero')} className={BTN_SECONDARY}>
                 Use in Browser &rarr;
               </Link>
+              {/* A quieter third action, so the two buttons above stay the
+                  call to action: it only scrolls to the demo. */}
+              <a
+                href="#demos"
+                onClick={trackCta('watch_demo', 'hero')}
+                className="inline-flex items-center justify-center gap-2.5 px-3 py-3 text-base font-semibold text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors"
+              >
+                <span aria-hidden className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-white">
+                  <Play className="h-3 w-3 fill-current" />
+                </span>
+                Watch the demo
+              </a>
             </div>
             <p className="mt-5 text-sm text-stone-500">
               <a href={ZOOM_MARKETPLACE_LISTING_URL} target="_blank" rel="noopener noreferrer" onClick={trackCta('marketplace', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">See it on the Zoom Marketplace</a>
@@ -642,9 +655,31 @@ export default function Landing() {
           <TrustedBy />
         </div>
 
-        {/* Directly under the club strip on purpose: the clubs and John are one
-            social-proof block — "clubs run it, and a seasoned Toastmaster vouches
-            for it" — best read together, before the feature pitch. */}
+        {/* ——— Full demo ——— */}
+        {/* Second thing a visitor meets, right under the clubs: almost nobody
+            used to scroll to the demo when it sat eighth. The hero's "Watch the
+            demo" link jumps here. Only the full demo; the quick in-Zoom clip is
+            under "More videos" further down. */}
+        <section id="demos" className="scroll-mt-24 max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-20">
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <h2 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight">
+              See it running
+            </h2>
+            <p className="mt-4 text-lg text-stone-600">The timer doing its job in a real meeting.</p>
+          </div>
+          <div className="max-w-3xl mx-auto rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
+            <h3 className="font-display text-lg font-bold mb-4">Watch the full product demo</h3>
+            <div className="rounded-xl overflow-hidden">
+              <YouTubePlayer
+                videoId="D_9bbL9eSJY"
+                title="Best Toastmasters Timer Tool in Zoom"
+                page="landing"
+              />
+            </div>
+            <a href="/toastmasters-timer-demo" className="inline-block mt-4 text-sm font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Watch on dedicated page &rarr;</a>
+          </div>
+        </section>
+
         <section id="ambassador" className="scroll-mt-24 max-w-3xl mx-auto px-4 sm:px-6 pb-20">
           <figure className="rounded-3xl border border-stone-200 bg-white px-8 py-10 sm:px-12 shadow-sm text-center">
             {/* A real heading, not decoration: it names the section for the
@@ -788,42 +823,31 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ——— Demos ——— */}
-        <section id="demos" className="scroll-mt-24 max-w-6xl mx-auto px-4 sm:px-6 py-20">
+        {/* ——— More videos ——— */}
+        {/* The full demo is up under the club strip (id="demos"). The quick
+            in-Zoom clip lives here, after the tutorial it complements. Its
+            position is not settled; moving it is a one-block change. */}
+        <section id="more-videos" className="scroll-mt-24 max-w-6xl mx-auto px-4 sm:px-6 py-20">
           <div className="text-center max-w-2xl mx-auto mb-12">
             <h2 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight">
-              See it running
+              More videos
             </h2>
-            <p className="mt-4 text-lg text-stone-600">Two minutes of the timer doing its job in a real meeting.</p>
           </div>
-          <div className="grid gap-8 lg:grid-cols-2">
-            <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-              <h3 className="font-display text-lg font-bold mb-4">Quick demo: using in Zoom</h3>
-              <div className="rounded-xl overflow-hidden">
-                <video
-                  src="/zoom/use-app-demo.mp4"
-                  preload="none"
-                  poster="/use-app-demo-poster.jpg"
-                  controls
-                  playsInline
-                  className="w-full rounded-xl"
-                  aria-label="Demo video showing Toastmasters Timer with Zoom virtual background color changes"
-                  onPlay={() => trackEvent('quick_demo_played', { page: 'landing' })}
-                />
-              </div>
-              <a href="/toastmasters-timer-zoom-demo" className="inline-block mt-4 text-sm font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Watch on dedicated page &rarr;</a>
+          <div className="max-w-3xl mx-auto rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
+            <h3 className="font-display text-lg font-bold mb-4">Quick demo: using in Zoom</h3>
+            <div className="rounded-xl overflow-hidden">
+              <video
+                src="/zoom/use-app-demo.mp4"
+                preload="none"
+                poster="/use-app-demo-poster.jpg"
+                controls
+                playsInline
+                className="w-full rounded-xl"
+                aria-label="Demo video showing Toastmasters Timer with Zoom virtual background color changes"
+                onPlay={() => trackEvent('quick_demo_played', { page: 'landing' })}
+              />
             </div>
-            <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-              <h3 className="font-display text-lg font-bold mb-4">Watch the full product demo</h3>
-              <div className="rounded-xl overflow-hidden">
-                <YouTubePlayer
-                  videoId="D_9bbL9eSJY"
-                  title="Best Toastmasters Timer Tool in Zoom"
-                  page="landing"
-                />
-              </div>
-              <a href="/toastmasters-timer-demo" className="inline-block mt-4 text-sm font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Watch on dedicated page &rarr;</a>
-            </div>
+            <a href="/toastmasters-timer-zoom-demo" className="inline-block mt-4 text-sm font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Watch on dedicated page &rarr;</a>
           </div>
         </section>
 
