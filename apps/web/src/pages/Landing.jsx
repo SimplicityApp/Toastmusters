@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   X,
@@ -301,6 +301,66 @@ const TUTORIAL_CARDS = [
   { slug: 'display-modes', n: '2', title: 'Three ways to show the timer', dur: '0:43', line: 'Timer + Camera, Timer Only or Full-Screen.' },
   { slug: 'agenda', n: '3', title: 'Load your agenda in 30 seconds', dur: '0:30', line: 'Paste your roles or the EasySpeak page.' },
 ]
+
+// One teaser card. The screenshot inset comes alive on hover or keyboard focus, as
+// a muted loop of the real tutorial, the way product sites preview a clip. The
+// video has preload="none", so nothing is fetched until someone points at the
+// card, and reduced motion or data saver leave it a still. The card itself is
+// a link to the player, so a tap on a phone goes straight there.
+function TutorialCard({ card }) {
+  const video = useRef(null)
+  const allowed = () => !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData)
+  const play = () => {
+    const v = video.current
+    if (!v || !allowed()) return
+    const started = v.play?.()
+    started?.catch?.(() => {})
+  }
+  const stop = () => {
+    const v = video.current
+    if (!v) return
+    v.pause?.()
+    try { v.currentTime = 0 } catch { /* not loaded yet */ }
+  }
+  return (
+    <a
+      href={`/tutorials#${card.slug}`}
+      onClick={trackCta(`tutorial_${card.slug}`, 'home_tutorials')}
+      onMouseEnter={play}
+      onMouseLeave={stop}
+      onFocus={play}
+      onBlur={stop}
+      className="block rounded-3xl border border-stone-200 bg-white p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+    >
+      <div
+        className="relative aspect-video overflow-hidden rounded-[14px]"
+        style={{ background: 'radial-gradient(ellipse 90% 110% at 30% 40%, #1a76ad 0%, #146499 45%, #0a3652 100%)' }}
+      >
+        <span aria-hidden className="absolute left-[7%] top-1/2 -translate-y-1/2 font-display font-extrabold leading-none text-white text-[clamp(56px,7vw,94px)]">{card.n}</span>
+        <video
+          ref={video}
+          src={`/video/tutorials/${card.slug}.mp4`}
+          poster={`/video/tutorials/${card.slug}-poster.jpg`}
+          preload="none"
+          muted
+          loop
+          playsInline
+          aria-hidden
+          tabIndex={-1}
+          className="absolute -right-[4%] top-1/2 w-[64%] -translate-y-1/2 aspect-video rounded-[10px] object-cover shadow-[0_12px_26px_rgba(0,0,0,0.45)]"
+        />
+        <span className="absolute left-3 bottom-3 inline-flex items-center gap-1.5 rounded-full bg-ink/90 py-1 pl-1.5 pr-2.5 text-xs font-semibold text-white">
+          <Play className="h-4 w-4 rounded-full bg-white p-1 text-ink fill-current" aria-hidden />
+          {card.dur}
+        </span>
+      </div>
+      <div className="px-2 pt-4 pb-2">
+        <h3 className="font-display text-[19px] leading-tight font-extrabold">{card.title}</h3>
+        <p className="mt-1.5 text-sm text-stone-600 leading-relaxed">{card.line}</p>
+      </div>
+    </a>
+  )
+}
 
 const NAV_LINKS = [
   { href: '#features', label: 'Features' },
@@ -848,35 +908,7 @@ export default function Landing() {
           </div>
           <div className="grid gap-7 sm:grid-cols-3">
             {TUTORIAL_CARDS.map((card) => (
-              <a
-                key={card.slug}
-                href={`/tutorials#${card.slug}`}
-                onClick={trackCta(`tutorial_${card.slug}`, 'home_tutorials')}
-                className="block rounded-3xl border border-stone-200 bg-white p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
-              >
-                <div
-                  className="relative aspect-video overflow-hidden rounded-[14px]"
-                  style={{ background: 'radial-gradient(ellipse 90% 110% at 30% 40%, #1a76ad 0%, #146499 45%, #0a3652 100%)' }}
-                >
-                  <span aria-hidden className="absolute left-[7%] top-1/2 -translate-y-1/2 font-display font-extrabold leading-none text-white text-[clamp(56px,7vw,94px)]">{card.n}</span>
-                  <img
-                    src={`/video/tutorials/${card.slug}-poster.jpg`}
-                    alt=""
-                    width="640"
-                    height="360"
-                    loading="lazy"
-                    className="absolute -right-[4%] top-1/2 w-[64%] -translate-y-1/2 aspect-video rounded-[10px] object-cover shadow-[0_12px_26px_rgba(0,0,0,0.45)]"
-                  />
-                  <span className="absolute left-3 bottom-3 inline-flex items-center gap-1.5 rounded-full bg-ink/90 py-1 pl-1.5 pr-2.5 text-xs font-semibold text-white">
-                    <Play className="h-4 w-4 rounded-full bg-white p-1 text-ink fill-current" aria-hidden />
-                    {card.dur}
-                  </span>
-                </div>
-                <div className="px-2 pt-4 pb-2">
-                  <h3 className="font-display text-[19px] leading-tight font-extrabold">{card.title}</h3>
-                  <p className="mt-1.5 text-sm text-stone-600 leading-relaxed">{card.line}</p>
-                </div>
-              </a>
+              <TutorialCard key={card.slug} card={card} />
             ))}
           </div>
           <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-5">

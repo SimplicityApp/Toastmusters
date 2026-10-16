@@ -112,6 +112,30 @@
   font-weight: 600;
   pointer-events: none;
 }
+/* Muted, looping preview: no play button, a "Tap for sound" pill instead */
+.tut-sound {
+  position: absolute;
+  left: 0.875rem;
+  bottom: 0.875rem;
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem 0.5rem 0.625rem;
+  border-radius: 9999px;
+  border: 0;
+  background: rgba(28, 27, 26, 0.88);
+  color: #fff;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.tut-sound:hover { background: var(--ink); }
+.tut-player.is-preview .tut-sound { display: inline-flex; }
+.tut-player.is-preview video { cursor: pointer; }
+.tut-player.is-preview .tut-playbtn,
+.tut-player.is-preview .tut-dur,
 .tut-player.is-started .tut-playbtn,
 .tut-player.is-started .tut-dur { display: none; }
 

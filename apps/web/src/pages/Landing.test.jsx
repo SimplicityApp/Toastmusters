@@ -147,6 +147,22 @@ describe('Landing demo placement', () => {
     expect(within(section).getByRole('link', { name: /quick demo: using in zoom/i })).toHaveAttribute('href', '/toastmasters-timer-zoom-demo');
   });
 
+  it('previews each tutorial card as a muted loop that downloads nothing until someone points at it', () => {
+    renderLanding();
+
+    const section = document.getElementById('tutorials');
+    const previews = [...section.querySelectorAll('video')];
+    expect(previews).toHaveLength(3);
+    previews.forEach((v) => {
+      expect(v.getAttribute('src')).toMatch(/^\/video\/tutorials\/[a-z-]+\.mp4$/);
+      expect(v).toHaveAttribute('preload', 'none');
+      expect(v.muted).toBe(true);
+      expect(v.loop).toBe(true);
+      expect(v).not.toHaveAttribute('autoplay');
+      expect(v).toHaveAttribute('poster');
+    });
+  });
+
   it('no longer plays the quick in-Zoom clip on the home page, and the full demo stays up top', () => {
     renderLanding();
 
