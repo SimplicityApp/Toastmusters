@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Landing from './Landing';
 import { TOOLS } from '@toastmaster-timer/shared';
@@ -135,14 +135,33 @@ describe('Landing demo placement', () => {
     expect(demos.compareDocumentPosition(ambassador) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps the quick in-Zoom demo out of the top demo and under "More videos"', () => {
+  it('teases the first three tutorials after the how-to steps, linking into /tutorials', () => {
     renderLanding();
 
-    const quick = screen.getByLabelText(/demo video showing toastmasters timer/i);
-    expect(quick.closest('section')).toBe(document.getElementById('more-videos'));
-    expect(document.getElementById('demos')).not.toContainElement(quick);
-    expect(screen.getByRole('heading', { name: 'More videos' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Watch the full product demo' })).toBeInTheDocument();
+    const section = document.getElementById('tutorials');
+    expect(screen.getByRole('heading', { name: 'Short tutorials' }).closest('section')).toBe(section);
+    expect(document.getElementById('how-to-zoom').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const cards = within(section).getAllByRole('link').filter((a) => a.getAttribute('href').startsWith('/tutorials#'));
+    expect(cards.map((a) => a.getAttribute('href'))).toEqual(['/tutorials#first-speech', '/tutorials#display-modes', '/tutorials#agenda']);
+    expect(within(section).getByRole('link', { name: /watch all 5 tutorials/i })).toHaveAttribute('href', '/tutorials');
+    expect(within(section).getByRole('link', { name: /quick demo: using in zoom/i })).toHaveAttribute('href', '/toastmasters-timer-zoom-demo');
+  });
+
+  it('no longer plays the quick in-Zoom clip on the home page, and the full demo stays up top', () => {
+    renderLanding();
+
+    expect(screen.queryByLabelText(/demo video showing toastmasters timer/i)).not.toBeInTheDocument();
+    expect(document.getElementById('more-videos')).toBeNull();
+    expect(within(document.getElementById('demos')).getByRole('heading', { name: 'Watch the full product demo' })).toBeInTheDocument();
+  });
+
+  it('adds Video Tutorials to the header nav and the footer', () => {
+    renderLanding();
+
+    const nav = screen.getByRole('navigation', { name: /page sections/i });
+    expect(within(nav).getByRole('link', { name: 'Video Tutorials' })).toHaveAttribute('href', '/tutorials');
+    const footerLink = screen.getAllByRole('link', { name: 'Video Tutorials' }).find((a) => a.closest('footer'));
+    expect(footerLink).toHaveAttribute('href', '/tutorials');
   });
 });
 

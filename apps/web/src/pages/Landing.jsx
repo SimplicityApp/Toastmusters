@@ -294,12 +294,23 @@ const FAQS = [
 
 // The sticky header's anchors, in page order. Short labels on purpose — they
 // sit in one row and share it with the CTA.
+// The three tutorials the home page teases; the full list, with the player, is
+// on /tutorials (public/tutorials.html). Slugs are that page's article ids.
+const TUTORIAL_CARDS = [
+  { slug: 'first-speech', n: '1', title: 'Time your first speech', dur: '0:48', line: 'Open the app, pick a speaker, press Start.' },
+  { slug: 'display-modes', n: '2', title: 'Three ways to show the timer', dur: '0:43', line: 'Timer + Camera, Timer Only or Full-Screen.' },
+  { slug: 'agenda', n: '3', title: 'Load your agenda in 30 seconds', dur: '0:30', line: 'Paste your roles or the EasySpeak page.' },
+]
+
 const NAV_LINKS = [
   { href: '#features', label: 'Features' },
   { href: '#display-modes', label: 'Zoom Modes' },
   { href: '#how-to-zoom', label: 'Tutorial' },
   { href: '#demos', label: 'Demos' },
   { href: '#timer-role', label: 'Timer Role' },
+  // Wide screens only: with six links the header runs out of room between ~1000 and
+  // ~1140px. Below that the tutorials stay one click away (the section, the footer).
+  { href: '/tutorials', label: 'Video Tutorials', wideOnly: true },
 ]
 
 // The strip's numbers when /api/stats is unreachable (local dev, ad blockers,
@@ -570,7 +581,7 @@ export default function Landing() {
               <a
                 key={link.href}
                 href={link.href}
-                className="rounded-full px-3.5 py-1.5 text-sm font-medium text-stone-600 hover:text-ink hover:bg-stone-900/5 transition-colors"
+                className={`rounded-full px-3 py-1.5 text-sm font-medium text-stone-600 hover:text-ink hover:bg-stone-900/5 transition-colors ${link.wideOnly ? 'hidden min-[1140px]:inline-flex whitespace-nowrap' : ''}`}
               >
                 {link.label}
               </a>
@@ -824,30 +835,53 @@ export default function Landing() {
         </section>
 
         {/* ——— More videos ——— */}
-        {/* The full demo is up under the club strip (id="demos"). The quick
-            in-Zoom clip lives here, after the tutorial it complements. Its
-            position is not settled; moving it is a one-block change. */}
-        <section id="more-videos" className="scroll-mt-24 max-w-6xl mx-auto px-4 sm:px-6 py-20">
-          <div className="text-center max-w-2xl mx-auto mb-12">
+        {/* Short tutorials. The full demo is up under the club strip (id="demos");
+            this teases the first three tutorials and sends the rest to /tutorials,
+            where the player and the playlist live. The quick in-Zoom clip is on its
+            own page (/toastmasters-timer-zoom-demo) and linked from here. */}
+        <section id="tutorials" className="scroll-mt-24 max-w-6xl mx-auto px-4 sm:px-6 py-20">
+          <div className="text-center max-w-2xl mx-auto mb-10">
             <h2 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight">
-              More videos
+              Short tutorials
             </h2>
+            <p className="mt-4 text-lg text-stone-600">Five videos, under a minute each. From your first speech to the timing report.</p>
           </div>
-          <div className="max-w-3xl mx-auto rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-            <h3 className="font-display text-lg font-bold mb-4">Quick demo: using in Zoom</h3>
-            <div className="rounded-xl overflow-hidden">
-              <video
-                src="/zoom/use-app-demo.mp4"
-                preload="none"
-                poster="/use-app-demo-poster.jpg"
-                controls
-                playsInline
-                className="w-full rounded-xl"
-                aria-label="Demo video showing Toastmasters Timer with Zoom virtual background color changes"
-                onPlay={() => trackEvent('quick_demo_played', { page: 'landing' })}
-              />
-            </div>
-            <a href="/toastmasters-timer-zoom-demo" className="inline-block mt-4 text-sm font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Watch on dedicated page &rarr;</a>
+          <div className="grid gap-7 sm:grid-cols-3">
+            {TUTORIAL_CARDS.map((card) => (
+              <a
+                key={card.slug}
+                href={`/tutorials#${card.slug}`}
+                onClick={trackCta(`tutorial_${card.slug}`, 'home_tutorials')}
+                className="block rounded-3xl border border-stone-200 bg-white p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+              >
+                <div
+                  className="relative aspect-video overflow-hidden rounded-[14px]"
+                  style={{ background: 'radial-gradient(ellipse 90% 110% at 30% 40%, #1a76ad 0%, #146499 45%, #0a3652 100%)' }}
+                >
+                  <span aria-hidden className="absolute left-[7%] top-1/2 -translate-y-1/2 font-display font-extrabold leading-none text-white text-[clamp(56px,7vw,94px)]">{card.n}</span>
+                  <img
+                    src={`/video/tutorials/${card.slug}-poster.jpg`}
+                    alt=""
+                    width="640"
+                    height="360"
+                    loading="lazy"
+                    className="absolute -right-[4%] top-1/2 w-[64%] -translate-y-1/2 aspect-video rounded-[10px] object-cover shadow-[0_12px_26px_rgba(0,0,0,0.45)]"
+                  />
+                  <span className="absolute left-3 bottom-3 inline-flex items-center gap-1.5 rounded-full bg-ink/90 py-1 pl-1.5 pr-2.5 text-xs font-semibold text-white">
+                    <Play className="h-4 w-4 rounded-full bg-white p-1 text-ink fill-current" aria-hidden />
+                    {card.dur}
+                  </span>
+                </div>
+                <div className="px-2 pt-4 pb-2">
+                  <h3 className="font-display text-[19px] leading-tight font-extrabold">{card.title}</h3>
+                  <p className="mt-1.5 text-sm text-stone-600 leading-relaxed">{card.line}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+          <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-5">
+            <a href="/tutorials" onClick={trackCta('tutorials', 'home_tutorials')} className={BTN_PRIMARY}>Watch all 5 tutorials &rarr;</a>
+            <a href="/toastmasters-timer-zoom-demo" onClick={trackCta('quick_demo', 'home_tutorials')} className="text-[15px] font-semibold text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Quick demo: using in Zoom</a>
           </div>
         </section>
 
@@ -949,6 +983,7 @@ export default function Landing() {
               <li><a href="/how-to-use-zoom-for-toastmasters" className="text-sm text-stone-500 hover:text-ink transition-colors">Zoom for Toastmasters</a></li>
               <li><a href="/toastmasters-zoom-timer-backgrounds" className="text-sm text-stone-500 hover:text-ink transition-colors">Free Zoom Backgrounds</a></li>
               <li><a href="/best-toastmasters-timer-apps" className="text-sm text-stone-500 hover:text-ink transition-colors">Timer Apps Compared</a></li>
+              <li><a href="/tutorials" className="text-sm text-stone-500 hover:text-ink transition-colors">Video Tutorials</a></li>
               <li><a href="/toastmasters-timer-demo" className="text-sm text-stone-500 hover:text-ink transition-colors">Product Demo</a></li>
               <li><a href="/toastmasters-timer-zoom-demo" className="text-sm text-stone-500 hover:text-ink transition-colors">Zoom Demo</a></li>
             </ul>
