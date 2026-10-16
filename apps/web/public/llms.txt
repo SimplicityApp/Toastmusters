@@ -63,6 +63,9 @@ Toastmasters International.
   them in Zoom.
 - [Best Toastmasters Timer Apps Compared](https://www.toastmusters.com/best-toastmasters-timer-apps):
   Honest comparison of the available timer tools, including alternatives.
+- [Video Tutorials](https://www.toastmusters.com/tutorials):
+  Five short videos with transcripts: time your first speech, the three display
+  modes, load an agenda, run Table Topics, and share the timing report.
 
 ## Optional
 
