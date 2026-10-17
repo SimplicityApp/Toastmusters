@@ -31,8 +31,9 @@ the wrong app (production from a dev page, or the reverse).
 ## Steps
 
 ### DL-01 · auto · Page carries this build's client id
-Do: open the dev landing page and read the "Open in Zoom" and "Add to Zoom" hrefs (page JS).
-Expect: both use the dev client id (`kgpoX2A6TY2BvdctzK9iw`); no `DsFHK5sNQs2_VFyeQky2sg`.
+Do: open the dev landing page and read every "Open in Zoom" and "Add to Zoom" href (page JS),
+including the "Add to Zoom" link inside the "Watch the demo" dialog.
+Expect: all use the dev client id (`kgpoX2A6TY2BvdctzK9iw`); no `DsFHK5sNQs2_VFyeQky2sg`.
 Evidence: the hrefs.
 
 ### DL-02 · auto · Zoom resolves the link
@@ -50,6 +51,8 @@ Expect: exactly the link used before the change (`.../zoomapp/DsFHK5sNQs2_VFyeQk
 Evidence: `appLinks.test.js`; curl 302.
 
 ## Not covered
+- The hero demo video, the "Watch the demo" dialog's playback and the `#tutorials` videos;
+  they are website-only and covered by `DemoDialog.test.jsx` and `Landing.test.jsx`.
 - The "Open Zoom app" button on `/oauth/redirect` and `/billing/success` (they need a real
   install and a Stripe return); they share `zoomAppDeeplink()` with the landing page.
 - Where Zoom shows its "Open Zoom?" browser prompt, which depends on the browser.
