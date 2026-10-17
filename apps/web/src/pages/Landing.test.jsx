@@ -1,9 +1,15 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Landing from './Landing';
 import { TOOLS } from '@toastmaster-timer/shared';
 
 const TEST_ZOOM_URL = 'https://zoom.us/oauth/authorize?test=true';
+
+// Stands in for the real player, which would load YouTube's script. Its presence in the DOM is
+// what "YouTube has loaded" means in these tests.
+vi.mock('../components/YouTubePlayer', () => ({
+  default: ({ videoId, autoplay }) => <div data-testid="youtube" data-video-id={videoId} data-autoplay={String(autoplay)} />,
+}));
 
 beforeEach(() => {
   import.meta.env.VITE_ZOOM_OAUTH_REDIRECT = TEST_ZOOM_URL;
@@ -133,31 +139,110 @@ describe('Landing demo placement', () => {
       </MemoryRouter>
     );
 
-  it('puts a quiet "Watch the demo" link in the hero that jumps to the demo', () => {
+  it('opens on a silent looping clip of a real run, ahead of the clubs strip', () => {
     renderLanding();
 
-    expect(screen.getByRole('link', { name: /watch the demo/i })).toHaveAttribute('href', '#demos');
-  });
-
-  it('shows the full demo straight after the clubs strip and before the ambassador', () => {
-    renderLanding();
-
+    const clip = document.querySelector('video[src="/video/hero-loop.mp4"]');
+    expect(clip).not.toBeNull();
+    expect(clip.muted).toBe(true);
+    expect(clip.loop).toBe(true);
+    expect(clip).toHaveAttribute('autoplay');
+    expect(clip).toHaveAttribute('playsinline');
+    expect(clip).toHaveAttribute('poster', '/video/hero-loop-poster.jpg');
     const clubs = screen.getByRole('region', { name: /clubs using toastmasters timer/i });
-    const demos = document.getElementById('demos');
-    const ambassador = document.getElementById('ambassador');
-    expect(screen.getByRole('heading', { name: 'See it running' }).closest('section')).toBe(demos);
-    expect(clubs.compareDocumentPosition(demos) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(demos.compareDocumentPosition(ambassador) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(clip.compareDocumentPosition(clubs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps the quick in-Zoom demo out of the top demo and under "More videos"', () => {
+  it('shows the poster instead of the clip when the visitor prefers reduced motion', () => {
+    vi.stubGlobal('matchMedia', (query) => ({ matches: query.includes('reduce'), media: query, addEventListener() {}, removeEventListener() {} }));
     renderLanding();
 
-    const quick = screen.getByLabelText(/demo video showing toastmasters timer/i);
-    expect(quick.closest('section')).toBe(document.getElementById('more-videos'));
-    expect(document.getElementById('demos')).not.toContainElement(quick);
-    expect(screen.getByRole('heading', { name: 'More videos' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Watch the full product demo' })).toBeInTheDocument();
+    expect(document.querySelector('video[src="/video/hero-loop.mp4"]')).toBeNull();
+    expect(document.querySelector('img[src="/video/hero-loop-poster.jpg"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Watch the 2-minute demo' })).toBeInTheDocument();
+  });
+
+  it('loads nothing from YouTube until someone asks to watch the demo', () => {
+    renderLanding();
+
+    expect(screen.queryByRole('dialog', { name: /best toastmasters timer tool in zoom/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('youtube')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'See it running' })).not.toBeInTheDocument();
+    expect(document.getElementById('demos')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Demos' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['the pill on the video', 'Watch the 2-minute demo'],
+    ['the quiet link in the hero', 'Watch the demo'],
+  ])('opens the demo popup, and only then loads the player, from %s', (_where, name) => {
+    renderLanding();
+
+    fireEvent.click(screen.getByRole('button', { name }));
+
+    const dialog = screen.getByRole('dialog', { name: /best toastmasters timer tool in zoom/i });
+    const player = within(dialog).getByTestId('youtube');
+    expect(player).toHaveAttribute('data-video-id', 'D_9bbL9eSJY');
+    expect(player).toHaveAttribute('data-autoplay', 'true');
+    expect(within(dialog).getByRole('link', { name: 'Add to Zoom' })).toHaveAttribute('href', TEST_ZOOM_URL);
+  });
+
+  it('closes the popup with Escape, unloading the player and handing focus back to the button', () => {
+    renderLanding();
+    const pill = screen.getByRole('button', { name: 'Watch the 2-minute demo' });
+    pill.focus();
+
+    fireEvent.click(pill);
+    expect(screen.getByRole('button', { name: 'Close the demo' })).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: /best toastmasters timer tool in zoom/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('youtube')).not.toBeInTheDocument();
+    expect(pill).toHaveFocus();
+  });
+
+  it('teases the first three tutorials after the how-to steps, linking into /tutorials', () => {
+    renderLanding();
+
+    const section = document.getElementById('tutorials');
+    expect(screen.getByRole('heading', { name: 'Short tutorials' }).closest('section')).toBe(section);
+    expect(document.getElementById('how-to-zoom').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const cards = within(section).getAllByRole('link').filter((a) => a.getAttribute('href').startsWith('/tutorials#'));
+    expect(cards.map((a) => a.getAttribute('href'))).toEqual(['/tutorials#first-speech', '/tutorials#display-modes', '/tutorials#agenda']);
+    expect(within(section).getByRole('link', { name: /watch all 5 tutorials/i })).toHaveAttribute('href', '/tutorials');
+    expect(within(section).getByRole('link', { name: /quick demo: using in zoom/i })).toHaveAttribute('href', '/toastmasters-timer-zoom-demo');
+  });
+
+  it('previews each tutorial card as a muted loop that downloads nothing until someone points at it', () => {
+    renderLanding();
+
+    const section = document.getElementById('tutorials');
+    const previews = [...section.querySelectorAll('video')];
+    expect(previews).toHaveLength(3);
+    previews.forEach((v) => {
+      expect(v.getAttribute('src')).toMatch(/^\/video\/tutorials\/[a-z-]+\.mp4$/);
+      expect(v).toHaveAttribute('preload', 'none');
+      expect(v.muted).toBe(true);
+      expect(v.loop).toBe(true);
+      expect(v).not.toHaveAttribute('autoplay');
+      expect(v).toHaveAttribute('poster');
+    });
+  });
+
+  it('no longer plays the quick in-Zoom clip on the home page', () => {
+    renderLanding();
+
+    expect(screen.queryByLabelText(/demo video showing toastmasters timer/i)).not.toBeInTheDocument();
+    expect(document.getElementById('more-videos')).toBeNull();
+  });
+
+  it('adds Video Tutorials to the header nav and the footer', () => {
+    renderLanding();
+
+    const nav = screen.getByRole('navigation', { name: /page sections/i });
+    expect(within(nav).getByRole('link', { name: 'Video Tutorials' })).toHaveAttribute('href', '/tutorials');
+    const footerLink = screen.getAllByRole('link', { name: 'Video Tutorials' }).find((a) => a.closest('footer'));
+    expect(footerLink).toHaveAttribute('href', '/tutorials');
   });
 });
 

@@ -45,6 +45,7 @@ const PAGES = [
   { path: '/best-toastmasters-timer-apps', file: 'apps/web/public/best-toastmasters-timer-apps.html', priority: '0.8', changefreq: 'monthly' },
 
   // Video pages
+  { path: '/tutorials', file: 'apps/web/public/tutorials.html', priority: '0.7', changefreq: 'monthly' },
   { path: '/toastmasters-timer-demo', file: 'apps/web/public/toastmasters-timer-demo.html', priority: '0.6', changefreq: 'monthly' },
   { path: '/toastmasters-timer-zoom-demo', file: 'apps/web/public/toastmasters-timer-zoom-demo.html', priority: '0.6', changefreq: 'monthly' },
 
