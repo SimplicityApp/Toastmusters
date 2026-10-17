@@ -83,3 +83,5 @@ Evidence: `localStorage` timestamp and the booted state.
 ## Not covered
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).
+- Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
+  `TimerContext.jsx`). See [agenda-import](agenda-import.md).
