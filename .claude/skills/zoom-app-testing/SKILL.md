@@ -17,10 +17,21 @@ Scripts live in `.claude/skills/zoom-app-testing/scripts/` (call them by full pa
 directory `$S` below). Project facts — hosts, Worker name, KV ids, CLI, test plans — are in
 `references/toastmusters.md`.
 
+## 0. Start from the specs in the repo
+
+The source of truth for *what to test* is `e2e/zoom-client/` (read its `README.md` for the
+format, then `INDEX.md`). Pick the specs the user asked for, or those whose `covers` files
+changed (`npm run test:specs -- --stale`). Steps are already tagged `auto`/`human`. Honour
+each spec's `needs` (deploy, gate value) in preflight. If the code and a spec disagree, say so
+in the run log and fix the spec in the same branch; don't test from memory. After a run,
+update the spec's `verified_at` (git sha tested) and `verified_on`, mark failed specs
+`status: stale`, update `INDEX.md`, and run `npm run test:specs`. Use the plan docs below only
+for areas `INDEX.md` marks "not migrated".
+
 ## 1. Plan before touching anything
 
-Take the test plan the user points at (e.g. the `06-…-test-plan` / `docs/ZOOM_TEST_PLAN.md`)
-and split every step into:
+Take the specs (or, for not-yet-migrated areas, the plan the user points at, e.g.
+`docs/ZOOM_TEST_PLAN.md`) and split every step into:
 
 - **auto** — you can act *and* verify it (Zoom clicks, web app, API, KV, logs).
 - **human** — only the user may do it (list below).

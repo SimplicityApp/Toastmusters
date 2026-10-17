@@ -23,7 +23,7 @@ GET  /api/me?flags=1    (web app identity call, once per page load)
       POST https://us.i.posthog.com/flags?v=2  { api_key, distinct_id }
         ok                       → declared keys only, cached 60 s
         any failure              → FLAG_FALLBACKS (not cached)
-  → { …, flags: { pro } }
+  → { …, flags: { pro, contact_capture } }
   → packages/shared/flags.js (setFlags, known = true) → useFlag(key) → UI
 
 Server gates: flagEnabled(env, key, { uid }) → bare 404 when off
@@ -52,12 +52,28 @@ Server gates: flagEnabled(env, key, { uid }) → bare 404 when off
   `apps/web/src/App.jsx`: the page is not mounted until the flag is known and
   on, and is the not-found view while it is off.
 
-## The flag
+## The flags
 
-There is one flag, `pro`, declared in `FLAG_FALLBACKS` in `worker/flags.js`
-with a `removeBy` date in a comment. Billing, web sign-in and clubs are all Pro
-features that launch together, so one switch covers them. Its fallback is
-`false`: the safe value, not the current one.
+There are two flags, `pro` and `contact_capture`, declared in `FLAG_FALLBACKS`
+in `worker/flags.js`, each with a `removeBy` date in a comment. Both fallbacks
+are `false`: the safe value, not the current one. **Both must exist in PostHog
+before they can be turned on in production**; until then the fallback applies.
+
+`contact_capture` gates one thing: the Zoom app asking Zoom for an
+authorization code (`zoomSdk.authorize`) so the Worker can save the user's Zoom
+email and name (`apps/zoom-app/src/components/ContactCapture.jsx`,
+`worker/contact.js`). It is a UI-only gate. `POST /api/zoom/contact` is not
+gated, because without the flag the app never has a code to send. The browser
+doors that save the same record (install/re-add and web sign-in) are not
+flagged at all. It is also an example of [a Zoom capability that is approved
+but dark](#zoom-capabilities-approved-but-dark): the app needs `authorize` and
+`onAuthorized` from the Marketplace as well as the flag. To try it in
+production, create `contact_capture` in PostHog and target yourself as in
+[Turning a flag on](#turning-a-flag-on-for-yourself-in-production); the
+measured funnel is in `docs/ZOOM_LISTING_PRO.md`.
+
+`pro` covers billing, web sign-in and clubs. They are all Pro features that
+launch together, so one switch covers them.
 
 | Surface | 404 / hidden while `pro` is off (or, in the UI, unknown) | Never gated |
 |---|---|---|

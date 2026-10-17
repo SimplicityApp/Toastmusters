@@ -28,8 +28,10 @@ is nothing to prompt and the client lists it in `unsupportedApis`.
 
 Consequences:
 
-- **27/28 with only `promptAuthorize` missing is the healthy, fully-authorized
-  panel.** It is not misconfigured.
+- **29/30 with only `promptAuthorize` missing is the healthy, fully-authorized
+  panel.** It is not misconfigured. Until the Marketplace grants `authorize`
+  and `onAuthorized` (the in-client contact capture, see
+  `ZOOM_LISTING_PRO.md`), 27/30 with those two also missing is equally healthy.
 - Enabling it in the Marketplace changes nothing for an authorized user. It
   appears in the granted set exactly when the user is `authenticated`, which is
   exactly when the notice needs it, because `configureZoomSdk()` re-runs on
@@ -85,6 +87,11 @@ The marketing site's "Add to Zoom" is not stamped either:
   at build time and fall back to the Marketplace listing
   (`ZOOM_MARKETPLACE_LISTING_URL`) when a build has none.
   `ReviewPromptModal.jsx` reads it too and hides its button without it.
+- Every "Open Zoom app" / "Open in Zoom" deeplink (`OAuthRedirect.jsx`,
+  `BillingSuccess.jsx`, `Landing.jsx`) is built by `zoomAppDeeplink()` from the
+  `client_id` of that same `VITE_ZOOM_OAUTH_REDIRECT`, so it launches the app the
+  build's "Add to Zoom" installs (a Zoom app's id is its OAuth client id). The
+  variable has to be a Workers Builds **build** variable to reach the bundle.
 - The static guide pages link to **`/add-to-zoom`**, which the Worker answers
   with a 302 to `zoomAuthorizeUrl(env)` (the same `ZOOM_CLIENT_ID` +
   `WEB_ORIGIN` as the stamp), or to the Marketplace listing when those are

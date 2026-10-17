@@ -33,6 +33,7 @@ dev testers without Pro are refused sync.
   club code (open `/pro/<CODE>` first) — see `docs/plans/08-club-pro-bugfix-plan.md` #1.
 
 ## Test plans and past runs
+- `e2e/zoom-client/` — **versioned specs, the source of truth** (see its README and INDEX).
 - `docs/ZOOM_TEST_PLAN.md` — reviewer-facing steps (1, 1b, 1c, 2, 3, 3b, P1–P7).
 - `.humanlayer/tasks/define-pro-features-plan-with-code-call-stacks-6t488q/06-zoom-client-test-plan-club-pro.md` — deep Club Pro plan.
 - `test-runs/2026-09-28-club-pro/run.md` — the reference run this skill was built from.

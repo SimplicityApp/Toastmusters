@@ -74,7 +74,7 @@
 <body>
     <div class="container">
         <h1>Privacy Policy</h1>
-        <p class="last-updated">Last Updated: September 27, 2026</p>
+        <p class="last-updated">Last Updated: October 4, 2026</p>
 
         <h2>1. Introduction</h2>
         <p>
@@ -87,12 +87,13 @@
         <ul>
             <li><strong>Local Storage Data:</strong> The app stores timing rules, agenda items, reports and any card artwork you upload in your browser's local storage. On a free device, meeting reports stay on your device only; on a device that has joined a Pro club, they are also saved to that club's archive, as described below.</li>
             <li><strong>Zoom Participant Information:</strong> When you use the app in a Zoom meeting, we may access participant names to help you select speakers. Participant names are used only within the app and are not sent to our servers.</li>
-            <li><strong>Zoom User Identifier:</strong> When you open the app, Zoom provides a signed context containing your Zoom user ID. We use it to recognise you as a returning user so your settings can follow you between devices, and to count returning users in our product analytics. It is an opaque identifier: it is not your name, and it is not your email address. If you use the app as an unauthenticated guest, Zoom does not provide it and we do not identify you at all.</li>
+            <li><strong>Zoom User Identifier:</strong> When you open the app, Zoom provides a signed context containing your Zoom user ID. We use it to recognise you as a returning user so your settings can follow you between devices, and to count returning users in our product analytics. On its own it is an opaque identifier: it is not your name or your email address. If you use the app as an unauthenticated guest, Zoom does not provide it and we do not identify you at all.</li>
+            <li><strong>Zoom Account Email and Name:</strong> When you approve the app in Zoom — when you first add it, when you approve it again after an update, or when the app asks Zoom for your approval while you use it — and when you sign in on our website, Zoom tells us the email address and the first and last name on your Zoom account. If you have already approved the app, Zoom may pass these details on when the app asks, without showing you its approval screen again. We store them against your Zoom user ID so we can contact you about the app: important changes, new features, and occasional requests for feedback. Every such email includes a way to stop receiving them, and you can also opt out at any time by writing to us at the address below. We never show these details to other users, we do not share or sell them, and if Zoom does not provide an email address we simply store none.</li>
             <li><strong>Subscription Status:</strong> If you subscribe to the Pro plan, we store your plan, its status and renewal date, and the identifiers of your Stripe customer and subscription, against your Zoom user ID. We never see or store your card number: payment details are entered on Stripe's own pages and held by Stripe.</li>
-            <li><strong>Billing Email Address:</strong> If you subscribe to the Pro plan, we store the email address you entered on Stripe's checkout page, against your Stripe customer identifier. It is stored for one purpose: a Pro subscription covers a whole club, and the club's officers change, so the club's settings page can be reached by a sign-in link sent to the address that pays. We do not use it for marketing and we do not share it. It never comes from Zoom — Zoom does not give us your email address, and we do not ask Zoom for it.</li>
+            <li><strong>Billing Email Address:</strong> If you subscribe to the Pro plan, we store the email address you entered on Stripe's checkout page, against your Stripe customer identifier. It is stored for one purpose: a Pro subscription covers a whole club, and the club's officers change, so the club's settings page can be reached by a sign-in link sent to the address that pays. We do not use it for marketing and we do not share it. It is kept separately from your Zoom account email, described above.</li>
             <li><strong>Club Information (Pro):</strong> A Pro subscription creates a club record holding the club's name, an optional logo you upload, a colour, the club's shared timing presets, and a list of the devices and Zoom user IDs that have joined the club with its code. A club member's role (admin, editor or member) is stored against their Zoom user ID.</li>
             <li><strong>Timing Reports (Pro clubs only):</strong> On a device that has joined a Pro club, each finished speech is saved to that club's archive on our servers: the speaker name as the timer typed it, the role, the duration, and any comment the timer added. Speaker names on the timing report are typed by the timer, so please enter only what your club is comfortable recording. On a free device, reports stay on the device and are never sent to us. If a club shares a report as a link, that report becomes readable by anyone holding the link.</li>
-            <li><strong>Sign-in on the web (optional):</strong> On our website you can sign in with your Zoom account. Zoom then tells us your Zoom user ID, the same identifier described above, so your settings and plan are the same on the web and in Zoom. We do not receive your password, and we do not keep the access token Zoom issues.</li>
+            <li><strong>Sign-in on the web (optional):</strong> On our website you can sign in with your Zoom account. Zoom then tells us your Zoom user ID and your Zoom account email and name, as described above, so your settings and plan are the same on the web and in Zoom. We do not receive your password, and we do not keep the access token Zoom issues.</li>
             <li><strong>Usage Data:</strong> We collect anonymous product analytics — which features are used, how many speeches are timed, and approximate country — to understand how the app is used and what to improve. We do not sell this data or use it for advertising.</li>
         </ul>
 
@@ -108,6 +109,7 @@
             <li>Deliver your club's shared timing presets and branding to every device that has joined it with the club code (Pro plan)</li>
             <li>Keep your club's timing reports so the club can look back at them and share them (Pro plan)</li>
             <li>Send a sign-in link to the club's billing address when someone asks for one, so a club is never locked out of its own settings (Pro plan)</li>
+            <li>Contact you by email about the app — important changes, new features and requests for feedback — unless you opt out</li>
         </ul>
 
         <h2>4. Data Storage</h2>
@@ -120,6 +122,13 @@
             request carrying your own signed session.
         </p>
         <p>
+            Your Zoom account email and name are stored on Cloudflare infrastructure against your
+            Zoom user ID. The app never reads them back and no other user can see them; only we
+            can, for the purpose above. When you remove the app from your Zoom account, we
+            automatically delete the synced copy of your settings, your card artwork, and your
+            Zoom account email and name, unless Zoom tells us you chose to let us keep your data.
+        </p>
+        <p>
             On a free device, meeting reports are not synced and never leave your device. On a
             device that has joined a Pro club, each finished speech is additionally saved to that
             club's archive on Cloudflare infrastructure, so the club keeps its own timing history
@@ -129,7 +138,8 @@
         </p>
         <p>
             You can remove everything stored on your device by clearing your browser's local
-            storage. You can have the synced copy of your settings deleted, and you can have a
+            storage. You can have the synced copy of your settings and your Zoom account email and
+            name deleted, and you can have a
             club's record, its archive or an individual report deleted, by contacting us at the
             address below.
         </p>
@@ -151,7 +161,7 @@
             We use three service providers and no others: <a href="https://posthog.com/privacy" target="_blank">PostHog</a>
             for the product analytics described above,
             <a href="https://www.cloudflare.com/privacypolicy/" target="_blank">Cloudflare</a> to host
-            the app and store synced settings and subscription status, and
+            the app and store synced settings, contact details and subscription status, and
             <a href="https://stripe.com/privacy" target="_blank">Stripe</a> to process payments for
             the Pro plan. When you subscribe, Stripe collects your payment details and email address
             for receipts under its own privacy policy; we receive your plan status, opaque Stripe
@@ -183,7 +193,8 @@
         <ul>
             <li>Access your locally stored data at any time through the app</li>
             <li>Delete your data by clearing your browser's local storage</li>
-            <li>Ask us to delete the synced copy of your settings, your club's billing address, or your club's timing archive, by contacting us at the address below</li>
+            <li>Opt out of emails from us at any time, using the link in any email or by contacting us</li>
+            <li>Ask us to delete the synced copy of your settings, your Zoom account email and name, your club's billing address, or your club's timing archive, by contacting us at the address below</li>
             <li>Use the app as a Zoom guest, in which case we do not identify you at all</li>
             <li>Uninstall the app at any time, which will remove all associated permissions</li>
         </ul>

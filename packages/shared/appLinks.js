@@ -76,6 +76,27 @@ export const ZOOM_INSTALL_URL =
   `&client_id=${ZOOM_CLIENT_ID}` +
   `&redirect_uri=${encodeURIComponent(ZOOM_OAUTH_REDIRECT_URL)}`;
 
+/**
+ * The deeplink that opens the Zoom app inside the user's Zoom client. A Zoom
+ * app's id is its OAuth client id, so the link is built from the `client_id`
+ * of the install URL the same build uses. "Add to Zoom" and "Open Zoom app"
+ * then always name the same app: a dev build (whose install link carries the
+ * dev client id) opens the dev app, not the production one.
+ *
+ * @param {string} [installUrl] - A Zoom authorize URL. Anything without a
+ *   `client_id` (unset, or the Marketplace listing fallback) means production.
+ * @returns {string}
+ */
+export function zoomAppDeeplink(installUrl) {
+  let appId = ZOOM_CLIENT_ID;
+  try {
+    appId = new URL(installUrl).searchParams.get('client_id') || ZOOM_CLIENT_ID;
+  } catch {
+    // Not a URL; keep the production id.
+  }
+  return `https://marketplace.zoom.us/zoomapp/${encodeURIComponent(appId)}/context/meeting/target/launch/deeplink`;
+}
+
 /** Support page section explaining why Zoom drops an app's access. */
 export const ZOOM_RECONNECT_HELP_URL =
   'https://www.timer.simple-tech.app/support#lost-access';

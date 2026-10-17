@@ -21,6 +21,53 @@ const cwvInitScript = () => {
   }).observe({ type: 'event', buffered: true, durationThreshold: 0 });
 };
 
+// Custom roles for the Simple Format import test (green / yellow / red in seconds)
+const CUSTOM_ROLES = [
+  { name: 'Opening', green: 15, yellow: 30, red: 45 },
+  { name: 'Closing Remarks', green: 60, yellow: 90, red: 120 },
+  { name: 'Hand over', green: 30, yellow: 45, red: 60 },
+];
+
+const SIMPLE_FORMAT_TEXT = [
+  'Cam-Ly - Opening (Opening)',
+  'Dominique - General Evaluation (Closing)',
+  'Yu (Closing Remarks - 2 min)',
+  'Sam - Introduce Speakers (hand over)',
+  'Bob (Ice Breaker)',
+  'Lee (Moment of Reflection)',
+].join('\n');
+
+// [row name, role shown] for each imported line, in order
+const EXPECTED_ROWS = [
+  ['Cam-Ly - Opening', 'Opening'],
+  ['Dominique - General Evaluation', 'Closing Remarks'],
+  ['Yu', 'Closing Remarks'],
+  ['Sam - Introduce Speakers', 'Hand over'],
+  ['Bob', 'Ice Breaker'],
+  ['Lee', 'Short Roles'],
+];
+
+// Add roles through the Live tab's "Edit timing rules" modal and save
+async function addCustomRoles(page, roles) {
+  await page.getByRole('link', { name: 'Edit timing rules' }).click();
+
+  // Seconds mode gives each timing one input: Green, Yellow, Red, Grace
+  await page.getByRole('button', { name: 'seconds', exact: true }).click();
+
+  for (const { name, green, yellow, red } of roles) {
+    await page.getByRole('button', { name: /Add role/i }).click();
+    const card = page.locator('.border.rounded-lg.p-4').filter({ has: page.getByPlaceholder('Role name') }).last();
+    await card.getByPlaceholder('Role name').fill(name);
+    const timings = card.locator('input[type="number"]');
+    await timings.nth(0).fill(String(green));
+    await timings.nth(1).fill(String(yellow));
+    await timings.nth(2).fill(String(red));
+  }
+
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Timing Rules' })).toBeHidden();
+}
+
 test.describe('Zoom App — Functional Checks', () => {
   let consoleErrors;
 
@@ -105,6 +152,34 @@ test.describe('Zoom App — Functional Checks', () => {
 
     await page.getByRole('button', { name: /REPORT/i }).click();
     await expect(page.getByText('Report Speaker')).toBeVisible();
+  });
+
+  test('Simple Format import assigns custom roles', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    // Create the custom roles; the Live tab dropdown lists them after the built-ins
+    await addCustomRoles(page, CUSTOM_ROLES);
+    await expect(page.locator('select option')).toContainText(CUSTOM_ROLES.map((role) => role.name));
+
+    // Agenda tab -> Import Text; the modal opens on EasySpeak, so switch to Simple Format
+    await page.getByRole('button', { name: /AGENDA/i }).click();
+    await page.getByRole('button', { name: /Import Text/i }).click();
+    await page.getByRole('button', { name: 'Simple Format' }).click();
+    await page.getByPlaceholder('John Doe (Ice Breaker)').fill(SIMPLE_FORMAT_TEXT);
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await expect(page.getByText('Imported 6 speaker(s)')).toBeVisible();
+
+    // Each row lands on the role from its last "(...)" group, matched to the custom roles
+    const rows = page.locator('.cursor-pointer').filter({ has: page.getByRole('button', { name: /^Edit / }) });
+    await expect(rows).toHaveCount(EXPECTED_ROWS.length);
+    await expect(rows.locator('.font-medium')).toHaveText(EXPECTED_ROWS.map(([name]) => name));
+    await expect(rows.locator('.text-sm')).toHaveText(EXPECTED_ROWS.map(([, role]) => `(${role})`));
+
+    // Loading an imported custom-role speaker uses that role's own timings
+    await page.getByText('Cam-Ly - Opening', { exact: true }).click();
+    await expect(page.locator('select')).toHaveValue('Opening');
+    await expect(page.getByText('Timing rules: Green: 15 seconds, Yellow: 30 seconds, Red: 45 seconds')).toBeVisible();
   });
 
   test('no console errors about missing context providers', async ({ page }) => {

@@ -6,6 +6,7 @@ import {
   ZOOM_INSTALL_URL,
   ZOOM_OAUTH_REDIRECT_URL,
   ZOOM_RECONNECT_HELP_URL,
+  zoomAppDeeplink,
 } from '../appLinks.js';
 
 describe('TOOLS registry', () => {
@@ -58,6 +59,33 @@ describe('ZOOM_INSTALL_URL', () => {
     expect(new URL(ZOOM_INSTALL_URL).searchParams.get('redirect_uri')).toBe(ZOOM_OAUTH_REDIRECT_URL);
     expect(ZOOM_OAUTH_REDIRECT_URL).toMatch(/^https:\/\/[^/]+\/oauth\/redirect$/);
   });
+});
+
+describe('zoomAppDeeplink', () => {
+  const DEV_INSTALL_URL =
+    'https://zoom.us/oauth/authorize?response_type=code&client_id=kgpoX2A6TY2BvdctzK9iw' +
+    '&redirect_uri=https://www.timer-dev.simple-tech.app/oauth/redirect';
+
+  it('opens the production app from the production install URL', () => {
+    expect(zoomAppDeeplink(ZOOM_INSTALL_URL)).toBe(
+      `https://marketplace.zoom.us/zoomapp/${ZOOM_CLIENT_ID}/context/meeting/target/launch/deeplink`,
+    );
+  });
+
+  // The dev build's "Open Zoom app" must name the same app its "Add to Zoom"
+  // just authorized, or a dev tester lands in the production app.
+  it('opens the app whose client id the install URL carries', () => {
+    expect(zoomAppDeeplink(DEV_INSTALL_URL)).toBe(
+      'https://marketplace.zoom.us/zoomapp/kgpoX2A6TY2BvdctzK9iw/context/meeting/target/launch/deeplink',
+    );
+  });
+
+  it.each([undefined, '', 'not a url', 'https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw'])(
+    'falls back to the production app for %j',
+    (installUrl) => {
+      expect(zoomAppDeeplink(installUrl)).toContain(`/zoomapp/${ZOOM_CLIENT_ID}/`);
+    },
+  );
 });
 
 describe('ZOOM_RECONNECT_HELP_URL', () => {

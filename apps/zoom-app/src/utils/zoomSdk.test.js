@@ -1543,6 +1543,136 @@ describe('guest mode: re-approving the app from inside Zoom', () => {
   });
 });
 
+describe('asking Zoom for an authorization code (in-client OAuth)', () => {
+  // Like promptAuthorize: added per test, so the shared mock stays a picture
+  // of what the SDK defines without the Marketplace granting anything.
+  afterEach(() => {
+    delete sdkMock.authorize;
+    delete sdkMock.onAuthorized;
+  });
+
+  /** A client that grants both, and whose user answers with `answer(state)`. */
+  function grantingClient(answer) {
+    sdkMock.config.mockResolvedValue({});
+    sdkMock.onAuthorized = vi.fn();
+    sdkMock.authorize = vi.fn(async ({ state }) => {
+      const handler = sdkMock.onAuthorized.mock.calls[0][0];
+      if (answer) setTimeout(() => answer(handler, state), 0);
+      return { message: 'Success' };
+    });
+  }
+
+  it('waits two minutes by default before calling it skipped', async () => {
+    const { AUTHORIZE_CODE_TIMEOUT_MS } = await loadModule();
+    expect(AUTHORIZE_CODE_TIMEOUT_MS).toBe(2 * 60 * 1000);
+  });
+
+  it('returns the code and the verifier Zoom answered our state with', async () => {
+    grantingClient((handler, state) => handler({ code: 'the-code', state, result: true, redirectUri: 'https://zoom.example.test' }));
+    const { requestZoomAuthorizeCode, PKCE_METHOD, challengeFor } = await loadModule();
+
+    const result = await requestZoomAuthorizeCode();
+
+    expect(result).toEqual({ status: 'code', code: 'the-code', codeVerifier: expect.any(String) });
+    expect(result.codeVerifier).toMatch(/^[A-Za-z0-9\-._~]{43,128}$/);
+    const [{ codeChallenge, state }] = sdkMock.authorize.mock.calls[0];
+    expect(typeof state).toBe('string');
+    expect(state.length).toBeGreaterThan(0);
+    expect(codeChallenge).toBe(await challengeFor(result.codeVerifier, PKCE_METHOD));
+    expect(sdkMock.onAuthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('is unavailable, and asks nothing, when the client refused authorize or onAuthorized', async () => {
+    for (const refused of ['authorize', 'onAuthorized']) {
+      grantingClient();
+      sdkMock.config.mockResolvedValue({ unsupportedApis: [refused] });
+      const { requestZoomAuthorizeCode } = await loadModule();
+
+      await expect(requestZoomAuthorizeCode()).resolves.toEqual({ status: 'unavailable' });
+      expect(sdkMock.authorize).not.toHaveBeenCalled();
+    }
+  });
+
+  it('is unavailable outside Zoom', async () => {
+    sdkMock.config.mockRejectedValue(new Error('not in zoom'));
+    sdkMock.authorize = vi.fn();
+    sdkMock.onAuthorized = vi.fn();
+    const { requestZoomAuthorizeCode } = await loadModule();
+
+    await expect(requestZoomAuthorizeCode()).resolves.toEqual({ status: 'unavailable' });
+    expect(sdkMock.authorize).not.toHaveBeenCalled();
+  });
+
+  it('is skipped when authorize rejects', async () => {
+    grantingClient();
+    sdkMock.authorize.mockRejectedValue(new Error('user closed it'));
+    const { requestZoomAuthorizeCode } = await loadModule();
+
+    await expect(requestZoomAuthorizeCode()).resolves.toEqual({ status: 'skipped' });
+  });
+
+  it('is skipped when the user declines on Zoom\'s screen', async () => {
+    grantingClient((handler, state) => handler({ code: '', state, result: false }));
+    const { requestZoomAuthorizeCode } = await loadModule();
+
+    await expect(requestZoomAuthorizeCode()).resolves.toEqual({ status: 'skipped' });
+  });
+
+  it('is skipped when no code arrives in time', async () => {
+    grantingClient();
+    const { requestZoomAuthorizeCode } = await loadModule();
+
+    await expect(requestZoomAuthorizeCode({ timeoutMs: 5 })).resolves.toEqual({ status: 'skipped' });
+  });
+
+  it('ignores an event carrying someone else\'s state', async () => {
+    grantingClient((handler, state) => {
+      handler({ code: 'foreign-code', state: 'not-ours', result: true });
+      handler({ code: 'no-state-code', result: true });
+      handler({ code: 'our-code', state, result: true });
+    });
+    const { requestZoomAuthorizeCode } = await loadModule();
+
+    await expect(requestZoomAuthorizeCode()).resolves.toMatchObject({ status: 'code', code: 'our-code' });
+  });
+
+  // A user who took longer than the timeout to approve has still approved.
+  it('still hands over a code that arrives after the timeout', async () => {
+    let answerLate;
+    grantingClient((handler, state) => { answerLate = () => handler({ code: 'late-code', state, result: true }); });
+    const { requestZoomAuthorizeCode } = await loadModule();
+    const onLateCode = vi.fn();
+
+    const result = await requestZoomAuthorizeCode({ timeoutMs: 5, onLateCode });
+    expect(result).toEqual({ status: 'skipped' });
+
+    answerLate();
+    expect(onLateCode).toHaveBeenCalledWith({ code: 'late-code', codeVerifier: expect.stringMatching(/^[A-Za-z0-9\-._~]{43,128}$/) });
+    // Delivered once: the request is spent.
+    answerLate();
+    expect(onLateCode).toHaveBeenCalledTimes(1);
+  });
+
+  it('subscribes to onAuthorized once, however many times it asks', async () => {
+    grantingClient((handler, state) => handler({ code: 'c', state, result: true }));
+    const { requestZoomAuthorizeCode } = await loadModule();
+
+    await requestZoomAuthorizeCode();
+    await requestZoomAuthorizeCode();
+
+    expect(sdkMock.authorize).toHaveBeenCalledTimes(2);
+    expect(sdkMock.onAuthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds a plain challenge as the verifier itself, and an S256 one per RFC 7636', async () => {
+    const { challengeFor } = await loadModule();
+    const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+
+    expect(await challengeFor(verifier, 'plain')).toBe(verifier);
+    expect(await challengeFor(verifier, 'S256')).toBe('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+  });
+});
+
 describe('the client owns the background, so our record of it goes stale', () => {
   beforeEach(() => {
     stubCanvas();

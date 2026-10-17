@@ -25,6 +25,31 @@ function makeEnv(presentPaths = []) {
 
 const ctx = { waitUntil: () => {} };
 
+// An ExecutionContext that keeps its waitUntil promises, for routes whose work
+// continues after the response (zoom-webhook.test.js uses the same shape).
+function createCtx() {
+  const promises = [];
+  return {
+    waitUntil: (p) => promises.push(p),
+    pending: () => promises.length,
+    _settle: () => Promise.allSettled(promises),
+  };
+}
+
+// The Map-backed KV the contact capture writes into.
+function makeKv() {
+  const store = new Map();
+  return {
+    store,
+    get: async (key, type) => {
+      const raw = store.get(key);
+      if (raw === undefined) return null;
+      return type === 'json' ? JSON.parse(raw) : raw;
+    },
+    put: async (key, value) => { store.set(key, value); },
+  };
+}
+
 function get(url, { host, method = 'GET' } = {}) {
   const parsed = new URL(url);
   return new Request(url, {
@@ -523,6 +548,32 @@ describe('the Zoom identity endpoint is reachable from every host', () => {
   });
 });
 
+describe('the Zoom contact endpoint', () => {
+  const env = (assets = []) => ({ ...makeEnv(assets), SESSION_SIGNING_KEY: 'k', PROFILES: { get: async () => null, put: async () => {} } });
+
+  it('is routed on every host, ahead of the SPA and the www redirect', async () => {
+    for (const host of ['zoom.timer.simple-tech.app', 'timer.simple-tech.app', 'www.timer.simple-tech.app']) {
+      const res = await worker.fetch(get(`https://${host}/api/zoom/contact`), env(['/zoom/index.html', '/index.html']), ctx);
+      expect(res.status, host).toBe(405);
+      expect(res.headers.get('content-type')).toContain('application/json');
+    }
+  });
+
+  it('answers 401 to a POST without a session', async () => {
+    const res = await worker.fetch(
+      new Request('https://zoom.timer.simple-tech.app/api/zoom/contact', {
+        method: 'POST',
+        headers: { host: 'zoom.timer.simple-tech.app', 'content-type': 'application/json' },
+        body: JSON.stringify({ code: 'c', codeVerifier: 'v'.repeat(64) }),
+      }),
+      env(['/zoom/index.html']),
+      ctx
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+});
+
 describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
   // Sign-in released, unless a case says otherwise.
   const authEnv = (FLAGS_FORCE = '1') => ({
@@ -547,14 +598,97 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
     }
   });
 
-  it('serves the SPA for a state nobody signed', async () => {
-    const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc&state=forged.sig'), authEnv(), ctx);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+  // The install door spends Zoom's code in the background to save the user's
+  // contact. The page must not wait for it: Zoom is held here until the page
+  // has already been served.
+  it('saves the installing user\'s contact in the background, after serving the page', async () => {
+    for (const FLAGS_FORCE of ['1', '0']) {
+      const kv = makeKv();
+      const env = { ...authEnv(FLAGS_FORCE), PROFILES: kv };
+      const backgroundCtx = createCtx();
+
+      let releaseZoom;
+      const zoomHeld = new Promise((resolve) => { releaseZoom = resolve; });
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (url) => {
+        await zoomHeld;
+        return String(url).includes('/oauth/token')
+          ? new Response(JSON.stringify({ access_token: 'at' }), { status: 200 })
+          : new Response(JSON.stringify({ id: 'zoom-installer', email: 'Installer@Example.com', first_name: 'Ina' }), { status: 200 });
+      });
+      try {
+        const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), env, backgroundCtx);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('x-asset-path')).toBe('/index.html');
+        expect(res.headers.get('set-cookie')).toBeNull();
+        expect(kv.store.size).toBe(0);
+        expect(backgroundCtx.pending()).toBe(1);
+
+        releaseZoom();
+        await backgroundCtx._settle();
+
+        expect(JSON.parse(kv.store.get('contact:zoom:zoom-installer'))).toMatchObject({
+          email: 'installer@example.com', firstName: 'Ina', lastName: null,
+        });
+        const [tokenUrl, init] = globalThis.fetch.mock.calls[0];
+        expect(tokenUrl).toBe('https://zoom.us/oauth/token');
+        expect(new URLSearchParams(init.body).get('redirect_uri')).toBe('https://www.timer.simple-tech.app/oauth/redirect');
+        expect(new URLSearchParams(init.body).get('code')).toBe('abc');
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    }
   });
 
+  // A failed capture (here: a reused code) is logged, never surfaced.
+  it('serves the install page unchanged when the background capture fails', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const kv = makeKv();
+    const backgroundCtx = createCtx();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response('{"reason":"Invalid authorization code"}', { status: 400 }));
+    try {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=used'), { ...authEnv(), PROFILES: kv }, backgroundCtx);
+      await backgroundCtx._settle();
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+      expect(kv.store.size).toBe(0);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = realFetch;
+      errors.mockRestore();
+    }
+  });
+
+  it('spends no install code when no namespace is bound', async () => {
+    const backgroundCtx = createCtx();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response('{}'));
+    try {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), authEnv(), backgroundCtx);
+      await backgroundCtx._settle();
+
+      expect(res.status).toBe(200);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('serves the SPA for a state nobody signed, and does not treat it as an install', async () => {
+    const backgroundCtx = createCtx();
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc&state=forged.sig'), { ...authEnv(), PROFILES: makeKv() }, backgroundCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    expect(backgroundCtx.pending()).toBe(0);
+  });
+
+  // A sign-in spends its code once, in the callback, and saves the contact
+  // there; the background install capture never runs for it.
   it('starts sign-in from /api/auth/zoom/start and completes it on the callback', async () => {
-    const env = authEnv();
+    const kv = makeKv();
+    const env = { ...authEnv(), PROFILES: kv };
     const started = await worker.fetch(get('https://www.timer.simple-tech.app/api/auth/zoom/start?returnTo=%2Ftimer%2Fapp'), env, ctx);
     expect(started.status).toBe(302);
     const location = new URL(started.headers.get('location'));
@@ -566,16 +700,21 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
     globalThis.fetch = vi.fn(async (url) =>
       String(url).includes('/oauth/token')
         ? new Response(JSON.stringify({ access_token: 'at' }), { status: 200 })
-        : new Response(JSON.stringify({ id: 'zoom-user' }), { status: 200 })
+        : new Response(JSON.stringify({ id: 'zoom-user', email: 'user@example.com' }), { status: 200 })
     );
     try {
       const cb = new Request(`https://www.timer.simple-tech.app/oauth/redirect?code=c&state=${encodeURIComponent(state)}`, {
         headers: { host: 'www.timer.simple-tech.app', cookie: `tt_oauth=${nonce}` },
       });
-      const res = await worker.fetch(cb, env, ctx);
+      const backgroundCtx = createCtx();
+      const res = await worker.fetch(cb, env, backgroundCtx);
       expect(res.status).toBe(302);
       expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer/app');
       expect(res.headers.get('set-cookie')).toMatch(/tt_session=/);
+
+      await backgroundCtx._settle();
+      expect(JSON.parse(kv.store.get('contact:zoom:zoom-user'))).toMatchObject({ email: 'user@example.com' });
+      expect(globalThis.fetch.mock.calls.filter(([url]) => String(url).includes('/oauth/token'))).toHaveLength(1);
     } finally {
       globalThis.fetch = realFetch;
     }
