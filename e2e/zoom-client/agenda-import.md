@@ -9,6 +9,7 @@ covers:
 automated:
   - packages/shared/__tests__/simpleFormatParser.test.js
   - apps/zoom-app/src/context/TimerContext.test.jsx
+  - e2e/zoom.timer-flow.spec.js
 needs:
   - dev deployed
   - camera on, in a meeting
@@ -102,5 +103,6 @@ Evidence: page script: `toastmaster_agenda` is empty or absent, and
 - `(Table Topics Speech)` imports as a `Table Topics` role with no timing rules (#91). A
   built-in keyword in the name overrides a built-in role in the bracket (#90). Both are
   known open bugs. No step locks in either result.
-- The web app (`apps/web`) runs the same shared parser. Only unit tests cover it, in
-  `apps/web/src/context/TimerContext.test.jsx`. No Playwright test covers it yet.
+- The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
+  `apps/web/src/context/TimerContext.test.jsx`, and `e2e/web.agenda-flow.spec.js` runs this
+  import (IM-01, IM-02) in a plain browser.
