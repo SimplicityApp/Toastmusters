@@ -3,6 +3,7 @@ import { mintSessionToken } from './session-token.js';
 import { resolveAccess } from './entitlements.js';
 import { resolveFlags } from './flags.js';
 import { readClub } from './auth.js';
+import { readContactKnown } from './contact.js';
 
 /**
  * POST /api/zoom/session — turn Zoom's app context into an identity.
@@ -90,12 +91,13 @@ export async function handleZoomSession(request, env, ctx) {
   // features and nothing else — which lets identity ship ahead of storage.
   const token = mintSessionToken(payload.uid, env.SESSION_SIGNING_KEY);
 
-  // Both never throw, and neither needs the other, so neither waits.
-  const [entitlement, flags] = await Promise.all([
+  // None of these throws, and none needs another, so none waits.
+  const [entitlement, flags, contactKnown] = await Promise.all([
     // Combined with whatever club this device has already joined, so the line
     // that records it cannot overwrite club-derived Pro with a free plan.
     resolveAccess(env, { uid: payload.uid, clubId: readClub(request, env)?.clubId ?? null }),
     resolveFlags(env, { uid: payload.uid }, ctx),
+    readContactKnown(env, payload.uid),
   ]);
 
   return json({
@@ -111,5 +113,9 @@ export async function handleZoomSession(request, env, ctx) {
     // Which unreleased features this user can see. Targeted by uid, so a
     // single account can be switched on in production.
     flags,
+    // Whether we already hold this user's Zoom email and name
+    // (worker/contact.js). Only the yes/no: the record itself never leaves
+    // the Worker. Lets the app stop asking Zoom once any door has saved it.
+    contactKnown,
   });
 }

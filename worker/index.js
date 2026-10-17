@@ -1,6 +1,7 @@
 import { handleZoomWebhook } from './zoom-webhook.js';
 import { handleStats } from './stats.js';
 import { handleZoomSession } from './session.js';
+import { handleZoomContact, captureInstallContact } from './contact.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
@@ -139,6 +140,13 @@ export default {
       return handleZoomSession(request, env, ctx);
     }
 
+    // The Zoom app's in-client authorization code, spent to save the user's
+    // Zoom email and name. Placed with the identity endpoint for the same
+    // reasons: a POST body, and reachable from the zoom.<domain> host.
+    if (pathname === '/api/zoom/contact') {
+      return handleZoomContact(request, env);
+    }
+
     // Cross-device settings. Ahead of the redirect for the same body-dropping
     // reason as above, and ahead of host routing so the Zoom app can reach it.
     if (pathname === '/api/profile') {
@@ -196,6 +204,17 @@ export default {
     if (pathname === '/oauth/redirect' && url.searchParams.has('state')) {
       const signedIn = await handleOAuthCallback(request, url, env, { ctx });
       if (signedIn) return signedIn;
+    }
+    // A Marketplace install or re-add: no state of ours, just Zoom's code. The
+    // page below renders unchanged; the code is spent in the background only
+    // to learn the user's contact details (worker/contact.js). No session is
+    // minted from it, and it is not flagged. Ahead of every redirect, so the
+    // origin it sends back to Zoom is the one the code was issued for.
+    if (pathname === '/oauth/redirect' && url.searchParams.has('code') && !url.searchParams.has('state')) {
+      ctx.waitUntil(
+        captureInstallContact(env, url).catch((error) =>
+          console.error('Install contact capture error:', error?.message || error))
+      );
     }
 
     // 2a. The old toastmusters.com timer hosts move to the main site. After

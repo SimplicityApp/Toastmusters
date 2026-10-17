@@ -35,13 +35,20 @@
   //    PostHog. Production leaves it "" and always asks. Never "1" here: that
   //    would light up every dark feature at once, and worker/flags.test.js
   //    fails if it is.
+  //  - ZOOM_APP_HOME_URL: the Zoom app's Home URL as configured in the
+  //    Marketplace (and on its OAuth allow list). Zoom requires it as the
+  //    redirect_uri when the Worker exchanges a code from the in-client
+  //    zoomSdk.authorize() flow (worker/contact.js). Must match the
+  //    Marketplace value exactly; if the in-client exchange answers 400, check
+  //    this first.
   "vars": {
     "WEB_ORIGIN": "https://www.timer.simple-tech.app",
     "ROOT_ORIGIN": "https://www.toastmusters.com",
     "ENTITLEMENT_ENFORCE": "1",
     "STRIPE_AUTOMATIC_TAX": "0",
     "MAGIC_LINK_FROM": "no-reply@toastmusters.com",
-    "FLAGS_FORCE": ""
+    "FLAGS_FORCE": "",
+    "ZOOM_APP_HOME_URL": "https://zoom.timer.simple-tech.app"
   },
 
   // The club admin link, mailed to the club's billing address. A binding rather
@@ -194,7 +201,8 @@
         "ENTITLEMENT_ENFORCE": "1",
         "STRIPE_AUTOMATIC_TAX": "0",
         "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com",
-        "FLAGS_FORCE": "1"
+        "FLAGS_FORCE": "1",
+        "ZOOM_APP_HOME_URL": "https://zoom.timer-dev.simple-tech.app"
       }
     }
   }

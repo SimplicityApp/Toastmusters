@@ -31,6 +31,21 @@ describe('Landing', () => {
     links.forEach((link) => expect(link).toHaveAttribute('href', TEST_ZOOM_URL));
   });
 
+  it('"Open in Zoom" launches the same app the build\'s "Add to Zoom" installs', () => {
+    import.meta.env.VITE_ZOOM_OAUTH_REDIRECT =
+      'https://zoom.us/oauth/authorize?response_type=code&client_id=kgpoX2A6TY2BvdctzK9iw&redirect_uri=https://www.timer-dev.simple-tech.app/oauth/redirect';
+    render(
+      <MemoryRouter>
+        <Landing />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('link', { name: 'Open in Zoom' })).toHaveAttribute(
+      'href',
+      'https://marketplace.zoom.us/zoomapp/kgpoX2A6TY2BvdctzK9iw/context/meeting/target/launch/deeplink',
+    );
+  });
+
   it('shows the clubs in the "Trusted by" strip, with the loop copy hidden from screen readers', () => {
     render(
       <MemoryRouter>

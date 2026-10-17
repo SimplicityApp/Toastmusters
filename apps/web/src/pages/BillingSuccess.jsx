@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
+import { zoomAppDeeplink } from '@toastmaster-timer/shared'
 import { trackEvent } from '../utils/posthog'
 
 /**
@@ -75,7 +76,7 @@ export default function BillingSuccess() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3 justify-center">
             <a
-              href="https://marketplace.zoom.us/zoomapp/DsFHK5sNQs2_VFyeQky2sg/context/meeting/target/launch/deeplink"
+              href={zoomAppDeeplink(import.meta.env.VITE_ZOOM_OAUTH_REDIRECT)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/10 text-white font-medium hover:bg-white/20 transition-colors no-underline"

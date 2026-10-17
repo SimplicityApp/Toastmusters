@@ -14,9 +14,10 @@ belongs to the **web** host — the `zoom.` host routes every path back to the
 sidebar app, which is why the app opens its console in the system browser rather
 than in place.
 
-Steps 1–6 cover the free timer and are unchanged. **Steps P1–P7 cover the Pro
-plan, clubs and web sign-in**, and are the new surface in this submission; run
-them after Step 3b.
+Steps 1–6 cover the free timer, which is unchanged. **Step 1d (saving the
+Zoom email and name) and the data-deletion check in Step 5 are new in this
+submission**, and so are **Steps P1–P7, which cover the Pro plan, clubs and web
+sign-in**; run those after Step 3b.
 
 ---
 
@@ -42,11 +43,14 @@ them after Step 3b.
 3. Review the permissions and click **Allow**
 4. You should be redirected to:
    `https://www.timer-dev.simple-tech.app/oauth/redirect`
-5. Verify the redirect page loads with a success message ("You're all set!")
+5. Verify the redirect page loads with a success message ("You're all set!"),
+   as fast as before. In the background the Worker spends the code to save your
+   Zoom email and name (checked in Step 1d).
 
 > **This submission adds the `user:read:user` scope** (it backs "Sign in with
-> Zoom" on the website — see Step P1). Re-authorize before testing, or the
-> callback fails with `reason=profile` and nobody can sign in on the web.
+> Zoom" on the website — see Step P1 — and saving each user's Zoom email and
+> name — see Step 1d). Re-authorize before testing, or the callback fails with
+> `reason=profile` and nobody can sign in on the web.
 >
 > **Re-run this step after an OAuth scope change, within 90 days.** Zoom keeps
 > the old grant working for 90 days after a scope change and only then expires
@@ -113,6 +117,67 @@ in-client fix.
 
 ---
 
+## Step 1d: Verify the Zoom Email and Name Are Saved
+
+The Worker saves `{ email, firstName, lastName, updatedAt }` under
+`contact:zoom:<uid>` in the `PROFILES` KV namespace from three doors: inside the
+Zoom client (`authorize`), a browser install or re-add (Step 1), and web sign-in
+(Step P1). No endpoint returns the record; read it with wrangler:
+
+```bash
+npx wrangler kv key get --binding PROFILES --env dev --remote 'contact:zoom:<uid>'
+npx wrangler kv key delete --binding PROFILES --env dev --remote 'contact:zoom:<uid>'   # to start over
+```
+
+Requires `authorize` and `onAuthorized` in the dev app's API list (Features →
+Zoom App SDK → Add APIs) and the `contact_capture` flag on. Dev has
+`FLAGS_FORCE: "1"`, so the flag is on there. Find `<uid>` as in Step 1b.
+
+**Browser door.**
+
+1. After Step 1 (or a re-add from `https://www.timer-dev.simple-tech.app/add-to-zoom`),
+   read the key. Expected: the record exists with your Zoom email and name.
+   Reloading the success page re-sends a spent code; that fails harmlessly and
+   changes nothing.
+
+**In-client door, automatic.**
+
+2. Delete the key. In the app's webview, also clear the `localStorage` key
+   `tt_contact_capture:<uid>`.
+3. Open the app in a meeting and leave the timer idle. After about 2.5 s the
+   app calls `authorize`. Expected: if your account already approved the
+   current scopes nothing is shown; otherwise Zoom's consent screen opens. Approve.
+   If a speech is running, nothing happens until it stops.
+4. Expected: the key exists again. PostHog records `contact_capture_prompted`
+   and `contact_capture_saved`, both with `source: auto`.
+5. Close and reopen the app. Expected: `/api/zoom/session` answers
+   `contactKnown: true` and `authorize` is not called.
+
+**In-client door, after a skip (the card).**
+
+6. Delete the key and the `localStorage` key again, with an account that has
+   not approved the updated scopes. Open the app and let the consent screen
+   open, then close it without approving (or leave it for two minutes).
+   Expected: `contact_capture_skipped` with `source: auto`, and at the next idle
+   moment a card titled **Stay in touch with Toastmusters Timer** appears at the
+   bottom, with **Approve in Zoom**, **Not now** and a close button. Zoom's
+   screen does not open again by itself, on this load or any later one.
+7. Start a speech. Expected: the card disappears at once and returns about
+   2.5 s after the timer stops.
+8. Click **Not now** (or the close button). Expected: the card goes,
+   `contact_capture_dismissed` is recorded with `source: card`, and
+   `tt_contact_capture:<uid>` holds `{"mode":"card","nextAt":<now + 7 days>}`.
+   Reopening the app does not show the card. To bring it back, set `nextAt` to
+   `0`.
+9. Click **Approve in Zoom** and approve. Expected: the card goes, the key
+   exists, `contact_capture_saved` is recorded with `source: card`, and the
+   `localStorage` key is gone. Skipping Zoom's screen from the card instead
+   pushes the card a week out.
+
+**Web sign-in door.** Covered in Step P1.
+
+---
+
 ## Step 2: Verify the App Appears in Zoom
 
 1. Open the Zoom Desktop Client
@@ -172,9 +237,11 @@ and no sign-in at all, which is Step P4 and the claim most worth checking.
 > P7 cannot show a *lapse* on dev as shipped; see the note in each.
 >
 > **On the dev app `FLAGS_FORCE` is `"1"`**, so every release flag
-> (`pro`) is on and the whole surface below is visible. Production asks
-> PostHog instead, and there all of it stays hidden, with its endpoints
-> answering 404, until `pro` is turned on.
+> (`pro`, `contact_capture`) is on and the whole surface below is visible.
+> Production asks PostHog instead, and there all of it stays hidden, with its
+> endpoints answering 404, until `pro` is turned on. The in-client email
+> request of Step 1d likewise stays off in production until
+> `contact_capture` is turned on.
 > See [FEATURE_FLAGS.md](./FEATURE_FLAGS.md).
 
 ---
@@ -185,8 +252,11 @@ and no sign-in at all, which is Step P4 and the claim most worth checking.
 2. Top bar → **Sign in with Zoom** → **Allow**.
    - Expected: you land back on `/timer/app`, the top bar now reads **Account** (or
      **Pro**), and `GET /api/me` returns `200` with your Zoom user id.
-   - This is the only thing `user:read:user` is used for. We read and store the
-     Zoom **user id** and nothing else — no name, no email address.
+   - `user:read:user` gives the Worker your Zoom user id, email and name. The
+     id identifies you; the email and name are saved under
+     `contact:zoom:<uid>` (Step 1d) before the session is set. Signing in again
+     with the same details writes nothing (`updatedAt` does not change), and a
+     storage failure never costs the sign-in.
 3. Repeat starting from `https://timer-dev.simple-tech.app/timer/app` (no `www.`).
    - Expected: identical result. Sign-in begun on any host this app serves is
      handed to the canonical host first, so it completes wherever it started.
@@ -328,9 +398,12 @@ These events are logged server-side (PostHog analytics). To confirm they fire:
 
 1. In the Zoom Desktop Client, go to **Settings → Zoom Apps → Manage**
 2. Find **Toastmaster Timer** and click **Remove / Uninstall**
-3. Confirm removal
-   - Expected: `app_deauthorized` webhook fires; Zoom compliance data-deletion API is called; event logged in PostHog
+3. Confirm removal, choosing **not** to let the app keep your data
+   - Expected: `app_deauthorized` webhook fires with `user_data_retention: "false"`; Zoom compliance data-deletion API is called; event logged in PostHog
+   - Expected: `npx wrangler tail --env dev` logs `Purged user data on deauthorization: <uid> {"profileDeleted":true,"assetsDeleted":<n>,"contactDeleted":true}`
+   - Expected: `npx wrangler kv key get --binding PROFILES --env dev --remote 'contact:zoom:<uid>'` finds nothing, and neither does `'profile:zoom:<uid>'`. Billing records (`entitlement:zoom:<uid>`, the Stripe links) are kept on purpose.
 4. Verify the app no longer appears in your installed apps list
+5. Uninstalling while letting the app keep your data deletes nothing; the webhook still fires and is logged.
 
 ---
 

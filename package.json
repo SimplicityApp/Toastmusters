@@ -8,6 +8,7 @@
     "@vercel/functions": "^3.0.0"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "install:zoom": "npm install --prefix apps/zoom-app",
     "install:web": "npm install --prefix apps/web",
     "dev": "npm run dev --prefix apps/zoom-app",
@@ -21,6 +22,7 @@
     "dev:zoom": "npm run dev --prefix apps/zoom-app",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:specs": "node scripts/check-zoom-specs.mjs",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:perf": "playwright test --grep @performance",
