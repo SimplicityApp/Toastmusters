@@ -131,6 +131,15 @@ Evidence: the URL as recorded, plus the browser history entry for the tab (the f
 before any redirect). The `wrangler tail` lines in the minute after approval: a `GET /` on
 `www.timer-dev.simple-tech.app`, or none at all if Zoom opened another host. A screenshot of the
 tab. The debug log's `Asked Zoom to prompt the user to add the app` line.
+On dev this step cannot show the reconnect page: Zoom finishes an in-meeting add of the
+development credentials on the production web host's root, not on `timer-dev` (one Marketplace
+app, two credential sets; nothing on the Development tab changes it). Accepted as a dev-only
+limit. The real check is one production run after release: a guest or lapsed account approves
+in a meeting, in a browser that installed the app on production before, and lands on `/reconnect`.
+
+Last run (2026-11-01, dev f30c40a): as expected on dev. B approved from the Apps panel; the
+browser opened `https://www.timer.simple-tech.app` and no request reached `timer-dev`
+(same as 2026-09-25, docs/ZOOM_AUTH_AND_REDIRECTS.md).
 
 ## Notes
 - Reviewed after merging dev (2026-11-01): dev only swapped the demo video on the landing and
