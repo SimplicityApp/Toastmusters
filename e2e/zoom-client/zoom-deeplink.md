@@ -5,6 +5,7 @@ status: draft
 covers:
   - packages/shared/appLinks.js
   - apps/web/src/pages/Landing.jsx
+  - apps/web/src/pages/Reconnect.jsx
   - apps/web/src/pages/OAuthRedirect.jsx
   - apps/web/src/pages/BillingSuccess.jsx
 automated:
@@ -31,7 +32,9 @@ the wrong app (production from a dev page, or the reverse).
 ## Steps
 
 ### DL-01 · auto · Page carries this build's client id
-Do: open the dev landing page and read the "Open in Zoom" and "Add to Zoom" hrefs (page JS).
+Do: open the dev landing page and read its "Add to Zoom" href, then follow "Reconnect it" to
+`/reconnect` and read "Approve in Zoom" and "Already approved? Open in Zoom" (page JS). Since #96
+the landing page links to `/reconnect` instead of carrying the deeplink itself.
 Expect: both use the dev client id (`kgpoX2A6TY2BvdctzK9iw`); no `DsFHK5sNQs2_VFyeQky2sg`.
 Evidence: the hrefs.
 
@@ -50,6 +53,6 @@ Expect: exactly the link used before the change (`.../zoomapp/DsFHK5sNQs2_VFyeQk
 Evidence: `appLinks.test.js`; curl 302.
 
 ## Not covered
-- The "Open Zoom app" button on `/oauth/redirect` and `/billing/success` (they need a real
+- The "Open in Zoom" buttons on `/oauth/redirect` and `/billing/success` (they need a real
   install and a Stripe return); they share `zoomAppDeeplink()` with the landing page.
 - Where Zoom shows its "Open Zoom?" browser prompt, which depends on the browser.

@@ -57,17 +57,22 @@ export function parseCookies(header) {
   return out;
 }
 
-function cookie(name, value, maxAgeSec) {
+/**
+ * The one template every `tt_` cookie the Worker sets is built from (the
+ * "approved before" mark in worker/reconnect.js uses it too), so each of them
+ * is host-only by construction.
+ */
+export function hostOnlyCookie(name, value, maxAgeSec) {
   // No Domain attribute: host-only, so a cookie set on the canonical web host
   // never leaks to the zoom.* host or to a sibling domain.
   return `${name}=${value}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; Secure; SameSite=Lax`;
 }
 
 export const sessionCookie = (token, maxAgeSec = Math.floor(WEB_SESSION_TTL_MS / 1000)) =>
-  cookie(SESSION_COOKIE, token, maxAgeSec);
-export const clearSessionCookie = () => cookie(SESSION_COOKIE, '', 0);
-const oauthCookie = (nonce) => cookie(OAUTH_COOKIE, nonce, Math.floor(STATE_TTL_MS / 1000));
-const clearOauthCookie = () => cookie(OAUTH_COOKIE, '', 0);
+  hostOnlyCookie(SESSION_COOKIE, token, maxAgeSec);
+export const clearSessionCookie = () => hostOnlyCookie(SESSION_COOKIE, '', 0);
+const oauthCookie = (nonce) => hostOnlyCookie(OAUTH_COOKIE, nonce, Math.floor(STATE_TTL_MS / 1000));
+const clearOauthCookie = () => hostOnlyCookie(OAUTH_COOKIE, '', 0);
 
 // ---------------------------------------------------------------------------
 // Session reading (both transports)

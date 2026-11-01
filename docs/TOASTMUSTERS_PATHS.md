@@ -66,7 +66,8 @@ from git. Change the origin there, not in the XML.
 
 | Where | Main action | Quieter choices |
 | --- | --- | --- |
-| Landing page (hero, header, closing band, footer) | Add to Zoom | Use in Browser, See it on the Zoom Marketplace, Open in Zoom |
+| Landing page (hero, header, closing band, footer) | Add to Zoom | Use in Browser, See it on the Zoom Marketplace, "Already use the Zoom app? Reconnect it" (to `/reconnect`) |
+| Reconnect page (`/reconnect`, #96) | Approve in Zoom (same tab) | Use the browser timer instead, Already approved? Open in Zoom, Go to the homepage (`/?home`) |
 | Guide pages (`apps/web/public/*.html`) | Add to Zoom (`/add-to-zoom`) | use it in your browser · See it on the Zoom Marketplace |
 | In-copy mentions of the app on guide pages | The landing page `/`, which leads with Zoom | — |
 | Web timer footer | Add to Zoom | (plus its periodic "Add to Zoom" prompt) |
@@ -81,15 +82,16 @@ Worker answer from `ZOOM_CLIENT_ID` + `WEB_ORIGIN`.
 **One event for every click.** Each call to action sends PostHog
 `cta_clicked` with:
 
-- `cta`: `add_to_zoom`, `web_timer`, `marketplace` or `open_in_zoom`
+- `cta`: `add_to_zoom`, `web_timer`, `marketplace` or `reconnect`; on the
+  reconnect page `approve_in_zoom`, `web_timer`, `open_in_zoom` or `home`
 - `location`: `hero`, `header`, `closing`, `footer`, `content`,
   `install-steps`, `troubleshooting`, `timer-footer`, or the Table Topics page
   (`home`, `today`, `category`)
 - `page`: the path it was clicked on
 
-On the React pages it comes from `trackCta()` in `Landing.jsx` and
-`Footer.jsx`. On static pages, any element with `data-cta` (and optionally
-`data-cta-location`) is tracked by `apps/web/public/site-analytics.js`, which
+On the React pages it comes from `trackCta()` in `Landing.jsx`,
+`Reconnect.jsx` and `Footer.jsx`. On static pages, any element with
+`data-cta` (and optionally `data-cta-location`) is tracked by `apps/web/public/site-analytics.js`, which
 also records their page views; the web build fills in its PostHog key
 (`fillSiteAnalytics` in `apps/web/vite.config.js`). Table Topics'
 `src/analytics.js` handles `data-cta` the same way. Events use `sendBeacon`

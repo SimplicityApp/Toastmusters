@@ -1,11 +1,13 @@
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Landing from './Landing';
 import { TOOLS } from '@toastmaster-timer/shared';
+import { trackEvent } from '../utils/posthog';
 
 const TEST_ZOOM_URL = 'https://zoom.us/oauth/authorize?test=true';
 
 beforeEach(() => {
+  vi.clearAllMocks();
   import.meta.env.VITE_ZOOM_OAUTH_REDIRECT = TEST_ZOOM_URL;
   // The usage strip fetches /api/stats on mount; default to "endpoint down"
   // so tests exercise the baked fallback unless they stub a response.
@@ -31,19 +33,27 @@ describe('Landing', () => {
     links.forEach((link) => expect(link).toHaveAttribute('href', TEST_ZOOM_URL));
   });
 
-  it('"Open in Zoom" launches the same app the build\'s "Add to Zoom" installs', () => {
-    import.meta.env.VITE_ZOOM_OAUTH_REDIRECT =
-      'https://zoom.us/oauth/authorize?response_type=code&client_id=kgpoX2A6TY2BvdctzK9iw&redirect_uri=https://www.timer-dev.simple-tech.app/oauth/redirect';
+  // The hero's "Already use the Zoom app?" line leads to the reconnect page,
+  // which now holds "Open in Zoom" (Reconnect.test.jsx).
+  it('"Already use the Zoom app? Reconnect it" opens the reconnect page and is tracked', () => {
     render(
-      <MemoryRouter>
-        <Landing />
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/reconnect" element={<p>reconnect page</p>} />
+        </Routes>
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('link', { name: 'Open in Zoom' })).toHaveAttribute(
-      'href',
-      'https://marketplace.zoom.us/zoomapp/kgpoX2A6TY2BvdctzK9iw/context/meeting/target/launch/deeplink',
-    );
+    const link = screen.getByRole('link', { name: 'Reconnect it' });
+    expect(link).toHaveAttribute('href', '/reconnect');
+    expect(link).not.toHaveAttribute('target');
+    expect(screen.queryByRole('link', { name: 'Open in Zoom' })).not.toBeInTheDocument();
+
+    fireEvent.click(link);
+
+    expect(trackEvent).toHaveBeenCalledWith('cta_clicked', { cta: 'reconnect', location: 'hero', page: '/' });
+    expect(screen.getByText('reconnect page')).toBeInTheDocument();
   });
 
   it('shows the clubs in the "Trusted by" strip, with the loop copy hidden from screen readers', () => {
