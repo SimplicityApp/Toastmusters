@@ -122,6 +122,97 @@ function roundedRectPath(ctx, x, y, width, height, radius) {
 }
 
 /**
+ * Everything about a badge that does not need a context: whether there is one
+ * to draw at all, and the sizes that follow from its height. Null when nothing
+ * would be drawn, checked before any context call so that "no badge" stays
+ * zero draw calls.
+ */
+function badgeSpec(width, height, kit, placement) {
+  if (!width || !height) return null;
+  if (!kit || kit.showOnCards === false) return null;
+
+  const name = String(kit.name ?? '').trim();
+  const logo = kit.logo ?? null;
+  if (!name && !logo) return null;
+
+  const place = normalizeBadgePlacement(placement);
+  if (!place.visible) return null;
+
+  const badgeHeight = Math.max(12, Math.round(height * place.scale));
+  const fontSize = Math.round(badgeHeight * 0.44);
+  return {
+    name,
+    logo,
+    place,
+    badgeHeight,
+    font: `bold ${fontSize}px 'Helvetica Neue', Helvetica, Arial, sans-serif`,
+    padX: Math.round(badgeHeight * 0.32),
+    gap: logo ? Math.round(badgeHeight * 0.22) : 0,
+    markSize: logo ? Math.round(badgeHeight * 0.64) : 0,
+  };
+}
+
+/**
+ * Where the badge sits on the frame. Measures the name, so `ctx.font` must
+ * already be `spec.font`.
+ */
+function badgeLayout(ctx, width, height, spec) {
+  const { name, logo, place, badgeHeight, padX, gap, markSize } = spec;
+  const chrome = padX * 2 + (logo ? markSize + gap : 0);
+  const maxWidth = Math.max(markSize + chrome, Math.round(width * MAX_WIDTH_FRACTION));
+  const label = name ? ellipsizeText(ctx, name, maxWidth - chrome) : '';
+  const labelWidth = label ? ctx.measureText(label).width : 0;
+  const badgeWidth = Math.round(chrome + labelWidth - (label ? 0 : gap));
+
+  // The same 4% inset the readout uses, so the two never sit at different
+  // distances from the same edge.
+  const pad = Math.round(height * 0.04);
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  const cx = Math.round(clamp(place.x * width, pad + badgeWidth / 2, Math.max(pad + badgeWidth / 2, width - pad - badgeWidth / 2)));
+  const cy = Math.round(clamp(place.y * height, pad + badgeHeight / 2, Math.max(pad + badgeHeight / 2, height - pad - badgeHeight / 2)));
+  return {
+    label,
+    cy,
+    left: Math.round(cx - badgeWidth / 2),
+    top: Math.round(cy - badgeHeight / 2),
+    badgeWidth,
+  };
+}
+
+/**
+ * The rectangle the badge would occupy, without drawing anything.
+ *
+ * The camera-mode foreground is cropped to the box that holds the readout and
+ * the badge, and the crop has to be known before the canvas is sized — resizing
+ * a canvas clears it. Same arguments and same answer as `drawClubBadge`. The
+ * context's font is set only between a save and a restore, so the caller's
+ * drawing state is untouched.
+ *
+ * @param {CanvasRenderingContext2D} ctx - used only to measure the name
+ * @param {number} width - frame width in pixels
+ * @param {number} height - frame height in pixels
+ * @param {Object|null} kit - as for drawClubBadge
+ * @param {Object} [placement] - as for drawClubBadge
+ * @returns {{x: number, y: number, width: number, height: number}|null} the
+ *   rectangle, not counting the 1-2 px drop shadow, or null when nothing would
+ *   be drawn
+ */
+export function clubBadgeRect(ctx, width, height, kit, placement) {
+  if (!ctx) return null;
+  const spec = badgeSpec(width, height, kit, placement);
+  if (!spec) return null;
+
+  ctx.save();
+  try {
+    ctx.font = spec.font;
+    const { left, top, badgeWidth } = badgeLayout(ctx, width, height, spec);
+    return { x: left, y: top, width: badgeWidth, height: spec.badgeHeight };
+  } finally {
+    ctx.restore();
+  }
+}
+
+/**
  * Draw the club's badge onto a frame.
  *
  * Issues no draw calls at all when there is nothing to draw — no kit, the club
@@ -139,42 +230,18 @@ function roundedRectPath(ctx, x, y, width, height, radius) {
  *   rectangle the badge occupies, or null when nothing was drawn
  */
 export function drawClubBadge(ctx, width, height, kit, placement) {
-  if (!ctx || !width || !height) return null;
-  if (!kit || kit.showOnCards === false) return null;
-
-  const name = String(kit.name ?? '').trim();
-  const logo = kit.logo ?? null;
-  if (!name && !logo) return null;
-
-  const place = normalizeBadgePlacement(placement);
-  if (!place.visible) return null;
-
-  const badgeHeight = Math.max(12, Math.round(height * place.scale));
-  const fontSize = Math.round(badgeHeight * 0.44);
-  const padX = Math.round(badgeHeight * 0.32);
-  const gap = logo ? Math.round(badgeHeight * 0.22) : 0;
-  const markSize = logo ? Math.round(badgeHeight * 0.64) : 0;
+  if (!ctx) return null;
+  const spec = badgeSpec(width, height, kit, placement);
+  if (!spec) return null;
+  const { logo, badgeHeight, padX, gap, markSize } = spec;
 
   ctx.save();
   try {
-    ctx.font = `bold ${fontSize}px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+    ctx.font = spec.font;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
 
-    const chrome = padX * 2 + (logo ? markSize + gap : 0);
-    const maxWidth = Math.max(markSize + chrome, Math.round(width * MAX_WIDTH_FRACTION));
-    const label = name ? ellipsizeText(ctx, name, maxWidth - chrome) : '';
-    const labelWidth = label ? ctx.measureText(label).width : 0;
-    const badgeWidth = Math.round(chrome + labelWidth - (label ? 0 : gap));
-
-    // The same 4% inset the readout uses, so the two never sit at different
-    // distances from the same edge.
-    const pad = Math.round(height * 0.04);
-    const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-    const cx = Math.round(clamp(place.x * width, pad + badgeWidth / 2, Math.max(pad + badgeWidth / 2, width - pad - badgeWidth / 2)));
-    const cy = Math.round(clamp(place.y * height, pad + badgeHeight / 2, Math.max(pad + badgeHeight / 2, height - pad - badgeHeight / 2)));
-    const left = Math.round(cx - badgeWidth / 2);
-    const top = Math.round(cy - badgeHeight / 2);
+    const { label, cy, left, top, badgeWidth } = badgeLayout(ctx, width, height, spec);
 
     // A drop shadow rather than a keyline: the badge lands on whatever card art
     // the club uploaded, and a fixed outline colour cannot be right on all of
