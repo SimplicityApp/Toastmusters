@@ -42,10 +42,13 @@ Evidence: the hrefs.
 Do: `curl -s -o /dev/null -w '%{http_code} %{redirect_url}' <deeplink>` for the page's link,
 and for the production link as a control. Then close the app in the meeting panel (⋯ → Close
 current app), open the link, and look at the result.
-Expect: a 302 to `zoom.us/launch/zoomapp/<token>` and the Zoom client opens the app (dev shows
-the BETA badge). A 200 "Oops, The application is not found" is a failure.
+Expect: production: a 302 to `zoom.us/launch/zoomapp/<token>` and the Zoom client opens the
+app; a 200 "Oops, The application is not found" is a failure. Dev: a 200 "not found" is
+expected, because the dev app has no Marketplace app page, so its deeplink never resolves; only
+DL-01 (the dev id is in the link) can pass there.
 Evidence: curl output for both ids; screenshot of the panel.
-Last run (2026-10-13): production 302, dev 200 "not found". FAIL for dev.
+Last run (2026-10-13): production 302, dev 200 "not found" (expected on dev, see above).
+Dev result reconfirmed 2026-11-01.
 
 ### DL-03 · auto · Production link unchanged
 Do: with `VITE_ZOOM_OAUTH_REDIRECT` unset, or the production client id, read the link.

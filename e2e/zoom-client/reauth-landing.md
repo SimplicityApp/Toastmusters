@@ -70,17 +70,25 @@ Evidence: final URL (`osascript`, see gotchas.md); DevTools cookie row; the Netw
 `zoom_app_installed` with `source: oauth_redirect`, `welcome: new`, and no `has_code`.
 `contact:zoom:<uid>` is still written in KV (CC-01).
 
-### RL-02 · auto · A re-add in the same browser says "You're reconnected"; Open in Zoom launches the dev app
+Last run (2026-11-01, dev f30c40a): PASS. Cookie attributes not read (no DevTools); the mark was proven by
+`/` redirecting.
+
+### RL-02 · auto · A re-add in the same browser says "You're reconnected"; Open in Zoom carries this build's app id
 Do: in the same profile, open `https://www.timer-dev.simple-tech.app/add-to-zoom` again. On the
 page it lands on, click **Open in Zoom**.
 Expect: the address bar settles on `…/oauth/redirect?welcome=back`. The page shows "You're
 reconnected", the line "Your agendas, roles and reports are exactly where you left them.", an
 **Open in Zoom** button and an **Open Zoom in browser** link, and no demo videos. **Open in
 Zoom** points at `https://marketplace.zoom.us/zoomapp/kgpoX2A6TY2BvdctzK9iw/context/meeting/target/launch/deeplink`
-(the dev app id) and opens the dev app in the Zoom client, possibly through
-`marketplace.zoom.us/z/<token>` first.
+(the dev app id). On dev the link answers "The application is not found": the dev app has no
+Marketplace app page, so its deeplink never resolves (zoom-deeplink DL-02). That is expected and
+not a failure. The launch itself is checked on production, where the same button opens the
+app in the Zoom client, possibly through `marketplace.zoom.us/z/<token>` first.
 Evidence: final URL; screenshot of the card; the button's `href`; PostHog `zoom_app_installed`
 with `welcome: back`; `reqs.sh` shows the app loading from `zoom.timer-dev.simple-tech.app`.
+
+Last run (2026-11-01, dev f30c40a): PASS. The deeplink answered "The application is not found", as
+expected on dev.
 
 ### RL-03 · auto · A marked browser's bare / opens the reconnect page; /?home and the zoom host do not
 Do: in the profile marked in RL-01, open `https://www.timer-dev.simple-tech.app/`. On the page
@@ -100,6 +108,8 @@ and `Cache-Control: no-store`, and no `text/html` response for `/`. The `/?home`
 `200`. PostHog `$pageview` for `/reconnect`. Cross-check without a browser:
 `curl -sI -H 'Cookie: tt_approved=1' https://www.timer-dev.simple-tech.app/` gives the `302`;
 the same against `/?home` and against `https://zoom.timer-dev.simple-tech.app/` gives `200`.
+
+Last run (2026-11-01, dev f30c40a): PASS. The unmarked check used curl, not a second profile.
 
 ### RL-04 · human · Record where Zoom opens the browser after a guest approves the app
 Do: start `npx wrangler tail --env dev`. As account B, in the `authenticated` state, open the dev
