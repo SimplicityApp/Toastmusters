@@ -71,7 +71,9 @@ Evidence: final URL (`osascript`, see gotchas.md); DevTools cookie row; the Netw
 `contact:zoom:<uid>` is still written in KV (CC-01).
 
 Last run (2026-11-01, dev f30c40a): PASS. Cookie attributes not read (no DevTools); the mark was proven by
-`/` redirecting.
+`/` redirecting. PostHog `zoom_app_installed` had `source: oauth_redirect`, `welcome: new`, no
+`has_code`. KV contact: inconclusive (one record, unchanged since 2026-10-13; a skipped capture
+logs nothing).
 
 ### RL-02 · auto · A re-add in the same browser says "You're reconnected"; Open in Zoom carries this build's app id
 Do: in the same profile, open `https://www.timer-dev.simple-tech.app/add-to-zoom` again. On the
@@ -88,7 +90,7 @@ Evidence: final URL; screenshot of the card; the button's `href`; PostHog `zoom_
 with `welcome: back`; `reqs.sh` shows the app loading from `zoom.timer-dev.simple-tech.app`.
 
 Last run (2026-11-01, dev f30c40a): PASS. The deeplink answered "The application is not found", as
-expected on dev.
+expected on dev. PostHog `zoom_app_installed` had `welcome: back`.
 
 ### RL-03 · auto · A marked browser's bare / opens the reconnect page; /?home and the zoom host do not
 Do: in the profile marked in RL-01, open `https://www.timer-dev.simple-tech.app/`. On the page
@@ -109,7 +111,8 @@ and `Cache-Control: no-store`, and no `text/html` response for `/`. The `/?home`
 `curl -sI -H 'Cookie: tt_approved=1' https://www.timer-dev.simple-tech.app/` gives the `302`;
 the same against `/?home` and against `https://zoom.timer-dev.simple-tech.app/` gives `200`.
 
-Last run (2026-11-01, dev f30c40a): PASS. The unmarked check used curl, not a second profile.
+Last run (2026-11-01, dev f30c40a): PASS. The unmarked check used curl, not a second profile. PostHog
+`$pageview` for `/reconnect` recorded.
 
 ### RL-04 · human · Record where Zoom opens the browser after a guest approves the app
 Do: start `npx wrangler tail --env dev`. As account B, in the `authenticated` state, open the dev
@@ -131,6 +134,15 @@ Evidence: the URL as recorded, plus the browser history entry for the tab (the f
 before any redirect). The `wrangler tail` lines in the minute after approval: a `GET /` on
 `www.timer-dev.simple-tech.app`, or none at all if Zoom opened another host. A screenshot of the
 tab. The debug log's `Asked Zoom to prompt the user to add the app` line.
+On dev this step cannot show the reconnect page: Zoom finishes an in-meeting add of the
+development credentials on the production web host's root, not on `timer-dev` (one Marketplace
+app, two credential sets; nothing on the Development tab changes it). Accepted as a dev-only
+limit. The real check is one production run after release: a guest or lapsed account approves
+in a meeting, in a browser that installed the app on production before, and lands on `/reconnect`.
+
+Last run (2026-11-01, dev f30c40a): as expected on dev. B approved from the Apps panel; the
+browser opened `https://www.timer.simple-tech.app` and no request reached `timer-dev`
+(same as 2026-09-25, docs/ZOOM_AUTH_AND_REDIRECTS.md).
 
 ## Notes
 - Reviewed after merging dev (2026-11-01): dev only swapped the demo video on the landing and
