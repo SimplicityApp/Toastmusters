@@ -135,6 +135,42 @@ describe('Landing', () => {
   });
 });
 
+describe('Landing demo placement', () => {
+  const renderLanding = () =>
+    render(
+      <MemoryRouter>
+        <Landing />
+      </MemoryRouter>
+    );
+
+  it('puts a quiet "Watch the demo" link in the hero that jumps to the demo', () => {
+    renderLanding();
+
+    expect(screen.getByRole('link', { name: /watch the demo/i })).toHaveAttribute('href', '#demos');
+  });
+
+  it('shows the full demo straight after the clubs strip and before the ambassador', () => {
+    renderLanding();
+
+    const clubs = screen.getByRole('region', { name: /clubs using toastmasters timer/i });
+    const demos = document.getElementById('demos');
+    const ambassador = document.getElementById('ambassador');
+    expect(screen.getByRole('heading', { name: 'See it running' }).closest('section')).toBe(demos);
+    expect(clubs.compareDocumentPosition(demos) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(demos.compareDocumentPosition(ambassador) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the quick in-Zoom demo out of the top demo and under "More videos"', () => {
+    renderLanding();
+
+    const quick = screen.getByLabelText(/demo video showing toastmasters timer/i);
+    expect(quick.closest('section')).toBe(document.getElementById('more-videos'));
+    expect(document.getElementById('demos')).not.toContainElement(quick);
+    expect(screen.getByRole('heading', { name: 'More videos' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Watch the full product demo' })).toBeInTheDocument();
+  });
+});
+
 describe('Landing footer tools', () => {
   it('links to every other tool in the suite', () => {
     render(

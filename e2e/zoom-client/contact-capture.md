@@ -31,7 +31,12 @@ The Worker saves `{ email, firstName, lastName, updatedAt }` under `contact:zoom
 `PROFILES` KV from three doors: in-client `authorize`, browser install/re-add, web sign-in.
 Read the record with
 `npx wrangler kv key get --binding PROFILES --env dev --remote 'contact:zoom:<uid>'`;
-delete it to start over. Find `<uid>` as in the auth-identity spec.
+delete it to start over. Find `<uid>` with
+`npx wrangler kv key list --binding PROFILES --env dev --remote --prefix 'contact:zoom:'`
+(key names only), or from the `uid` in the app's session request once `auth-identity` is migrated.
+
+The step the 2026-10-13 run stopped on is CC-00: the dev Marketplace app did not grant
+`authorize`, so nothing after it can fire. Run CC-00 first, every time.
 
 ## Purpose
 Catches a consent flow that never fires or fires mid-speech, a "Stay in touch" card that
@@ -39,6 +44,14 @@ nags after Not now, a record that is not saved or not purged on uninstall, and a
 `authorize` call the real client rejects (mocked SDKs cannot show this).
 
 ## Steps
+
+### CC-00 · auto · Zoom grants authorize and onAuthorized
+Do: open the dev app in a meeting, Live tab, open the Debug Panel, read **SDK Status**.
+Expect: `authorize` and `onAuthorized` are not in the "Missing" list (27/30 with the three
+missing, as on 2026-10-13, means the Marketplace app lacks them: add them under Features →
+Zoom App SDK → Add APIs, then re-add the app). If they are missing, stop: CC-02 to CC-08 cannot
+fire, because `eligible()` needs `isApiAvailable('authorize')`.
+Evidence: screenshot of the SDK Status block; the debug log's `Zoom SDK configured` line.
 
 ### CC-01 · auto · Browser door saves the contact
 Do: after a fresh install or a re-add from `https://www.timer-dev.simple-tech.app/add-to-zoom`,

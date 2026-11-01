@@ -3,6 +3,7 @@ import { ToastProvider } from './ToastContext';
 import { TimerProvider, useTimer, useTimerTick } from './TimerContext';
 import { applyOverlay, removeOverlay, isOverlayActive, setOverlayTimeLabel, getBackgroundUrl } from '../utils/zoomSdk';
 import { BREAK_ROLE, deriveBreakRules } from '@toastmaster-timer/shared';
+import { trackEvent } from '../utils/posthog';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom.
@@ -76,6 +77,74 @@ describe('addToAgenda', () => {
     expect(result.current.activeSpeakerId).toBeNull();
     expect(result.current.currentSpeaker).toBeNull();
     expect(result.current.agenda).toHaveLength(1);
+  });
+});
+
+describe('importBulkSpeakers', () => {
+  it('imports "Person (A)" as custom role A with its rules', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+    const aRules = { green: 10, yellow: 20, red: 30, graceAfterRed: 10 };
+
+    act(() => {
+      result.current.addRoleRules('A', aRules);
+    });
+    let count;
+    act(() => {
+      count = result.current.importBulkSpeakers('Person (A)');
+    });
+
+    expect(count).toBe(1);
+    expect(result.current.agenda).toHaveLength(1);
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Person', role: 'A', rules: aRules });
+  });
+
+  it('imports a custom role whose rules were saved without a role order', () => {
+    // Legacy saved rules and club presets published without `order` leave a
+    // role in roleRules (and the dropdown) but out of customRoleOrder.
+    const openerRules = { green: 60, yellow: 90, red: 120, graceAfterRed: 15 };
+    localStorage.setItem('toastmaster_role_rules', JSON.stringify({ Opener: openerRules }));
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    expect(result.current.roleOptions).toContain('Opener');
+    act(() => {
+      result.current.importBulkSpeakers('Ana (Opener)');
+    });
+
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Ana', role: 'Opener', rules: openerRules });
+  });
+
+  it('reports how many imported lines got a custom role', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    act(() => {
+      result.current.addRoleRules('A', { green: 10, yellow: 20, red: 30, graceAfterRed: 10 });
+    });
+    act(() => {
+      result.current.importBulkSpeakers('Person (A)\nBob (Ice Breaker)');
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith('agenda_imported', {
+      import_type: 'bulk',
+      items_count: 2,
+      custom_role_count: 1,
+    });
+  });
+
+  it('does not count Take a Break as a custom role', () => {
+    // Zoom injects BREAK_ROLE into roleRules, so it sits in roleOptions, but it
+    // is not a user role: break lines reach it through today's detection only.
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    act(() => {
+      result.current.importBulkSpeakers('Ana (Coffee Break)');
+    });
+
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Ana', role: BREAK_ROLE });
+    expect(trackEvent).toHaveBeenCalledWith('agenda_imported', {
+      import_type: 'bulk',
+      items_count: 1,
+      custom_role_count: 0,
+    });
   });
 });
 
