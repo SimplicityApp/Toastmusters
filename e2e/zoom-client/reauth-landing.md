@@ -122,6 +122,10 @@ before any redirect). The `wrangler tail` lines in the minute after approval: a 
 `www.timer-dev.simple-tech.app`, or none at all if Zoom opened another host. A screenshot of the
 tab. The debug log's `Asked Zoom to prompt the user to add the app` line.
 
+## Notes
+- Reviewed after merging dev (2026-11-01): dev only swapped the demo video on the landing and
+  install pages; no step changes.
+
 ## Not covered
 - The redirect rules (back or new, the `zoom.` host left alone, cookie attributes, the code
   dropped; for `/`, only a bare `/` with the mark): `worker/reconnect.test.js` and
