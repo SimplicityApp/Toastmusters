@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import worker from './index.js';
 import { FLAG_FALLBACKS } from './flags.js';
 
@@ -114,15 +115,9 @@ describe('canonical host redirect', () => {
     expect(res.headers.get('location')).toBe('https://www.toastmusters.com/');
   });
 
-  // Dual-serve (docs/DOMAIN_MIGRATION.md): the old www host keeps serving its
-  // own content and must NOT redirect to the new domain until Phase 4.
-  it('does not redirect the old www host to the new domain', async () => {
-    const env = makeEnv(['/index.html']);
-    const res = await worker.fetch(get('https://www.timer.simple-tech.app/'), env, ctx);
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('location')).toBeNull();
-  });
+  // The old www host's public pages do move to the new domain, but only with
+  // ROOT_ORIGIN set; see "the old simple-tech web host's public pages move to
+  // www.toastmusters.com" below. Without it (these tests) nothing redirects.
 
   // The redirect must never manufacture www.zoom.timer.simple-tech.app — that
   // host does not exist and every Zoom-registered URL depends on the zoom
@@ -211,7 +206,7 @@ describe('the old toastmusters.com timer hosts move to www.toastmusters.com', ()
   // zoom.timer.toastmusters.com may become the Zoom app's home; a cached 301
   // there would outlive any change of plan.
   it.each([
-    'https://www.timer.simple-tech.app/',
+    'https://www.timer.simple-tech.app/timer/app',
     'https://zoom.timer.simple-tech.app/',
     'https://zoom.timer.toastmusters.com/',
     'https://www.toastmusters.com/',
@@ -226,6 +221,163 @@ describe('the old toastmusters.com timer hosts move to www.toastmusters.com', ()
     const local = await worker.fetch(get('http://www.timer.toastmusters.com/'), prod(), ctx);
 
     expect(dev.status).toBe(200);
+    expect(local.status).toBe(200);
+  });
+});
+
+// The old simple-tech.app host (#98). Its public pages exist on the main site
+// too, so serving them here makes Google pick this host as canonical. Its app
+// routes stay: sign-in, Stripe and the Zoom install all come back to WEB_ORIGIN.
+describe("the old simple-tech web host's public pages move to www.toastmusters.com", () => {
+  const prod = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' });
+  const dev = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.timer-dev.toastmusters.com' });
+
+  it.each([
+    // The landing page. The bare host takes one hop here, not two (apex to
+    // www, then off-site).
+    ['https://timer.simple-tech.app/', 'https://www.toastmusters.com/', prod],
+    ['https://www.timer.simple-tech.app/?utm=x', 'https://www.toastmusters.com/?utm=x', prod],
+    ['https://www.timer-dev.simple-tech.app/', 'https://www.timer-dev.toastmusters.com/', dev],
+    ['https://timer-dev.simple-tech.app/', 'https://www.timer-dev.toastmusters.com/', dev],
+    // The guides and the video pages. A trailing slash is dropped.
+    ['https://www.timer.simple-tech.app/toastmasters-timing-chart', 'https://www.toastmusters.com/toastmasters-timing-chart', prod],
+    ['https://www.timer.simple-tech.app/best-toastmasters-timer-apps/', 'https://www.toastmusters.com/best-toastmasters-timer-apps', prod],
+    ['https://www.timer.simple-tech.app/toastmasters-timer-demo?t=30', 'https://www.toastmusters.com/toastmasters-timer-demo?t=30', prod],
+    ['https://timer.simple-tech.app/toastmasters-timing-chart', 'https://www.toastmusters.com/toastmasters-timing-chart', prod],
+    ['https://www.timer-dev.simple-tech.app/toastmasters-timing-chart', 'https://www.timer-dev.toastmusters.com/toastmasters-timing-chart', dev],
+    // The Zoom listing's pages, which index.js serves from /zoom/*.html.
+    ['https://www.timer.simple-tech.app/privacy', 'https://www.toastmusters.com/privacy', prod],
+    ['https://www.timer.simple-tech.app/support', 'https://www.toastmusters.com/support', prod],
+    ['https://www.timer.simple-tech.app/terms-of-use', 'https://www.toastmusters.com/terms-of-use', prod],
+    ['https://www.timer.simple-tech.app/documentation', 'https://www.toastmusters.com/documentation', prod],
+    ['https://www.timer-dev.simple-tech.app/privacy', 'https://www.timer-dev.toastmusters.com/privacy', dev],
+    // Table Topics, with its path exactly as asked.
+    ['https://www.timer.simple-tech.app/tabletopics/topics/', 'https://www.toastmusters.com/tabletopics/topics/', prod],
+    ['https://www.timer.simple-tech.app/tabletopics', 'https://www.toastmusters.com/tabletopics', prod],
+    ['https://timer.simple-tech.app/tabletopics/today/?q=1', 'https://www.toastmusters.com/tabletopics/today/?q=1', prod],
+    ['https://www.timer-dev.simple-tech.app/tabletopics/', 'https://www.timer-dev.toastmusters.com/tabletopics/', dev],
+  ])('301s %s to %s in one hop', async (from, to, makeEnvFor) => {
+    const env = makeEnvFor();
+    const res = await worker.fetch(get(from), env, ctx);
+
+    // A bare / depends on the reconnect mark, so its 301 is never cached;
+    // every other page is cacheable for a day.
+    const { pathname, search } = new URL(from);
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(to);
+    expect(res.headers.get('cache-control')).toBe(pathname === '/' && !search ? 'no-store' : 'public, max-age=86400');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  // The app on the old host is not a public page: the apex still goes to the
+  // old www host, and the app is served from there.
+  it('still sends an app path on the bare host to the old www host', async () => {
+    const env = prod();
+    const res = await worker.fetch(get('https://timer.simple-tech.app/timer/app'), env, ctx);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer/app');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('serves the web timer on the old www host as before', async () => {
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/timer/app'), prod(), ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-asset-path')).toBe('/index.html');
+  });
+
+  // Sign-in, Stripe and the Zoom install all come back to WEB_ORIGIN on this
+  // host, so every app route stays and answers as it did before the move. A
+  // missed one would break the web timer here, or the install. Each row is the
+  // status and Location this host gave before #98, and none points at
+  // ROOT_ORIGIN. /app is an app route that was already redirected on this host:
+  // to its new path, still here.
+  it.each([
+    ['/timer/app', 200, null],
+    ['/oauth/redirect?code=x', 302, 'https://www.timer.simple-tech.app/oauth/redirect?welcome=new'],
+    ['/oauth/redirect?welcome=new', 200, null],
+    ['/reconnect', 200, null],
+    ['/account', 200, null],
+    ['/billing/success', 200, null],
+    ['/billing/cancel', 200, null],
+    ['/club/admin', 200, null],
+    ['/club/manage', 200, null],
+    ['/pro/ABC', 200, null],
+    ['/r/ABCDEFGHJKMNPQRS', 404, null], // no KV bound here; it still reached the handler
+    ['/zoom/', 200, null],
+    ['/zoom/privacy.html', 200, null],
+    ['/add-to-zoom', 302, 'https://marketplace.zoom.us/apps/sWHvcm4YShyr6SXQQI8DFw'],
+    ['/app', 301, 'https://www.timer.simple-tech.app/timer/app'],
+    ['/web', 302, 'https://www.timer.simple-tech.app/timer/app'],
+    ['/timer', 302, 'https://www.timer.simple-tech.app/'],
+    ['/assets/index.js', 200, null],
+    ['/robots.txt', 200, null],
+    ['/sitemap.xml', 200, null],
+    ['/llms.txt', 200, null],
+  ])('keeps %s on the old www host: %i, location %s', async (path, status, location) => {
+    const env = {
+      ...makeEnv(['/index.html', '/zoom/index.html', '/zoom/privacy.html', '/assets/index.js', '/robots.txt', '/sitemap.xml', '/llms.txt']),
+      ROOT_ORIGIN: 'https://www.toastmusters.com',
+    };
+    const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`), env, ctx);
+
+    expect(res.status).toBe(status);
+    expect(res.headers.get('location')).toBe(location);
+    expect(res.headers.get('cache-control')).not.toBe('public, max-age=86400');
+  });
+
+  // The list of moved pages is kept by hand (worker/old-web-host.js) and the
+  // sitemap is generated. A page that is in the sitemap but not in the list
+  // stays served here, and Google keeps picking this host as its canonical.
+  it('moves every page the sitemap lists', async () => {
+    const sitemap = readFileSync(new URL('../apps/web/public/sitemap.xml', import.meta.url), 'utf8');
+    const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);
+    expect(locs.length).toBeGreaterThan(0);
+
+    for (const loc of locs) {
+      const { pathname, search } = new URL(loc);
+      const env = prod();
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app${pathname}${search}`), env, ctx);
+
+      expect(res.status, `${pathname} should be moved`).toBe(301);
+      expect(res.headers.get('location'), pathname).toBe(loc);
+      expect(env.ASSETS.fetch, pathname).not.toHaveBeenCalled();
+    }
+  });
+
+  // A 301 on a POST would drop its body; the API routes are matched first.
+  it('never redirects an API call on the old www host', async () => {
+    const res = await worker.fetch(
+      new Request('https://www.timer.simple-tech.app/api/zoom/webhook', {
+        method: 'POST',
+        headers: { host: 'www.timer.simple-tech.app', 'content-type': 'application/json' },
+        body: JSON.stringify({ event: 'endpoint.url_validation', payload: {} }),
+      }),
+      prod(),
+      ctx
+    );
+
+    expect(res.status).not.toBe(301);
+  });
+
+  // The Zoom app lives on zoom.<domain>, and www.toastmusters.com is where the
+  // page moves to: a 301 from either would break the app or loop.
+  it.each([
+    'https://zoom.timer.simple-tech.app/',
+    'https://zoom.timer-dev.simple-tech.app/',
+    'https://www.toastmusters.com/',
+  ])('leaves %s alone', async (url) => {
+    const res = await worker.fetch(get(url), prod(), ctx);
+
+    expect(res.status).not.toBe(301);
+  });
+
+  it('does nothing without ROOT_ORIGIN (dev) or over http (wrangler dev)', async () => {
+    const noRoot = await worker.fetch(get('https://www.timer.simple-tech.app/'), makeEnv(['/index.html']), ctx);
+    const local = await worker.fetch(get('http://www.timer.simple-tech.app/'), prod(), ctx);
+
+    expect(noRoot.status).toBe(200);
     expect(local.status).toBe(200);
   });
 });
@@ -697,6 +849,37 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
     }
   });
 
+  // The old host's public pages 301 to ROOT_ORIGIN (#98), but the install landing
+  // is an app route and stays: Zoom sends the user to WEB_ORIGIN/oauth/redirect,
+  // and the code can only be spent with that same redirect_uri. If this page
+  // moved, every Marketplace install would lose its page and its contact.
+  it('keeps the install landing on the old www host once its public pages move', async () => {
+    const kv = makeKv();
+    const env = { ...authEnv(), ROOT_ORIGIN: 'https://www.toastmusters.com', PROFILES: kv };
+    const backgroundCtx = createCtx();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url) =>
+      String(url).includes('/oauth/token')
+        ? new Response(JSON.stringify({ access_token: 'at' }), { status: 200 })
+        : new Response(JSON.stringify({ id: 'zoom-installer', email: 'installer@example.com' }), { status: 200 })
+    );
+    try {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), env, backgroundCtx);
+      await backgroundCtx._settle();
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
+      expect(setCookies(res)[0]).toMatch(APPROVED_SET_COOKIE);
+
+      const [tokenUrl, init] = globalThis.fetch.mock.calls[0];
+      expect(tokenUrl).toBe('https://zoom.us/oauth/token');
+      expect(new URLSearchParams(init.body).get('redirect_uri')).toBe('https://www.timer.simple-tech.app/oauth/redirect');
+      expect(JSON.parse(kv.store.get('contact:zoom:zoom-installer'))).toMatchObject({ email: 'installer@example.com' });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   // A failed capture (here: a reused code) is logged, never surfaced.
   it('redirects and marks the browser unchanged when the background capture fails', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -896,6 +1079,42 @@ describe('a marked browser opening a bare / goes to the reconnect page', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('x-asset-path')).toBe('/index.html');
     expect(res.headers.get('location')).toBeNull();
+  });
+
+  // Once the old web host's public pages move (#98), its / is the one that 301s
+  // to the main site. A marked browser must still reach the reconnect page here:
+  // the mark is host-only, so the main site could never send it there.
+  describe('on the old web host, once its public pages move', () => {
+    const env = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' });
+
+    it('302s a marked / to /reconnect on the old host, not to the main site', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie: MARK }), env(), ctx);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/reconnect');
+    });
+
+    it('301s an unmarked / to the main site, uncached', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/'), env(), ctx);
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe('https://www.toastmusters.com/');
+      expect(res.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('301s a marked /?home to the main site homepage', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/?home', { cookie: MARK }), env(), ctx);
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe('https://www.toastmusters.com/?home');
+    });
+
+    it('serves the reconnect page itself on the old host', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/reconnect', { cookie: MARK }), env(), ctx);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    });
   });
 
   it('serves the reconnect page itself to a marked browser, with no loop', async () => {

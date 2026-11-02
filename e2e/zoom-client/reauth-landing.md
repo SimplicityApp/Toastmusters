@@ -1,9 +1,10 @@
 ---
 id: reauth-landing
 title: Re-auth landing, the approved-before mark, the reconnect page and "You're reconnected" (#96)
-status: draft
+status: stale
 covers:
   - worker/reconnect.js
+  - worker/old-web-host.js
   - apps/web/src/pages/Reconnect.jsx
   - apps/web/src/pages/OAuthRedirect.jsx
 automated:
@@ -100,19 +101,23 @@ it lands on, click **Go to the homepage**, then reload. In the same profile, ope
 Expect: the marked profile's address bar settles on
 `https://www.timer-dev.simple-tech.app/reconnect`, and the page shows "Welcome back", "Reconnect
 Toastmusters Timer to Zoom" and an **Approve in Zoom** button. The homepage never paints first:
-the Worker answers `/` with a redirect, not a document. **Go to the homepage** lands on `/?home`
-and shows the homepage, and the reload stays on `/?home` with the homepage. The `zoom.` host
-shows the Zoom timer app, not the reconnect page. The unmarked profile gets the homepage at `/`,
-with no redirect.
+the Worker answers `/` with a redirect, not a document. **Go to the homepage** shows the
+homepage, and the reload keeps it. Since #98 the old web host's public pages live on the main
+site, so `/?home` 301s to `https://www.timer-dev.toastmusters.com/?home`, and the unmarked
+profile's `/` 301s to `https://www.timer-dev.toastmusters.com/`. The `zoom.` host shows the Zoom
+timer app, not the reconnect page.
 Evidence: final URLs (`osascript`, see gotchas.md). In the marked profile, the Network entry for
 `/` sends `tt_approved=1` and gets a `302` with `Location: https://www.timer-dev.simple-tech.app/reconnect`
-and `Cache-Control: no-store`, and no `text/html` response for `/`. The `/?home` reload is a
-`200`. PostHog `$pageview` for `/reconnect`. Cross-check without a browser:
+and `Cache-Control: no-store`, and no `text/html` response for `/`, never a `301` to the main
+site. PostHog `$pageview` for `/reconnect`. Cross-check without a browser:
 `curl -sI -H 'Cookie: tt_approved=1' https://www.timer-dev.simple-tech.app/` gives the `302`;
-the same against `/?home` and against `https://zoom.timer-dev.simple-tech.app/` gives `200`.
+the same against `/?home` gives a `301` to the main site, and against
+`https://zoom.timer-dev.simple-tech.app/` a `200`. Without the cookie, `/` gives a `301` with
+`Cache-Control: no-store` (a cached one would hide the reconnect page once the browser is marked).
 
 Last run (2026-11-01, dev f30c40a): PASS. The unmarked check used curl, not a second profile. PostHog
-`$pageview` for `/reconnect` recorded.
+`$pageview` for `/reconnect` recorded. That run predates #98 (`/?home` and the unmarked `/` were
+still `200` here); rerun after #98 reaches dev.
 
 ### RL-04 · human · Record where Zoom opens the browser after a guest approves the app
 Do: start `npx wrangler tail --env dev`. As account B, in the `authenticated` state, open the dev
