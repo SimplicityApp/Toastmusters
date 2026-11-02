@@ -121,6 +121,9 @@ Expect: `wrangler tail --env dev` logs `Purged user data on deauthorization: <ui
 Billing records (`entitlement:zoom:<uid>`, Stripe links) are kept on purpose.
 Evidence: tail output; `kv key get` finds nothing.
 
+Reviewed against #88 (2026-11-01): its `zoomSdk.js` changes are the overlay queue and readout
+frame only; nothing in authorize, `onAuthorized` or the contact flow. No step changes.
+
 ## Not covered
 - Zoom clients older than the one that supports `authorize` / `onAuthorized`.
 - Accounts where the admin blocks the scopes.

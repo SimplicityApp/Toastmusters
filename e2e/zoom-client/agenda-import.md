@@ -80,6 +80,8 @@ Expect: no colour before 0:15, then green from 0:15, yellow from 0:30 and red fr
 These are Opening's thresholds. Standard Speech would stay uncoloured for the first 5:00.
 Evidence: timeline shots with timestamps. The debug log shows one `setVirtualBackground`
 call per colour change.
+Reviewed against #88 (2026-11-01): the tick now rounds down to the tenth and duplicate pushes
+join; the thresholds and one call per change above still hold. Not rerun.
 
 ### IM-04 · auto · Cleanup
 Do: Finish the speech (answer Zoom's reset prompt and the PostHog survey, as the skill
