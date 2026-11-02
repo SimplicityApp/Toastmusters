@@ -26,6 +26,10 @@
     }
   }
 
+  // For a page's own script (the tutorials player reports plays): the same
+  // capture, queued until PostHog has loaded and dropped when it is not configured.
+  window.siteTrack = capture;
+
   // data-cta names what the button does (add_to_zoom, web_timer, marketplace);
   // data-cta-location names where on the page it sits.
   document.addEventListener('click', function (event) {

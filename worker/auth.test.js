@@ -253,7 +253,7 @@ describe('handleOAuthCallback', () => {
    * Routes by URL: Zoom's token endpoint, /users/me, and PostHog's capture
    * (which only sees calls when POSTHOG_API_KEY is set).
    */
-  function zoomFetch({ tokenOk = true, meOk = true, id = 'zoom-user-1', scope, meStatus = 401, meBody = {}, posthog } = {}) {
+  function zoomFetch({ tokenOk = true, meOk = true, id = 'zoom-user-1', me = { id, email: 'a@b.c' }, scope, meStatus = 401, meBody = {}, posthog } = {}) {
     return vi.fn(async (url) => {
       if (String(url).startsWith(POSTHOG_CAPTURE_URL)) {
         return posthog ? posthog() : new Response('{"status":1}');
@@ -263,7 +263,7 @@ describe('handleOAuthCallback', () => {
         return new Response(JSON.stringify(tokenOk ? tokens : { error: 'x' }), { status: tokenOk ? 200 : 400 });
       }
       if (String(url).startsWith('https://api.zoom.us/v2/users/me')) {
-        return meOk ? jsonResponse({ id, email: 'a@b.c' }) : jsonResponse(meBody, meStatus);
+        return meOk ? jsonResponse(me) : jsonResponse(meBody, meStatus);
       }
       throw new Error(`unexpected fetch ${url}`);
     });
@@ -275,6 +275,8 @@ describe('handleOAuthCallback', () => {
       .filter(([url]) => String(url).startsWith(POSTHOG_CAPTURE_URL))
       .map(([, init]) => JSON.parse(init.body));
 
+  // The sign-in starts and comes back on callbackEnv's WEB_ORIGIN (the start
+  // would otherwise hand off to it), and carries `returnTo` through the state.
   async function startAndCallback({
     code = 'the-code',
     withNonce = true,
@@ -285,15 +287,16 @@ describe('handleOAuthCallback', () => {
     ctx,
     returnTo = '/account',
   } = {}) {
-    const startUrl = new URL('https://www.example.test/api/auth/zoom/start');
+    const startEnv = { ...env, WEB_ORIGIN: callbackEnv.WEB_ORIGIN };
+    const startUrl = new URL('/api/auth/zoom/start', callbackEnv.WEB_ORIGIN);
     startUrl.searchParams.set('returnTo', returnTo);
-    const started = await handleAuthStart(new Request(startUrl), startUrl, env, { now: NOW });
+    const started = await handleAuthStart(new Request(startUrl), startUrl, startEnv, { now: NOW });
     const location = new URL(started.headers.get('location'));
     let state = stateOverride ?? location.searchParams.get('state');
     if (tamperState) state = state.slice(0, -2) + 'zz';
     const nonce = cookieValue(started, 'tt_oauth');
 
-    const cb = new URL('https://www.example.test/oauth/redirect');
+    const cb = new URL('/oauth/redirect', callbackEnv.WEB_ORIGIN);
     cb.searchParams.set('state', state);
     if (code) cb.searchParams.set('code', code);
     const req = new Request(cb, { headers: withNonce ? { cookie: `tt_oauth=${nonce}` } : {} });
@@ -358,6 +361,131 @@ describe('handleOAuthCallback', () => {
     const fetchImpl = zoomFetch({ tokenOk: false });
     const res = await (await startAndCallback({ fetchImpl, returnTo: '/account?signin=failed&reason=denied&tab=1' })).promise;
     expect(res.headers.get('location')).toBe('https://www.example.test/account?signin=failed&reason=exchange&tab=1');
+  });
+
+  // A page that moved to ROOT_ORIGIN (worker/old-web-host.js) would 301 to a
+  // host that never saw the session cookie set here, so the user would look
+  // signed out. The callback lands on the account page instead, which only
+  // confirms the sign-in: not the web timer, which the user never asked for.
+  describe('a sign-in that started on a page that has moved off WEB_ORIGIN', () => {
+    const oldHost = {
+      ...env,
+      WEB_ORIGIN: 'https://www.timer.simple-tech.app',
+      ROOT_ORIGIN: 'https://www.toastmusters.com',
+    };
+
+    it('lands on /account, signed in', async () => {
+      const { promise, fetchImpl } = await startAndCallback({ callbackEnv: oldHost, returnTo: '/' });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/account');
+      expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
+      // The code is still spent against the URI Zoom issued it for.
+      expect(new URLSearchParams(fetchImpl.mock.calls[0][1].body).get('redirect_uri')).toBe(
+        'https://www.timer.simple-tech.app/oauth/redirect'
+      );
+    });
+
+    it('leaves a returnTo that stays on this host unchanged', async () => {
+      for (const returnTo of ['/account', '/timer/app', '/club/admin']) {
+        const { promise } = await startAndCallback({ callbackEnv: oldHost, returnTo });
+        const res = await promise;
+        expect(res.headers.get('location')).toBe(`https://www.timer.simple-tech.app${returnTo}`);
+        expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+      }
+    });
+
+    // SignInFailureNotice is app-wide, so /account shows the failure too.
+    it('reports a failure on /account too', async () => {
+      const { promise, fetchImpl } = await startAndCallback({ callbackEnv: oldHost, returnTo: '/', withNonce: false });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(
+        'https://www.timer.simple-tech.app/account?signin=failed&reason=state_mismatch'
+      );
+      expect(cookieValue(res, SESSION_COOKIE)).toBeNull();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    // Nothing moved for these, so / is a page the user can land on.
+    it.each([
+      ['WEB_ORIGIN is not an old web host', { ...env, ROOT_ORIGIN: 'https://www.toastmusters.com' }],
+      ['ROOT_ORIGIN is not set', { ...env, WEB_ORIGIN: 'https://www.timer.simple-tech.app' }],
+      ['WEB_ORIGIN has moved to the main site', { ...env, WEB_ORIGIN: 'https://www.toastmusters.com', ROOT_ORIGIN: 'https://www.toastmusters.com' }],
+    ])('leaves / alone when %s', async (_why, callbackEnv) => {
+      const { promise } = await startAndCallback({ callbackEnv, returnTo: '/' });
+      const res = await promise;
+
+      expect(res.headers.get('location')).toBe(`${callbackEnv.WEB_ORIGIN}/`);
+      expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+    });
+  });
+
+  describe('saving the Zoom contact', () => {
+    const CONTACT_KEY = 'contact:zoom:zoom-user-1';
+    const fullMe = { id: 'zoom-user-1', email: ' Sarah@Example.com ', first_name: 'Sarah', last_name: 'Smith' };
+
+    function makeKv() {
+      const store = new Map();
+      return {
+        store,
+        get: async (key, type) => {
+          const raw = store.get(key);
+          if (raw === undefined) return null;
+          return type === 'json' ? JSON.parse(raw) : raw;
+        },
+        put: vi.fn(async (key, value) => { store.set(key, value); }),
+      };
+    }
+
+    it('stores the email and name Zoom returned, then signs the user in', async () => {
+      const kv = makeKv();
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: fullMe }), callbackEnv: { ...env, PROFILES: kv } });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+      expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
+      expect(JSON.parse(kv.store.get(CONTACT_KEY))).toEqual({
+        email: 'sarah@example.com', firstName: 'Sarah', lastName: 'Smith', updatedAt: NOW + 1000,
+      });
+    });
+
+    // A KV hiccup must never cost the user their sign-in.
+    it('still signs the user in when the write fails', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const kv = makeKv();
+      kv.put = vi.fn(async () => { throw new Error('kv down'); });
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: fullMe }), callbackEnv: { ...env, PROFILES: kv } });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.example.test/account');
+      expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
+      expect(kv.put).toHaveBeenCalledTimes(1);
+      expect(errors).toHaveBeenCalledWith('Failed to save Zoom contact for', 'zoom-user-1', 'kv down');
+      errors.mockRestore();
+    });
+
+    it('writes nothing when Zoom sends no email or name', async () => {
+      const kv = makeKv();
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: { id: 'zoom-user-1', email: '' } }), callbackEnv: { ...env, PROFILES: kv } });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+      expect(kv.put).not.toHaveBeenCalled();
+    });
+
+    it('signs in as before when no namespace is bound', async () => {
+      const { promise } = await startAndCallback({ fetchImpl: zoomFetch({ me: fullMe }) });
+      const res = await promise;
+
+      expect(res.status).toBe(302);
+      expect(cookieValue(res, SESSION_COOKIE)).toBeTruthy();
+    });
   });
 
   it('rejects an expired state', async () => {

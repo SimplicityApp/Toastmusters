@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   X,
@@ -8,13 +8,12 @@ import {
   Monitor,
   Video,
   Camera,
+  Play,
 } from 'lucide-react'
 import { trackEvent } from '../utils/posthog'
 import { TOOLS, ZOOM_MARKETPLACE_LISTING_URL } from '@toastmaster-timer/shared'
-import YouTubePlayer from '../components/YouTubePlayer'
+import DemoDialog from '../components/DemoDialog'
 import AccountMenu from '../components/AccountMenu'
-
-const ZOOM_APP_URL = 'https://marketplace.zoom.us/zoomapp/DsFHK5sNQs2_VFyeQky2sg/context/meeting/target/launch/deeplink'
 
 /**
  * A tutorial screenshot.
@@ -293,12 +292,82 @@ const FAQS = [
 
 // The sticky header's anchors, in page order. Short labels on purpose — they
 // sit in one row and share it with the CTA.
+// The three tutorials the home page teases; the full list, with the player, is
+// on /tutorials (public/tutorials.html). Slugs are that page's article ids.
+const TUTORIAL_CARDS = [
+  { slug: 'first-speech', n: '1', title: 'Time your first speech', dur: '0:48', line: 'Open the app, pick a speaker, press Start.' },
+  { slug: 'display-modes', n: '2', title: 'Three ways to show the timer', dur: '0:43', line: 'Timer + Camera, Timer Only or Full-Screen.' },
+  { slug: 'agenda', n: '3', title: 'Load your agenda in 30 seconds', dur: '0:30', line: 'Paste your roles or the EasySpeak page.' },
+]
+
+// One teaser card. The screenshot inset comes alive on hover or keyboard focus, as
+// a muted loop of the real tutorial, the way product sites preview a clip. The
+// video has preload="none", so nothing is fetched until someone points at the
+// card, and reduced motion or data saver leave it a still. The card itself is
+// a link to the player, so a tap on a phone goes straight there.
+function TutorialCard({ card }) {
+  const video = useRef(null)
+  const allowed = () => !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData)
+  const play = () => {
+    const v = video.current
+    if (!v || !allowed()) return
+    const started = v.play?.()
+    started?.catch?.(() => {})
+  }
+  const stop = () => {
+    const v = video.current
+    if (!v) return
+    v.pause?.()
+    try { v.currentTime = 0 } catch { /* not loaded yet */ }
+  }
+  return (
+    <a
+      href={`/tutorials#${card.slug}`}
+      onClick={trackCta(`tutorial_${card.slug}`, 'home_tutorials')}
+      onMouseEnter={play}
+      onMouseLeave={stop}
+      onFocus={play}
+      onBlur={stop}
+      className="block rounded-3xl border border-stone-200 bg-white p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+    >
+      <div
+        className="relative aspect-video overflow-hidden rounded-[14px]"
+        style={{ background: 'radial-gradient(ellipse 90% 110% at 30% 40%, #1a76ad 0%, #146499 45%, #0a3652 100%)' }}
+      >
+        <span aria-hidden className="absolute left-[7%] top-1/2 -translate-y-1/2 font-display font-extrabold leading-none text-white text-[clamp(56px,7vw,94px)]">{card.n}</span>
+        <video
+          ref={video}
+          src={`/video/tutorials/${card.slug}.mp4`}
+          poster={`/video/tutorials/${card.slug}-poster.jpg`}
+          preload="none"
+          muted
+          loop
+          playsInline
+          aria-hidden
+          tabIndex={-1}
+          className="absolute -right-[4%] top-1/2 w-[64%] -translate-y-1/2 aspect-video rounded-[10px] object-cover shadow-[0_12px_26px_rgba(0,0,0,0.45)]"
+        />
+        <span className="absolute left-3 bottom-3 inline-flex items-center gap-1.5 rounded-full bg-ink/90 py-1 pl-1.5 pr-2.5 text-xs font-semibold text-white">
+          <Play className="h-4 w-4 rounded-full bg-white p-1 text-ink fill-current" aria-hidden />
+          {card.dur}
+        </span>
+      </div>
+      <div className="px-2 pt-4 pb-2">
+        <h3 className="font-display text-[19px] leading-tight font-extrabold">{card.title}</h3>
+        <p className="mt-1.5 text-sm text-stone-600 leading-relaxed">{card.line}</p>
+      </div>
+    </a>
+  )
+}
+
 const NAV_LINKS = [
   { href: '#features', label: 'Features' },
   { href: '#display-modes', label: 'Zoom Modes' },
   { href: '#how-to-zoom', label: 'Tutorial' },
-  { href: '#demos', label: 'Demos' },
   { href: '#timer-role', label: 'Timer Role' },
+  // Wide screens only: with six links the header runs out of room between ~1000 and
+  // ~1140px. Below that the tutorials stay one click away (the section, the footer).
+  { href: '/tutorials', label: 'Video Tutorials', wideOnly: true },
 ]
 
 // The strip's numbers when /api/stats is unreachable (local dev, ad blockers,
@@ -468,66 +537,53 @@ function AmbassadorPhoto() {
 }
 
 /**
- * The hero's product visual: a mock of the Timer Stage running a Standard
- * Speech, cycling green → yellow → red on a CSS loop. A drawing instead of a
- * screenshot on purpose — it never goes stale, it animates, and the three
- * floating chips can label the signals the way the app's own UI does.
+ * The hero's product visual: a silent loop of a real run, cut from the live
+ * recording. The Zoom tile goes blue, green, yellow, red beside the app that
+ * drives it, so a visitor sees what the timer does before reading a word.
+ * Autoplaying muted loops are how product sites open now, and at ~190 KB it
+ * costs less than the mock's three card images did. Reduced motion or data
+ * saver get the poster and no download.
+ *
+ * "Watch the 2-minute demo" opens the full video in a popup (DemoDialog), where
+ * YouTube loads for the first time.
  */
-function HeroTimerMock() {
+function HeroDemo({ onOpen }) {
+  const [still] = useState(() => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData))
+  const media = 'block h-full w-full object-cover'
   return (
-    <div className="relative mx-auto mt-16 max-w-2xl" aria-hidden>
-      {/* The signal chips, floating like timing cards laid on a table. */}
-      <div className="hidden sm:flex absolute -left-24 top-8 -rotate-6 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 shadow-lg z-10">
-        <span className="h-3 w-3 rounded-full bg-timer-green" />
-        <span className="text-sm font-semibold text-ink">Green</span>
-        <span className="text-sm text-stone-500 tabular-nums">5:00</span>
-      </div>
-      <div className="hidden sm:flex absolute -right-24 top-24 rotate-6 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 shadow-lg z-10">
-        <span className="h-3 w-3 rounded-full bg-timer-yellow" />
-        <span className="text-sm font-semibold text-ink">Yellow</span>
-        <span className="text-sm text-stone-500 tabular-nums">6:00</span>
-      </div>
-      <div className="hidden sm:flex absolute -left-16 bottom-6 rotate-3 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 shadow-lg z-10">
-        <span className="h-3 w-3 rounded-full bg-timer-red" />
-        <span className="text-sm font-semibold text-ink">Red</span>
-        <span className="text-sm text-stone-500 tabular-nums">7:00</span>
-      </div>
-
-      {/* The stage itself, in a browser-window frame. */}
-      <div className="rounded-3xl border border-stone-200 bg-white p-2.5 shadow-2xl shadow-stone-900/10">
-        <div className="flex items-center gap-1.5 px-3 py-2">
+    <div className="relative mx-auto mt-12 sm:mt-14 max-w-[760px]">
+      <div className="rounded-3xl border border-stone-200 bg-white p-2 sm:p-2.5 shadow-2xl shadow-stone-900/10">
+        <div aria-hidden className="hidden sm:flex items-center gap-1.5 px-3 py-2">
           <span className="h-2.5 w-2.5 rounded-full bg-stone-200" />
           <span className="h-2.5 w-2.5 rounded-full bg-stone-200" />
           <span className="h-2.5 w-2.5 rounded-full bg-stone-200" />
         </div>
-        <div className="relative rounded-2xl overflow-hidden">
-          {/* The branded timing cards — the same images the Zoom app sets as
-              virtual backgrounds — cycling green → yellow → red. Green is the
-              static base so there is never a blank frame; yellow and red are
-              overlays offset by a third of the loop each (see index.css). */}
-          <img
-            src="/zoom/backgrounds/timer-green-modern.png"
-            alt=""
-            className="block w-full"
-          />
-          <img
-            src="/zoom/backgrounds/timer-yellow-modern.png"
-            alt=""
-            className="signal-card-yellow absolute inset-0 w-full"
-          />
-          <img
-            src="/zoom/backgrounds/timer-red-modern.png"
-            alt=""
-            className="signal-card-red absolute inset-0 w-full"
-          />
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="font-mono text-6xl sm:text-7xl font-bold text-white tabular-nums tracking-tight drop-shadow-md">
-              05:47
+        <div onClick={onOpen} className="relative aspect-video cursor-pointer overflow-hidden rounded-[14px] sm:rounded-2xl bg-black">
+          {still ? (
+            <img src="/video/hero-loop-poster.jpg" alt="" aria-hidden className={media} />
+          ) : (
+            <video
+              src="/video/hero-loop.mp4"
+              poster="/video/hero-loop-poster.jpg"
+              autoPlay
+              muted
+              loop
+              playsInline
+              aria-hidden
+              tabIndex={-1}
+              className={media}
+            />
+          )}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpen() }}
+            className="absolute left-2.5 bottom-2.5 sm:left-4 sm:bottom-4 inline-flex items-center gap-2 sm:gap-2.5 rounded-full bg-ink py-2 pl-2 pr-3.5 sm:py-2.5 sm:pl-3 sm:pr-[18px] text-[13px] sm:text-[15px] font-semibold text-white shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:bg-stone-700 transition-colors"
+          >
+            <span aria-hidden className="inline-flex h-[18px] w-[18px] sm:h-[22px] sm:w-[22px] items-center justify-center rounded-full bg-white text-ink">
+              <Play className="h-2.5 w-2.5 sm:h-3 sm:w-3 fill-current" />
             </span>
-            <span className="mt-3 rounded-full bg-black/25 px-4 py-1 text-sm font-medium text-white">
-              Standard Speech · 5–7 min
-            </span>
-          </div>
+            Watch the 2-minute demo
+          </button>
         </div>
       </div>
     </div>
@@ -541,8 +597,11 @@ const BTN_SECONDARY = 'inline-flex items-center justify-center rounded-full bord
 
 // One event for every call to action on the page, so installs can be traced
 // to the button that started them. `cta` is what it does (add_to_zoom,
-// web_timer, marketplace, open_in_zoom); `location` is where it sits. The
-// static guide pages send the same event (public/site-analytics.js).
+// web_timer, marketplace, reconnect); `location` is where it sits. The
+// static guide pages and the reconnect page send the same event
+// (public/site-analytics.js, Reconnect.jsx).
+const INLINE_LINK = 'font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors'
+
 const trackCta = (cta, location) => () => trackEvent('cta_clicked', { cta, location, page: '/' })
 
 export default function Landing() {
@@ -552,6 +611,12 @@ export default function Landing() {
   // The screenshot being viewed full size, or null. One at a time, so it lives
   // here rather than in each Shot.
   const [zoomedShot, setZoomedShot] = useState(null)
+  // The full demo's popup. YouTube loads when this first turns true, not before.
+  const [demoOpen, setDemoOpen] = useState(false)
+  const openDemo = (location) => {
+    trackEvent('cta_clicked', { cta: 'watch_demo', location, page: '/' })
+    setDemoOpen(true)
+  }
   return (
     <div className="min-h-screen bg-cream text-ink">
       <header className="sticky top-0 z-30 bg-cream/85 backdrop-blur-md border-b border-stone-200/80">
@@ -569,7 +634,7 @@ export default function Landing() {
               <a
                 key={link.href}
                 href={link.href}
-                className="rounded-full px-3.5 py-1.5 text-sm font-medium text-stone-600 hover:text-ink hover:bg-stone-900/5 transition-colors"
+                className={`rounded-full px-3 py-1.5 text-sm font-medium text-stone-600 hover:text-ink hover:bg-stone-900/5 transition-colors ${link.wideOnly ? 'hidden min-[1140px]:inline-flex whitespace-nowrap' : ''}`}
               >
                 {link.label}
               </a>
@@ -627,14 +692,28 @@ export default function Landing() {
               <Link to="/timer/app" onClick={trackCta('web_timer', 'hero')} className={BTN_SECONDARY}>
                 Use in Browser &rarr;
               </Link>
+              {/* A quieter third action, so the two buttons above stay the
+                  call to action: it opens the same popup as the video's pill. */}
+              <button
+                type="button"
+                onClick={() => openDemo('hero')}
+                className="inline-flex items-center justify-center gap-2.5 px-3 py-3 text-base font-semibold text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors"
+              >
+                <span aria-hidden className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-white">
+                  <Play className="h-3 w-3 fill-current" />
+                </span>
+                Watch the demo
+              </button>
             </div>
             <p className="mt-5 text-sm text-stone-500">
               <a href={ZOOM_MARKETPLACE_LISTING_URL} target="_blank" rel="noopener noreferrer" onClick={trackCta('marketplace', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">See it on the Zoom Marketplace</a>
               {' · '}Already use the Zoom app?{' '}
-              <a href={ZOOM_APP_URL} onClick={trackCta('open_in_zoom', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Open in Zoom</a>
+              {/* To the reconnect page, which still has "Open in Zoom" for a
+                  healthy app, and explains "Approve in Zoom" for a lapsed one. */}
+              <Link to="/reconnect" onClick={trackCta('reconnect', 'hero')} className="font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Reconnect it</Link>
             </p>
 
-            <HeroTimerMock />
+            <HeroDemo onOpen={() => openDemo('hero_video')} />
           </div>
         </section>
 
@@ -642,9 +721,6 @@ export default function Landing() {
           <TrustedBy />
         </div>
 
-        {/* Directly under the club strip on purpose: the clubs and John are one
-            social-proof block — "clubs run it, and a seasoned Toastmaster vouches
-            for it" — best read together, before the feature pitch. */}
         <section id="ambassador" className="scroll-mt-24 max-w-3xl mx-auto px-4 sm:px-6 pb-20">
           <figure className="rounded-3xl border border-stone-200 bg-white px-8 py-10 sm:px-12 shadow-sm text-center">
             {/* A real heading, not decoration: it names the section for the
@@ -788,42 +864,26 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ——— Demos ——— */}
-        <section id="demos" className="scroll-mt-24 max-w-6xl mx-auto px-4 sm:px-6 py-20">
-          <div className="text-center max-w-2xl mx-auto mb-12">
+        {/* ——— More videos ——— */}
+        {/* Short tutorials. The full demo opens from the hero (DemoDialog);
+            this teases the first three tutorials and sends the rest to /tutorials,
+            where the player and the playlist live. The quick in-Zoom clip is on its
+            own page (/toastmasters-timer-zoom-demo) and linked from here. */}
+        <section id="tutorials" className="scroll-mt-24 max-w-6xl mx-auto px-4 sm:px-6 py-20">
+          <div className="text-center max-w-2xl mx-auto mb-10">
             <h2 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight">
-              See it running
+              Short tutorials
             </h2>
-            <p className="mt-4 text-lg text-stone-600">Two minutes of the timer doing its job in a real meeting.</p>
+            <p className="mt-4 text-lg text-stone-600">Five videos, under a minute each. From your first speech to the timing report.</p>
           </div>
-          <div className="grid gap-8 lg:grid-cols-2">
-            <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-              <h3 className="font-display text-lg font-bold mb-4">Quick demo: using in Zoom</h3>
-              <div className="rounded-xl overflow-hidden">
-                <video
-                  src="/zoom/use-app-demo.mp4"
-                  preload="none"
-                  poster="/use-app-demo-poster.jpg"
-                  controls
-                  playsInline
-                  className="w-full rounded-xl"
-                  aria-label="Demo video showing Toastmasters Timer with Zoom virtual background color changes"
-                  onPlay={() => trackEvent('quick_demo_played', { page: 'landing' })}
-                />
-              </div>
-              <a href="/toastmasters-timer-zoom-demo" className="inline-block mt-4 text-sm font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Watch on dedicated page &rarr;</a>
-            </div>
-            <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-              <h3 className="font-display text-lg font-bold mb-4">Watch the full product demo</h3>
-              <div className="rounded-xl overflow-hidden">
-                <YouTubePlayer
-                  videoId="1VkED9sXE6Q"
-                  title="Toastmasters Timer – Product Demo"
-                  page="landing"
-                />
-              </div>
-              <a href="/toastmasters-timer-demo" className="inline-block mt-4 text-sm font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Watch on dedicated page &rarr;</a>
-            </div>
+          <div className="grid gap-7 sm:grid-cols-3">
+            {TUTORIAL_CARDS.map((card) => (
+              <TutorialCard key={card.slug} card={card} />
+            ))}
+          </div>
+          <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-5">
+            <a href="/tutorials" onClick={trackCta('tutorials', 'home_tutorials')} className={BTN_PRIMARY}>Watch all 5 tutorials &rarr;</a>
+            <a href="/toastmasters-timer-zoom-demo" onClick={trackCta('quick_demo', 'home_tutorials')} className="text-[15px] font-semibold text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors">Quick demo: using in Zoom</a>
           </div>
         </section>
 
@@ -832,6 +892,17 @@ export default function Landing() {
           <h2 className="font-display text-3xl font-extrabold tracking-tight mb-4">What is the Timer role in Toastmasters?</h2>
           <p className="text-stone-600 leading-relaxed mb-10">
             The Timer is one of the most important meeting roles in Toastmasters. The Timer tracks how long each speaker talks and signals them using colored lights — green, yellow, and red — so they stay within their allotted time. Keeping speeches on time ensures the meeting runs smoothly and every speaker gets a fair chance to practice.
+          </p>
+          {/* In-body links to the role guides. The footer links them too, but a
+              link in the section that explains the role tells search engines
+              these pages belong to the "Toastmasters timer" topic, which mixes
+              the meeting role with timer tools. */}
+          <p className="text-stone-600 leading-relaxed -mt-6 mb-10">
+            New to the role? Read the{' '}
+            <a href="/toastmasters-timer-role-guide" className={INLINE_LINK}>Toastmasters Timer role guide</a>, follow the word-for-word{' '}
+            <a href="/toastmasters-timer-script" className={INLINE_LINK}>Timer script</a>, and keep the{' '}
+            <a href="/toastmasters-timing-chart" className={INLINE_LINK}>Toastmasters timing chart</a> to hand for every{' '}
+            <a href="/toastmasters-speech-types-and-timing" className={INLINE_LINK}>speech type</a>.
           </p>
 
           <h2 className="font-display text-2xl font-extrabold tracking-tight mb-3">Standard Toastmasters timing rules</h2>
@@ -925,6 +996,7 @@ export default function Landing() {
               <li><a href="/how-to-use-zoom-for-toastmasters" className="text-sm text-stone-500 hover:text-ink transition-colors">Zoom for Toastmasters</a></li>
               <li><a href="/toastmasters-zoom-timer-backgrounds" className="text-sm text-stone-500 hover:text-ink transition-colors">Free Zoom Backgrounds</a></li>
               <li><a href="/best-toastmasters-timer-apps" className="text-sm text-stone-500 hover:text-ink transition-colors">Timer Apps Compared</a></li>
+              <li><a href="/tutorials" className="text-sm text-stone-500 hover:text-ink transition-colors">Video Tutorials</a></li>
               <li><a href="/toastmasters-timer-demo" className="text-sm text-stone-500 hover:text-ink transition-colors">Product Demo</a></li>
               <li><a href="/toastmasters-timer-zoom-demo" className="text-sm text-stone-500 hover:text-ink transition-colors">Zoom Demo</a></li>
             </ul>
@@ -965,6 +1037,24 @@ export default function Landing() {
       </footer>
 
       <Lightbox shot={zoomedShot} onClose={() => setZoomedShot(null)} />
+      <DemoDialog
+        open={demoOpen}
+        onClose={() => setDemoOpen(false)}
+        videoId="D_9bbL9eSJY"
+        title="Best Toastmasters Timer Tool in Zoom"
+        meta="1:55 · the timer in a real meeting, start to finish"
+        page="landing"
+      >
+        <a
+          href={ADD_TO_ZOOM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={trackCta('add_to_zoom', 'demo_dialog')}
+          className="inline-flex items-center justify-center rounded-full bg-ink px-5 py-2.5 text-[15px] font-semibold text-white hover:bg-stone-700 transition-colors"
+        >
+          Add to Zoom
+        </a>
+      </DemoDialog>
     </div>
   )
 }

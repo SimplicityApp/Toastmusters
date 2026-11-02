@@ -1,0 +1,8 @@
+#!/bin/sh
+# Blocks a push when a Zoom-client spec was not updated after the code it covers changed.
+# Bypass once with: git push --no-verify
+cd "$(git rev-parse --show-toplevel)" || exit 0
+node scripts/check-zoom-specs.mjs --drift --review --stale || {
+  echo "pre-push: e2e/zoom-client specs need attention (see above). Bypass: git push --no-verify" >&2
+  exit 1
+}

@@ -4,6 +4,7 @@ import { ToastProvider } from './context/ToastContext';
 import NavTabs from './components/NavTabs';
 import Footer from './components/Footer';
 import PeriodicPrompts from './components/PeriodicPrompts';
+import ContactCapture from './components/ContactCapture';
 import ZoomConnectionNotice from './components/ZoomConnectionNotice';
 import ClubStatusBanner from './components/ClubStatusBanner';
 import './App.css';
@@ -41,6 +42,7 @@ function App() {
 
           <Footer />
           <PeriodicPrompts />
+          <ContactCapture />
         </div>
       </TimerProvider>
     </ToastProvider>

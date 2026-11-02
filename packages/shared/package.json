@@ -9,6 +9,7 @@
     "./timerLogic": "./timerLogic.js",
     "./timingRules": "./timingRules.js",
     "./easySpeakParser": "./easySpeakParser.js",
+    "./simpleFormatParser": "./simpleFormatParser.js",
     "./storage": "./storage.js",
     "./cardImages": "./cardImages.js",
     "./promptScheduler": "./promptScheduler.js",

@@ -41,6 +41,7 @@ describe('resolveZoomIdentity', () => {
         meetingId: 'mid-1',
         entitlement: { plan: 'pro', entitled: true },
         flags: { pro: true },
+        contactKnown: true,
       })
     );
 
@@ -55,6 +56,7 @@ describe('resolveZoomIdentity', () => {
       meetingId: 'mid-1',
       entitlement: { plan: 'pro', entitled: true },
       flags: { pro: true },
+      contactKnown: true,
     });
     expect(getSessionToken()).toBe('tok-1');
   });
@@ -101,8 +103,28 @@ describe('resolveZoomIdentity', () => {
       entitlement: null,
       // A guest has no entitlement but does get flags: the everyone position.
       flags: { pro: false },
+      contactKnown: false,
     });
     expect(getSessionToken()).toBeNull();
+  });
+
+  // Only an explicit true counts: a server that says nothing, or anything
+  // else, reads as "no contact on file".
+  it('passes contactKnown through, defaulting to false', async () => {
+    vi.stubGlobal('fetch', respondWith({ identified: true, uid: 'uid-1', token: 't', contactKnown: false }));
+    expect((await resolveZoomIdentity()).contactKnown).toBe(false);
+
+    resetZoomIdentityForTests();
+    vi.stubGlobal('fetch', respondWith({ identified: true, uid: 'uid-1', token: 't' }));
+    expect((await resolveZoomIdentity()).contactKnown).toBe(false);
+
+    resetZoomIdentityForTests();
+    vi.stubGlobal('fetch', respondWith({ identified: true, uid: 'uid-1', token: 't', contactKnown: 'yes' }));
+    expect((await resolveZoomIdentity()).contactKnown).toBe(false);
+
+    resetZoomIdentityForTests();
+    vi.stubGlobal('fetch', respondWith({}, { ok: false, status: 500 }));
+    expect((await resolveZoomIdentity()).contactKnown).toBe(false);
   });
 
   it('carries no flags from a server that sent none', async () => {

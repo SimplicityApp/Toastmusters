@@ -3,8 +3,12 @@ import { verifySessionToken, readBearerToken, mintSessionToken } from './session
 import { verifyClubToken, readClubHeader } from './club-token.js';
 import { json, notFound, notConfigured, methodNotAllowed } from './http.js';
 import { flagEnabled } from './flags.js';
+// contact.js imports the Zoom round trips from here; the cycle is safe because
+// neither module touches the other's exports until a request is handled.
+import { saveZoomContact } from './contact.js';
 import { capturePostHogEvent } from './posthog.js';
 import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
+import { oldWebHostTarget } from './old-web-host.js';
 
 /**
  * Who is calling, and how the web app signs in.
@@ -55,17 +59,22 @@ export function parseCookies(header) {
   return out;
 }
 
-function cookie(name, value, maxAgeSec) {
+/**
+ * The one template every `tt_` cookie the Worker sets is built from (the
+ * "approved before" mark in worker/reconnect.js uses it too), so each of them
+ * is host-only by construction.
+ */
+export function hostOnlyCookie(name, value, maxAgeSec) {
   // No Domain attribute: host-only, so a cookie set on the canonical web host
   // never leaks to the zoom.* host or to a sibling domain.
   return `${name}=${value}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; Secure; SameSite=Lax`;
 }
 
 export const sessionCookie = (token, maxAgeSec = Math.floor(WEB_SESSION_TTL_MS / 1000)) =>
-  cookie(SESSION_COOKIE, token, maxAgeSec);
-export const clearSessionCookie = () => cookie(SESSION_COOKIE, '', 0);
-const oauthCookie = (nonce) => cookie(OAUTH_COOKIE, nonce, Math.floor(STATE_TTL_MS / 1000));
-const clearOauthCookie = () => cookie(OAUTH_COOKIE, '', 0);
+  hostOnlyCookie(SESSION_COOKIE, token, maxAgeSec);
+export const clearSessionCookie = () => hostOnlyCookie(SESSION_COOKIE, '', 0);
+const oauthCookie = (nonce) => hostOnlyCookie(OAUTH_COOKIE, nonce, Math.floor(STATE_TTL_MS / 1000));
+const clearOauthCookie = () => hostOnlyCookie(OAUTH_COOKIE, '', 0);
 
 // ---------------------------------------------------------------------------
 // Session reading (both transports)
@@ -377,6 +386,77 @@ export async function handleAuthStart(request, url, env, { now = Date.now(), ctx
   return redirect(authorize.toString(), [oauthCookie(nonce)]);
 }
 
+// ---------------------------------------------------------------------------
+// Zoom OAuth round trips (shared by sign-in and the contact capture doors)
+// ---------------------------------------------------------------------------
+
+/**
+ * Spend a Zoom authorization code at the token endpoint.
+ *
+ * Shared by every door that receives a code: the web sign-in callback, and the
+ * contact capture paths in worker/contact.js. They differ only in the
+ * redirect URI Zoom expects back (it must be the one the code was issued for)
+ * and, for the in-client flow, the PKCE verifier.
+ *
+ * A non-2xx answer or a body with no access token is `ok: false`. A network
+ * failure or an unparseable body throws, so each caller keeps its own
+ * reason for it (the sign-in callback reports it as `network`).
+ *
+ * @param {Object} env - ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
+ * @param {string} code
+ * @param {string} redirectUri
+ * @param {{codeVerifier?: string, fetchImpl?: typeof fetch}} [options]
+ * @returns {Promise<{ok: boolean, accessToken: string|null, status: number, scope: string|null}>}
+ */
+export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, fetchImpl = fetch } = {}) {
+  const basic = Buffer.from(`${env.ZOOM_CLIENT_ID}:${env.ZOOM_CLIENT_SECRET}`).toString('base64');
+  const form = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+  });
+  if (codeVerifier) form.set('code_verifier', codeVerifier);
+
+  const tokenRes = await fetchImpl(ZOOM_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basic}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: form.toString(),
+  });
+  if (!tokenRes.ok) {
+    console.error('Zoom token exchange failed:', tokenRes.status);
+    return { ok: false, accessToken: null, status: tokenRes.status };
+  }
+  const tokens = await tokenRes.json();
+  const accessToken = typeof tokens?.access_token === 'string' && tokens.access_token ? tokens.access_token : null;
+  const scope = typeof tokens?.scope === 'string' ? tokens.scope : null;
+  return { ok: Boolean(accessToken), accessToken, status: tokenRes.status, scope };
+}
+
+/**
+ * GET /v2/users/me with a freshly exchanged access token.
+ *
+ * Returns the whole body: the caller decides what to keep. A non-2xx answer is
+ * `ok: false`; a network failure or an unparseable body throws.
+ *
+ * @param {string} accessToken
+ * @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<{ok: boolean, me: Object|null, status: number, response?: Response}>}
+ */
+export async function fetchZoomMe(accessToken, fetchImpl = fetch) {
+  const meRes = await fetchImpl(ZOOM_ME_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!meRes.ok) {
+    // 400/401 here almost always means the app lacks the user:read scope.
+    console.error('Zoom users/me failed:', meRes.status);
+    // The unread response rides along, so the sign-in callback can tell a
+    // missing scope from a bad token (classifyProfileFailure).
+    return { ok: false, me: null, status: meRes.status, response: meRes };
+  }
+  return { ok: true, me: await meRes.json(), status: meRes.status };
+}
+
 /**
  * GET /oauth/redirect?code=…&state=… — Zoom sent the browser back.
  *
@@ -411,9 +491,15 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
     return null;
   }
 
-  const returnTo = sanitizeReturnTo(payload.returnTo);
+  let returnTo = sanitizeReturnTo(payload.returnTo);
   const origin = env.WEB_ORIGIN || url.origin;
-
+  // A page that has moved off WEB_ORIGIN (worker/old-web-host.js) would 301 to a
+  // host that never saw the session cookie set below, and the user would look
+  // signed out. Land on the account page instead: it stays on this host, and it
+  // shows the user they are signed in without opening the web timer they never
+  // asked for. Switches itself off if WEB_ORIGIN moves: the helper then answers
+  // null for it.
+  if (oldWebHostTarget(new URL(returnTo, origin), env)) returnTo = '/account';
   // One id per attempt until the Zoom id is known; a success overrides it with
   // the same `zoom:<uid>` the clients identify as.
   const track = async (event, { distinct_id = `signin:${payload.nonce}`, ...props } = {}) => {
@@ -452,37 +538,25 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
   if (!env.ZOOM_CLIENT_ID || !env.ZOOM_CLIENT_SECRET) return failed('not_configured');
 
   try {
-    const basic = Buffer.from(`${env.ZOOM_CLIENT_ID}:${env.ZOOM_CLIENT_SECRET}`).toString('base64');
-    const tokenRes = await fetchImpl(ZOOM_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${basic}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: `${origin}/oauth/redirect`,
-      }).toString(),
-    });
-    if (!tokenRes.ok) {
-      console.error('Zoom token exchange failed:', tokenRes.status);
-      return failed('exchange', { zoom_status: tokenRes.status });
-    }
-    const tokens = await tokenRes.json();
-    const accessToken = tokens?.access_token;
-    if (!accessToken) return failed('exchange');
+    const tokens = await exchangeZoomCode(env, code, `${origin}/oauth/redirect`, { fetchImpl });
+    if (!tokens.ok) return failed('exchange', tokens.status >= 300 ? { zoom_status: tokens.status } : {});
 
     // Always asked, whatever `tokens.scope` says: a profile read that works
     // signs the user in. The scope only helps explain a read that fails.
-    const meRes = await fetchImpl(ZOOM_ME_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!meRes.ok) {
-      const { reason, details } = await classifyProfileFailure(meRes, tokens.scope);
+    const profile = await fetchZoomMe(tokens.accessToken, fetchImpl);
+    if (!profile.ok) {
+      const { reason, details } = await classifyProfileFailure(profile.response, tokens.scope);
       return failed(reason, details);
     }
-    const me = await meRes.json();
+    const { me } = profile;
     const uid = typeof me?.id === 'string' && me.id ? me.id : null;
     if (!uid) return failed('profile');
+
+    // Keep the email and name Zoom just told us (worker/contact.js). Awaited
+    // so the result is settled before the redirect, but best-effort: a KV
+    // hiccup must never cost the user their sign-in.
+    await saveZoomContact(env, uid, me, now).catch((error) =>
+      console.error('Failed to save Zoom contact for', uid, error?.message || error));
 
     // The Zoom access/refresh tokens are dropped here on purpose: nothing calls
     // Zoom on the user's behalf later, and not storing them is less to protect.

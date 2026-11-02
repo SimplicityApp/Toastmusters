@@ -217,6 +217,60 @@ describe('handleZoomSession', () => {
     });
   });
 
+  // Whether the Worker already holds this user's Zoom email and name. Only the
+  // yes/no ever reaches the client; the record itself never does.
+  describe('contactKnown', () => {
+    const identified = () => request({ body: { context: context({ uid: 'uid-1', exp: futureExp() }) } });
+    const kvWith = (entries) => {
+      const store = new Map(entries);
+      return { get: async (k, t) => (store.has(k) ? (t === 'json' ? JSON.parse(store.get(k)) : store.get(k)) : null) };
+    };
+
+    it('is true when a contact record exists for the user, and carries none of it', async () => {
+      const PROFILES = kvWith([['contact:zoom:uid-1', JSON.stringify({ email: 'a@example.com', firstName: 'A', lastName: 'B', updatedAt: 1 })]]);
+      const res = await handleZoomSession(identified(), { ...env, PROFILES });
+      const text = await res.text();
+
+      expect(JSON.parse(text).contactKnown).toBe(true);
+      expect(text).not.toContain('a@example.com');
+    });
+
+    it('is false when there is no record', async () => {
+      const body = await (await handleZoomSession(identified(), { ...env, PROFILES: kvWith([]) })).json();
+      expect(body.contactKnown).toBe(false);
+    });
+
+    it('is false when no namespace is bound', async () => {
+      const body = await (await handleZoomSession(identified(), env)).json();
+      expect(body.contactKnown).toBe(false);
+    });
+
+    it('is false, and the identity still comes back, when the read throws', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const PROFILES = {
+        get: async (key) => {
+          if (key.startsWith('contact:')) throw new Error('kv down');
+          return null;
+        },
+      };
+      try {
+        const body = await (await handleZoomSession(identified(), { ...env, PROFILES })).json();
+        expect(body.identified).toBe(true);
+        expect(body.uid).toBe('uid-1');
+        expect(body.contactKnown).toBe(false);
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it('is not sent to guests or anonymous loads', async () => {
+      const guest = await (await handleZoomSession(request({ body: { context: context({ mid: 'm', exp: futureExp() }) } }), env)).json();
+      const anonymous = await (await handleZoomSession(request({ body: {} }), env)).json();
+      expect(guest).not.toHaveProperty('contactKnown');
+      expect(anonymous).not.toHaveProperty('contactKnown');
+    });
+  });
+
   // Per-user payload: the edge must never hand one person's uid to the next caller.
   it('marks every response private and uncacheable', async () => {
     for (const req of [

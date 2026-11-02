@@ -3,6 +3,7 @@ import { parseCookies } from './auth.js';
 import { json, methodNotAllowed, notConfigured } from './http.js';
 import { entitlementStore, readClubRecord } from './entitlements.js';
 import { clubByEmailKey, normalizeEmail } from './club-admin.js';
+import { isEmailish } from './email.js';
 
 /**
  * The console's second door: a link mailed to the club's billing address.
@@ -45,17 +46,9 @@ const SEPARATOR = '.';
 
 export const magicKey = (token) => `club-magic:${token}`;
 
-/**
- * An address shaped enough to be worth a lookup.
- *
- * Deliberately loose: the only thing riding on this check is whether we spend a
- * KV read, and every stricter pattern rejects addresses that really exist.
- */
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
-const MAX_EMAIL_LENGTH = 254;
-
-export const isEmailish = (email) =>
-  typeof email === 'string' && email.length <= MAX_EMAIL_LENGTH && EMAIL_PATTERN.test(email.trim());
+// The address check lives in worker/email.js, shared with the Zoom contact
+// record. Re-exported so existing importers of it from here keep working.
+export { isEmailish };
 
 // ---------------------------------------------------------------------------
 // The link token, and the session it mints
