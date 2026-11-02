@@ -1,11 +1,13 @@
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Landing from './Landing';
 import { TOOLS } from '@toastmaster-timer/shared';
+import { trackEvent } from '../utils/posthog';
 
 const TEST_ZOOM_URL = 'https://zoom.us/oauth/authorize?test=true';
 
 beforeEach(() => {
+  vi.clearAllMocks();
   import.meta.env.VITE_ZOOM_OAUTH_REDIRECT = TEST_ZOOM_URL;
   // The usage strip fetches /api/stats on mount; default to "endpoint down"
   // so tests exercise the baked fallback unless they stub a response.
@@ -31,19 +33,27 @@ describe('Landing', () => {
     links.forEach((link) => expect(link).toHaveAttribute('href', TEST_ZOOM_URL));
   });
 
-  it('"Open in Zoom" launches the same app the build\'s "Add to Zoom" installs', () => {
-    import.meta.env.VITE_ZOOM_OAUTH_REDIRECT =
-      'https://zoom.us/oauth/authorize?response_type=code&client_id=kgpoX2A6TY2BvdctzK9iw&redirect_uri=https://www.timer-dev.simple-tech.app/oauth/redirect';
+  // The hero's "Already use the Zoom app?" line leads to the reconnect page,
+  // which now holds "Open in Zoom" (Reconnect.test.jsx).
+  it('"Already use the Zoom app? Reconnect it" opens the reconnect page and is tracked', () => {
     render(
-      <MemoryRouter>
-        <Landing />
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/reconnect" element={<p>reconnect page</p>} />
+        </Routes>
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('link', { name: 'Open in Zoom' })).toHaveAttribute(
-      'href',
-      'https://marketplace.zoom.us/zoomapp/kgpoX2A6TY2BvdctzK9iw/context/meeting/target/launch/deeplink',
-    );
+    const link = screen.getByRole('link', { name: 'Reconnect it' });
+    expect(link).toHaveAttribute('href', '/reconnect');
+    expect(link).not.toHaveAttribute('target');
+    expect(screen.queryByRole('link', { name: 'Open in Zoom' })).not.toBeInTheDocument();
+
+    fireEvent.click(link);
+
+    expect(trackEvent).toHaveBeenCalledWith('cta_clicked', { cta: 'reconnect', location: 'hero', page: '/' });
+    expect(screen.getByText('reconnect page')).toBeInTheDocument();
   });
 
   it('shows the clubs in the "Trusted by" strip, with the loop copy hidden from screen readers', () => {
@@ -122,6 +132,42 @@ describe('Landing', () => {
     expect(screen.getByText('Toastmasters Area Director')).toBeInTheDocument();
     expect(screen.getByText(/California to EMEA to Southeast Asia/)).toBeInTheDocument();
     expect(screen.getByText(/fun, low-stress way to participate/)).toBeInTheDocument();
+  });
+});
+
+describe('Landing demo placement', () => {
+  const renderLanding = () =>
+    render(
+      <MemoryRouter>
+        <Landing />
+      </MemoryRouter>
+    );
+
+  it('puts a quiet "Watch the demo" link in the hero that jumps to the demo', () => {
+    renderLanding();
+
+    expect(screen.getByRole('link', { name: /watch the demo/i })).toHaveAttribute('href', '#demos');
+  });
+
+  it('shows the full demo straight after the clubs strip and before the ambassador', () => {
+    renderLanding();
+
+    const clubs = screen.getByRole('region', { name: /clubs using toastmasters timer/i });
+    const demos = document.getElementById('demos');
+    const ambassador = document.getElementById('ambassador');
+    expect(screen.getByRole('heading', { name: 'See it running' }).closest('section')).toBe(demos);
+    expect(clubs.compareDocumentPosition(demos) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(demos.compareDocumentPosition(ambassador) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the quick in-Zoom demo out of the top demo and under "More videos"', () => {
+    renderLanding();
+
+    const quick = screen.getByLabelText(/demo video showing toastmasters timer/i);
+    expect(quick.closest('section')).toBe(document.getElementById('more-videos'));
+    expect(document.getElementById('demos')).not.toContainElement(quick);
+    expect(screen.getByRole('heading', { name: 'More videos' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Watch the full product demo' })).toBeInTheDocument();
   });
 });
 

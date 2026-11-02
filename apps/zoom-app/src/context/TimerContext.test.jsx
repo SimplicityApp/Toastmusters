@@ -1,8 +1,9 @@
 import { renderHook, act } from '@testing-library/react';
 import { ToastProvider } from './ToastContext';
-import { TimerProvider, useTimer, useTimerTick } from './TimerContext';
+import { TimerProvider, useTimer, useTimerTick, restoreTimerSession } from './TimerContext';
 import { applyOverlay, removeOverlay, isOverlayActive, setOverlayTimeLabel, getBackgroundUrl } from '../utils/zoomSdk';
 import { BREAK_ROLE, deriveBreakRules } from '@toastmaster-timer/shared';
+import { trackEvent } from '../utils/posthog';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom.
@@ -79,6 +80,74 @@ describe('addToAgenda', () => {
   });
 });
 
+describe('importBulkSpeakers', () => {
+  it('imports "Person (A)" as custom role A with its rules', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+    const aRules = { green: 10, yellow: 20, red: 30, graceAfterRed: 10 };
+
+    act(() => {
+      result.current.addRoleRules('A', aRules);
+    });
+    let count;
+    act(() => {
+      count = result.current.importBulkSpeakers('Person (A)');
+    });
+
+    expect(count).toBe(1);
+    expect(result.current.agenda).toHaveLength(1);
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Person', role: 'A', rules: aRules });
+  });
+
+  it('imports a custom role whose rules were saved without a role order', () => {
+    // Legacy saved rules and club presets published without `order` leave a
+    // role in roleRules (and the dropdown) but out of customRoleOrder.
+    const openerRules = { green: 60, yellow: 90, red: 120, graceAfterRed: 15 };
+    localStorage.setItem('toastmaster_role_rules', JSON.stringify({ Opener: openerRules }));
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    expect(result.current.roleOptions).toContain('Opener');
+    act(() => {
+      result.current.importBulkSpeakers('Ana (Opener)');
+    });
+
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Ana', role: 'Opener', rules: openerRules });
+  });
+
+  it('reports how many imported lines got a custom role', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    act(() => {
+      result.current.addRoleRules('A', { green: 10, yellow: 20, red: 30, graceAfterRed: 10 });
+    });
+    act(() => {
+      result.current.importBulkSpeakers('Person (A)\nBob (Ice Breaker)');
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith('agenda_imported', {
+      import_type: 'bulk',
+      items_count: 2,
+      custom_role_count: 1,
+    });
+  });
+
+  it('does not count Take a Break as a custom role', () => {
+    // Zoom injects BREAK_ROLE into roleRules, so it sits in roleOptions, but it
+    // is not a user role: break lines reach it through today's detection only.
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    act(() => {
+      result.current.importBulkSpeakers('Ana (Coffee Break)');
+    });
+
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Ana', role: BREAK_ROLE });
+    expect(trackEvent).toHaveBeenCalledWith('agenda_imported', {
+      import_type: 'bulk',
+      items_count: 1,
+      custom_role_count: 0,
+    });
+  });
+});
+
 describe('resetTimer', () => {
   it('leaves the video alone with skipVideo, whatever is on it', () => {
     // How the RESET button gets a stripped tile: LiveTab clears both pipelines
@@ -110,6 +179,70 @@ describe('resetTimer', () => {
 
     expect(applyOverlay).toHaveBeenCalledWith('/backgrounds/blue.png');
     expect(removeOverlay).not.toHaveBeenCalled();
+  });
+});
+
+describe('the card never changes before its threshold', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('holds the color through 0.95 s of a 1 s threshold, then tags the change as a threshold', () => {
+    // Rounding to the nearest tenth turned 0.95 s into 1.0 and flipped the card
+    // up to 50 ms early. Rounded down, the color and the label both change on
+    // the first frame at or after the true second.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'],
+    });
+    getBackgroundUrl.mockImplementation((color) => `/backgrounds/${color}.png`);
+    const { result } = renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+    act(() => {
+      result.current.timer.setCurrentSpeaker({ name: 'Ann', role: 'Custom', rules: { green: 1, yellow: 2, red: 3 } });
+    });
+    act(() => { result.current.timer.startTimer(); });
+    // START pushes the opening color with no meta: it is not a threshold.
+    expect(applyOverlay).toHaveBeenLastCalledWith('/backgrounds/blue.png');
+
+    // Frames are 16 ms apart, so at least two land between 0.95 s and 0.99 s.
+    act(() => { vi.advanceTimersByTime(990); });
+    expect(result.current.tick.elapsedTime).toBe(0.9);
+    expect(result.current.tick.currentStatus).toBe('blue');
+    expect(applyOverlay).not.toHaveBeenCalledWith('/backgrounds/green.png', expect.anything());
+
+    act(() => { vi.advanceTimersByTime(30); });
+    expect(result.current.tick.elapsedTime).toBe(1);
+    expect(result.current.tick.currentStatus).toBe('green');
+    expect(applyOverlay).toHaveBeenLastCalledWith('/backgrounds/green.png', {
+      trigger: 'threshold',
+      status: 'green',
+      detectLagMs: expect.any(Number),
+      detectedAt: expect.any(Number),
+    });
+    const { detectLagMs, detectedAt } = applyOverlay.mock.lastCall[1];
+    // Wall-clock, for lining the event up with a screen recording.
+    expect(detectedAt).toBeLessThanOrEqual(Date.now());
+    expect(detectedAt).toBeGreaterThan(Date.now() - 30);
+    // Noticed on the first frame past the second: never early, and no later
+    // than one frame.
+    expect(detectLagMs).toBeGreaterThanOrEqual(0);
+    expect(detectLagMs).toBeLessThanOrEqual(16);
+  });
+
+  it('restores a speech saved at 59.95 s as 59.9 s, still short of a 60 s threshold', () => {
+    const now = 1_000_000;
+    localStorage.setItem('toastmaster_timer_session', JSON.stringify({
+      speaker: { name: 'Bea', role: 'Custom', rules: { green: 60, yellow: 90, red: 120 } },
+      activeSpeakerId: null,
+      running: true,
+      baseElapsed: 0,
+      startedAt: now - 59950,
+      savedAt: now,
+    }));
+
+    const restored = restoreTimerSession([], now);
+
+    expect(restored.elapsed).toBe(59.9);
+    expect(restored.status).toBe('blue');
   });
 });
 
@@ -178,6 +311,9 @@ describe('surviving a webview teardown', () => {
   // sees when it is reopened. Fake timers make Date.now deterministic, which is
   // what the saved start timestamp is measured against.
   const FAKE = ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'];
+  // Just over one fake animation frame past a mark, and well short of the
+  // next tenth, so the rounded-down clock reads the mark exactly.
+  const FRAME_PAST = (ms) => ms + 20;
 
   afterEach(() => {
     vi.useRealTimers();
@@ -208,7 +344,9 @@ describe('surviving a webview teardown', () => {
       id = first.result.current.timer.addToAgenda({ name: 'Alice', role: 'Standard Speech' }, { activate: true });
     });
     act(() => { first.result.current.timer.startTimer(); });
-    act(() => { vi.advanceTimersByTime(3000); });
+    // A frame past each mark: elapsed time rounds down, so the clock reads a
+    // whole second only once a frame (16 ms apart here) lands after it.
+    act(() => { vi.advanceTimersByTime(FRAME_PAST(3000)); });
     expect(first.result.current.tick.elapsedTime).toBeCloseTo(3, 1);
     first.unmount();
     vi.clearAllMocks();
@@ -226,7 +364,7 @@ describe('surviving a webview teardown', () => {
     expect(applyOverlay).toHaveBeenCalledTimes(1);
 
     // And it keeps ticking from there rather than from zero.
-    act(() => { vi.advanceTimersByTime(2000); });
+    act(() => { vi.advanceTimersByTime(FRAME_PAST(2000)); });
     expect(second.result.current.tick.elapsedTime).toBeCloseTo(10, 1);
   });
 
@@ -257,7 +395,7 @@ describe('surviving a webview teardown', () => {
       first.result.current.timer.setCurrentSpeaker({ name: 'Cy', role: 'Standard Speech' });
     });
     act(() => { first.result.current.timer.startTimer(); });
-    act(() => { vi.advanceTimersByTime(4000); });
+    act(() => { vi.advanceTimersByTime(FRAME_PAST(4000)); });
     act(() => { first.result.current.timer.stopTimer(); });
     first.unmount();
 
@@ -269,7 +407,7 @@ describe('surviving a webview teardown', () => {
     expect(second.result.current.tick.elapsedTime).toBeCloseTo(4, 1);
     // Continue carries on from four, not from zero.
     act(() => { second.result.current.timer.startTimer(); });
-    act(() => { vi.advanceTimersByTime(1000); });
+    act(() => { vi.advanceTimersByTime(FRAME_PAST(1000)); });
     expect(second.result.current.tick.elapsedTime).toBeCloseTo(5, 1);
   });
 

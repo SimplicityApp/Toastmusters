@@ -2,6 +2,7 @@ import { handleZoomWebhook } from './zoom-webhook.js';
 import { handleStats } from './stats.js';
 import { handleZoomSession } from './session.js';
 import { handleZoomContact, captureInstallContact } from './contact.js';
+import { installLandingRedirect, reconnectRedirect } from './reconnect.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
@@ -84,6 +85,10 @@ const SPA_ROUTES = new Set([
   // and a magic link cannot open inside the Zoom sidebar.
   '/club/admin',
   '/club/manage',
+  // The page for users whose Zoom approval lapsed (GitHub issue #96). Linked
+  // from the homepage's "Already use the Zoom app? Reconnect it" line, and
+  // where a browser that added the app before is sent from a bare /.
+  '/reconnect',
 ]);
 
 // Root SPA routes whose tail is data rather than a page: /pro/<code> is the
@@ -211,15 +216,19 @@ export default {
       if (signedIn) return signedIn;
     }
     // A Marketplace install or re-add: no state of ours, just Zoom's code. The
-    // page below renders unchanged; the code is spent in the background only
-    // to learn the user's contact details (worker/contact.js). No session is
-    // minted from it, and it is not flagged. Ahead of every redirect, so the
-    // origin it sends back to Zoom is the one the code was issued for.
+    // code is spent in the background only to learn the user's contact details
+    // (worker/contact.js), from this original URL. No session is minted from
+    // it, and it is not flagged. Then the browser is marked as one that has
+    // approved the app, and sent to a clean URL that says whether it had been
+    // here before (worker/reconnect.js). Ahead of every other redirect, so the
+    // origin sent back to Zoom is the one the code was issued for.
     if (pathname === '/oauth/redirect' && url.searchParams.has('code') && !url.searchParams.has('state')) {
       ctx.waitUntil(
         captureInstallContact(env, url).catch((error) =>
           console.error('Install contact capture error:', error?.message || error))
       );
+      const landing = installLandingRedirect(request, url);
+      if (landing) return landing;
     }
 
     // 2a. The old toastmusters.com timer hosts move to the main site. After
@@ -307,6 +316,16 @@ export default {
     if (pathname === '/timer' || pathname === '/timer/') {
       return Response.redirect(new URL('/', url.origin).toString(), 302);
     }
+
+    // 4a. A browser that has added the app before (the tt_approved mark set on
+    //     the install landing above) and opens a bare / goes to the reconnect
+    //     page: that is where Zoom drops a user whose approval lapsed. Any query
+    //     string, the zoom.<domain> host and unmarked browsers fall through to
+    //     the homepage (worker/reconnect.js). After the apex redirect, so a bare
+    //     apex visit canonicalizes to www first, and before the asset lookup, so
+    //     no cached homepage answers ahead of it.
+    const reconnect = reconnectRedirect(request, url);
+    if (reconnect) return reconnect;
 
     // 4b. "Add to Zoom" from the static pages, which cannot know which Zoom app
     //     this deployment installs. Straight to Zoom's install screen for the
@@ -452,6 +471,13 @@ function withSecurityHeaders(response, request, url) {
   // crawling it; this also keeps the URL itself out of the index.
   if (url.pathname.startsWith('/oauth/')) {
     headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
+
+  // The reconnect page speaks to people whose Zoom approval lapsed. It is a
+  // way back for existing users, not something a search result should offer
+  // a stranger.
+  if (url.pathname === '/reconnect' || url.pathname === '/reconnect/') {
+    headers.set('X-Robots-Tag', 'noindex');
   }
 
   // Deep links like /timer/app?role=…&name=… (one per Table Topics question)
