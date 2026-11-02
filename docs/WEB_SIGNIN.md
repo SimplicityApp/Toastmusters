@@ -132,4 +132,7 @@ When the domain migration makes `timer.toastmusters.com` canonical, change
    header's sign-in link carries whatever page it was clicked from as
    `returnTo`, so a failure can come back anywhere.
 5. Start a sign-in from a non-canonical host (the apex, or the toastmusters.com
-   dev host). It should hand off to `WEB_ORIGIN` and complete.
+   dev host). It should hand off to `WEB_ORIGIN` and complete. Started from a
+   page that has moved to the main site (the homepage, a guide), it ends on
+   `WEB_ORIGIN/account`, signed in: the session cookie only lives on
+   `WEB_ORIGIN` until it moves (docs/TOASTMUSTERS_PATHS.md, step 2b).
