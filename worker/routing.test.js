@@ -256,13 +256,16 @@ describe("the old simple-tech web host's public pages move to www.toastmusters.c
     ['https://www.timer.simple-tech.app/tabletopics', 'https://www.toastmusters.com/tabletopics', prod],
     ['https://timer.simple-tech.app/tabletopics/today/?q=1', 'https://www.toastmusters.com/tabletopics/today/?q=1', prod],
     ['https://www.timer-dev.simple-tech.app/tabletopics/', 'https://www.timer-dev.toastmusters.com/tabletopics/', dev],
-  ])('301s %s to %s in one hop, cacheable for a day', async (from, to, makeEnvFor) => {
+  ])('301s %s to %s in one hop', async (from, to, makeEnvFor) => {
     const env = makeEnvFor();
     const res = await worker.fetch(get(from), env, ctx);
 
+    // A bare / depends on the reconnect mark, so its 301 is never cached;
+    // every other page is cacheable for a day.
+    const { pathname, search } = new URL(from);
     expect(res.status).toBe(301);
     expect(res.headers.get('location')).toBe(to);
-    expect(res.headers.get('cache-control')).toBe('public, max-age=86400');
+    expect(res.headers.get('cache-control')).toBe(pathname === '/' && !search ? 'no-store' : 'public, max-age=86400');
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
@@ -292,7 +295,9 @@ describe("the old simple-tech web host's public pages move to www.toastmusters.c
   // to its new path, still here.
   it.each([
     ['/timer/app', 200, null],
-    ['/oauth/redirect?code=x', 200, null],
+    ['/oauth/redirect?code=x', 302, 'https://www.timer.simple-tech.app/oauth/redirect?welcome=new'],
+    ['/oauth/redirect?welcome=new', 200, null],
+    ['/reconnect', 200, null],
     ['/account', 200, null],
     ['/billing/success', 200, null],
     ['/billing/cancel', 200, null],
@@ -862,10 +867,9 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), env, backgroundCtx);
       await backgroundCtx._settle();
 
-      expect(res.status).toBe(200);
-      expect(res.headers.get('x-asset-path')).toBe('/index.html');
-      expect(res.headers.get('location')).toBeNull();
-      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
+      expect(setCookies(res)[0]).toMatch(APPROVED_SET_COOKIE);
 
       const [tokenUrl, init] = globalThis.fetch.mock.calls[0];
       expect(tokenUrl).toBe('https://zoom.us/oauth/token');
@@ -1075,6 +1079,42 @@ describe('a marked browser opening a bare / goes to the reconnect page', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('x-asset-path')).toBe('/index.html');
     expect(res.headers.get('location')).toBeNull();
+  });
+
+  // Once the old web host's public pages move (#98), its / is the one that 301s
+  // to the main site. A marked browser must still reach the reconnect page here:
+  // the mark is host-only, so the main site could never send it there.
+  describe('on the old web host, once its public pages move', () => {
+    const env = () => ({ ...makeEnv(['/index.html']), ROOT_ORIGIN: 'https://www.toastmusters.com' });
+
+    it('302s a marked / to /reconnect on the old host, not to the main site', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie: MARK }), env(), ctx);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/reconnect');
+    });
+
+    it('301s an unmarked / to the main site, uncached', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/'), env(), ctx);
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe('https://www.toastmusters.com/');
+      expect(res.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('301s a marked /?home to the main site homepage', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/?home', { cookie: MARK }), env(), ctx);
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe('https://www.toastmusters.com/?home');
+    });
+
+    it('serves the reconnect page itself on the old host', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/reconnect', { cookie: MARK }), env(), ctx);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+    });
   });
 
   it('serves the reconnect page itself to a marked browser, with no loop', async () => {

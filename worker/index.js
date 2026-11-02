@@ -255,11 +255,19 @@ export default {
     //     one Chromium keeps a 301 until the user clears the cache. A day
     //     still reads as a permanent move to Google, and lets a rollback reach
     //     every browser within a day.
-    const moved = oldWebHostTarget(url, env);
+    //
+    //     One exception: a marked browser's bare / stays for the reconnect page
+    //     (4a). WEB_ORIGIN's root is where Zoom drops a user whose approval
+    //     lapsed, and the mark is host-only, so the main site could not read it.
+    //     For the same reason the bare / 301 is never cached: its answer
+    //     depends on the cookie, and a browser that cached it before it was
+    //     marked would skip the reconnect page.
+    const moved = reconnectRedirect(request, url) ? null : oldWebHostTarget(url, env);
     if (moved) {
+      const bareRoot = url.pathname === '/' && !url.search;
       return new Response(null, {
         status: 301,
-        headers: { Location: moved, 'Cache-Control': 'public, max-age=86400' },
+        headers: { Location: moved, 'Cache-Control': bareRoot ? 'no-store' : 'public, max-age=86400' },
       });
     }
 
@@ -321,7 +329,8 @@ export default {
     //     the install landing above) and opens a bare / goes to the reconnect
     //     page: that is where Zoom drops a user whose approval lapsed. Any query
     //     string, the zoom.<domain> host and unmarked browsers fall through to
-    //     the homepage (worker/reconnect.js). After the apex redirect, so a bare
+    //     the homepage (worker/reconnect.js). Step 2c leaves a marked bare / on
+    //     the old web host for this check. After the apex redirect, so a bare
     //     apex visit canonicalizes to www first, and before the asset lookup, so
     //     no cached homepage answers ahead of it.
     const reconnect = reconnectRedirect(request, url);

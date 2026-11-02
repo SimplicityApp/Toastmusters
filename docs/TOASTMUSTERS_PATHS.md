@@ -42,7 +42,7 @@ Four decisions shape it:
 | `timer.toastmusters.com/*`, `www.timer.toastmusters.com/*` | 301 → `www.toastmusters.com/*` (`/app`, `/web` → `/timer/app`) | step 1 |
 | `zoom.timer.toastmusters.com/*` | **Unchanged.** May become the Zoom app's home | — |
 | `tabletopics.toastmusters.com/*`, `www.tabletopics…/*` | 301 → `www.toastmusters.com/tabletopics/*` | step 1 |
-| `timer.simple-tech.app/…`, `www.timer.simple-tech.app/…`: public pages (the 16 sitemap pages, `/tabletopics/…`) | 301 → the same path and query on `www.toastmusters.com`, one hop from either host, cacheable for a day. [Step 2a](#step-2a-public-pages-built) | step 2a |
+| `timer.simple-tech.app/…`, `www.timer.simple-tech.app/…`: public pages (the 16 sitemap pages, `/tabletopics/…`) | 301 → the same path and query on `www.toastmusters.com`, one hop from either host, cacheable for a day (a bare `/` is never cached, and a browser with the reconnect mark gets `/reconnect` instead). [Step 2a](#step-2a-public-pages-built) | step 2a |
 | the same two hosts: app routes (`/timer/app`, `/oauth/redirect`, `/account`, `/billing/*`, `/club/*`, `/pro/*`, `/r/*`, `/zoom/*`, `/add-to-zoom`, `/app`, `/web`) and static files | **Unchanged.** Served on the `www` host (the bare host first 301s there); `/app` still 301s to `/timer/app` on the same host. Sign-in, Stripe and the Zoom install still come back here. Step 2b | unchanged |
 | `zoom.timer.simple-tech.app/*` | **Unchanged.** The Zoom app | — |
 | `simple-tech.app/*` | **Unchanged.** The portfolio, on Vercel | — |
@@ -203,6 +203,14 @@ on dev by the normal pipeline and rolled back with the deploy.
   `www.toastmusters.com`, never over http, and never when `ROOT_ORIGIN` is
   unset. The bare host's public pages reach the main site in one hop; its app
   paths still go to the old `www` host through the apex rule.
+- **One exception: the reconnect page (#96).** A browser carrying the
+  host-only `tt_approved` mark that opens a bare `/` still gets the 302 to
+  `/reconnect` on this host, not the 301: that root is where Zoom drops a user
+  whose approval lapsed, and the main site cannot read the mark. Any query
+  (`/?home`, `?utm_…`) and every unmarked browser get the 301. Because the
+  answer for a bare `/` depends on the cookie, its 301 carries
+  `Cache-Control: no-store`, never the day of cache below; a cached one would
+  skip the reconnect page once the browser is marked.
 - **A day of cache.** The 301 carries `Cache-Control: public, max-age=86400`,
   so it is built by hand, not with `Response.redirect()`. Without a lifetime,
   Chromium keeps a 301 until the user clears the cache, and a rollback could
@@ -339,7 +347,8 @@ Still unknown:
   `https://www.timer.simple-tech.app/` (the one recorded in
   [ZOOM_AUTH_AND_REDIRECTS.md](ZOOM_AUTH_AND_REDIRECTS.md) was on the dev app):
   `/` now 301s to the main site's landing page, so such a landing would end
-  there. And which Event Subscription URL and full OAuth redirect allow list
+  there, unless the browser carries the reconnect mark (see step 2a, "One
+  exception"). And which Event Subscription URL and full OAuth redirect allow list
   the production app has registered: the webhook is under `/api/`, which never
   redirects, and `/oauth/redirect` stays.
 
