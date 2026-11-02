@@ -118,6 +118,8 @@ the same against `/?home` gives a `301` to the main site, and against
 Last run (2026-11-01, dev f30c40a): PASS. The unmarked check used curl, not a second profile. PostHog
 `$pageview` for `/reconnect` recorded. That run predates #98 (`/?home` and the unmarked `/` were
 still `200` here); rerun after #98 reaches dev.
+Reviewed 2026-11-02 against the master sync: `/tutorials` joined the moved pages; `/` and
+`/reconnect` are unchanged, so no step changes.
 
 ### RL-04 · human · Record where Zoom opens the browser after a guest approves the app
 Do: start `npx wrangler tail --env dev`. As account B, in the `authenticated` state, open the dev

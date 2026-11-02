@@ -34,6 +34,8 @@ const MOVED_PAGES = new Set([
   '/best-toastmasters-timer-apps',
   '/toastmasters-timer-demo',
   '/toastmasters-timer-zoom-demo',
+  // The short tutorials, apps/web/public/tutorials.html
+  '/tutorials',
   // The Zoom listing's pages, served from the Zoom app's public dir via
   // ROOT_TO_ZOOM_REWRITES. The listing's Privacy, Terms and Support URLs point here.
   '/privacy',

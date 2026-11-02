@@ -32,10 +32,11 @@ the wrong app (production from a dev page, or the reverse).
 ## Steps
 
 ### DL-01 · auto · Page carries this build's client id
-Do: open the dev landing page and read its "Add to Zoom" href, then follow "Reconnect it" to
-`/reconnect` and read "Approve in Zoom" and "Already approved? Open in Zoom" (page JS). Since #96
-the landing page links to `/reconnect` instead of carrying the deeplink itself.
-Expect: both use the dev client id (`kgpoX2A6TY2BvdctzK9iw`); no `DsFHK5sNQs2_VFyeQky2sg`.
+Do: open the dev landing page and read every "Add to Zoom" href (page JS), including the one
+inside the "Watch the demo" dialog. Then follow "Reconnect it" to `/reconnect` and read "Approve
+in Zoom" and "Already approved? Open in Zoom". Since #96 the landing page links to `/reconnect`
+instead of carrying the deeplink itself.
+Expect: all use the dev client id (`kgpoX2A6TY2BvdctzK9iw`); no `DsFHK5sNQs2_VFyeQky2sg`.
 Evidence: the hrefs.
 
 ### DL-02 · auto · Zoom resolves the link
@@ -56,6 +57,8 @@ Expect: exactly the link used before the change (`.../zoomapp/DsFHK5sNQs2_VFyeQk
 Evidence: `appLinks.test.js`; curl 302.
 
 ## Not covered
-- The "Open in Zoom" buttons on `/oauth/redirect` and `/billing/success` (they need a real
+- The hero demo video, the "Watch the demo" dialog's playback and the `#tutorials` videos;
+  they are website-only and covered by `DemoDialog.test.jsx` and `Landing.test.jsx`.
+- The "Open in Zoom" / "Open Zoom app" buttons on `/oauth/redirect` and `/billing/success` (they need a real
   install and a Stripe return); they share `zoomAppDeeplink()` with the landing page.
 - Where Zoom shows its "Open Zoom?" browser prompt, which depends on the browser.

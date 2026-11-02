@@ -42,7 +42,7 @@ Four decisions shape it:
 | `timer.toastmusters.com/*`, `www.timer.toastmusters.com/*` | 301 → `www.toastmusters.com/*` (`/app`, `/web` → `/timer/app`) | step 1 |
 | `zoom.timer.toastmusters.com/*` | **Unchanged.** May become the Zoom app's home | — |
 | `tabletopics.toastmusters.com/*`, `www.tabletopics…/*` | 301 → `www.toastmusters.com/tabletopics/*` | step 1 |
-| `timer.simple-tech.app/…`, `www.timer.simple-tech.app/…`: public pages (the 16 sitemap pages, `/tabletopics/…`) | 301 → the same path and query on `www.toastmusters.com`, one hop from either host, cacheable for a day (a bare `/` is never cached, and a browser with the reconnect mark gets `/reconnect` instead). [Step 2a](#step-2a-public-pages-built) | step 2a |
+| `timer.simple-tech.app/…`, `www.timer.simple-tech.app/…`: public pages (the 17 sitemap pages, `/tabletopics/…`) | 301 → the same path and query on `www.toastmusters.com`, one hop from either host, cacheable for a day (a bare `/` is never cached, and a browser with the reconnect mark gets `/reconnect` instead). [Step 2a](#step-2a-public-pages-built) | step 2a |
 | the same two hosts: app routes (`/timer/app`, `/oauth/redirect`, `/account`, `/billing/*`, `/club/*`, `/pro/*`, `/r/*`, `/zoom/*`, `/add-to-zoom`, `/app`, `/web`) and static files | **Unchanged.** Served on the `www` host (the bare host first 301s there); `/app` still 301s to `/timer/app` on the same host. Sign-in, Stripe and the Zoom install still come back here. Step 2b | unchanged |
 | `zoom.timer.simple-tech.app/*` | **Unchanged.** The Zoom app | — |
 | `simple-tech.app/*` | **Unchanged.** The portfolio, on Vercel | — |
@@ -181,8 +181,8 @@ after the API routes and the two legacy-host redirects and before the apex
 rule. That keeps it in version control, tested against the sitemap, rehearsed
 on dev by the normal pipeline and rolled back with the deploy.
 
-- **What moves.** The 16 pages in `apps/web/public/sitemap.xml` (the landing
-  page, the 11 guides, `/privacy`, `/support`, `/terms-of-use`,
+- **What moves.** The 17 pages in `apps/web/public/sitemap.xml` (the landing
+  page, the 11 guides, `/tutorials`, `/privacy`, `/support`, `/terms-of-use`,
   `/documentation`) and everything under `/tabletopics`. `MOVED_PAGES` in
   `worker/old-web-host.js` lists the pages. When the sitemap gains a page, add
   it there: the "moves every page the sitemap lists" test in

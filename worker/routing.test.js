@@ -243,6 +243,7 @@ describe("the old simple-tech web host's public pages move to www.toastmusters.c
     ['https://www.timer.simple-tech.app/toastmasters-timing-chart', 'https://www.toastmusters.com/toastmasters-timing-chart', prod],
     ['https://www.timer.simple-tech.app/best-toastmasters-timer-apps/', 'https://www.toastmusters.com/best-toastmasters-timer-apps', prod],
     ['https://www.timer.simple-tech.app/toastmasters-timer-demo?t=30', 'https://www.toastmusters.com/toastmasters-timer-demo?t=30', prod],
+    ['https://www.timer.simple-tech.app/tutorials', 'https://www.toastmusters.com/tutorials', prod],
     ['https://timer.simple-tech.app/toastmasters-timing-chart', 'https://www.toastmusters.com/toastmasters-timing-chart', prod],
     ['https://www.timer-dev.simple-tech.app/toastmasters-timing-chart', 'https://www.timer-dev.toastmusters.com/toastmasters-timing-chart', dev],
     // The Zoom listing's pages, which index.js serves from /zoom/*.html.
