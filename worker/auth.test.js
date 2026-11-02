@@ -222,7 +222,8 @@ describe('handleOAuthCallback', () => {
 
   // A page that moved to ROOT_ORIGIN (worker/old-web-host.js) would 301 to a
   // host that never saw the session cookie set here, so the user would look
-  // signed out. The callback lands on the timer instead.
+  // signed out. The callback lands on the account page instead, which only
+  // confirms the sign-in: not the web timer, which the user never asked for.
   describe('a sign-in that started on a page that has moved off WEB_ORIGIN', () => {
     const oldHost = {
       ...env,
@@ -230,12 +231,12 @@ describe('handleOAuthCallback', () => {
       ROOT_ORIGIN: 'https://www.toastmusters.com',
     };
 
-    it('lands on /timer/app, signed in', async () => {
+    it('lands on /account, signed in', async () => {
       const { promise, fetchImpl } = await startAndCallback({ callbackEnv: oldHost, returnTo: '/' });
       const res = await promise;
 
       expect(res.status).toBe(302);
-      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/timer/app');
+      expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/account');
       expect(verifySessionToken(cookieValue(res, SESSION_COOKIE), SIGNING_KEY, NOW + 1000).uid).toBe('zoom-user-1');
       // The code is still spent against the URI Zoom issued it for.
       expect(new URLSearchParams(fetchImpl.mock.calls[0][1].body).get('redirect_uri')).toBe(
@@ -252,14 +253,14 @@ describe('handleOAuthCallback', () => {
       }
     });
 
-    // SignInFailureNotice is app-wide, so /timer/app shows the failure too.
-    it('reports a failure on /timer/app too', async () => {
+    // SignInFailureNotice is app-wide, so /account shows the failure too.
+    it('reports a failure on /account too', async () => {
       const { promise, fetchImpl } = await startAndCallback({ callbackEnv: oldHost, returnTo: '/', withNonce: false });
       const res = await promise;
 
       expect(res.status).toBe(302);
       expect(res.headers.get('location')).toBe(
-        'https://www.timer.simple-tech.app/timer/app?signin=failed&reason=state_mismatch'
+        'https://www.timer.simple-tech.app/account?signin=failed&reason=state_mismatch'
       );
       expect(cookieValue(res, SESSION_COOKIE)).toBeNull();
       expect(fetchImpl).not.toHaveBeenCalled();

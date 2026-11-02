@@ -394,9 +394,11 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
   const origin = env.WEB_ORIGIN || url.origin;
   // A page that has moved off WEB_ORIGIN (worker/old-web-host.js) would 301 to a
   // host that never saw the session cookie set below, and the user would look
-  // signed out. Land on the timer instead, which stays on this host. Switches
-  // itself off if WEB_ORIGIN moves: the helper then answers null for it.
-  if (oldWebHostTarget(new URL(returnTo, origin), env)) returnTo = '/timer/app';
+  // signed out. Land on the account page instead: it stays on this host, and it
+  // shows the user they are signed in without opening the web timer they never
+  // asked for. Switches itself off if WEB_ORIGIN moves: the helper then answers
+  // null for it.
+  if (oldWebHostTarget(new URL(returnTo, origin), env)) returnTo = '/account';
   const failed = (reason) => {
     const target = new URL(returnTo, origin);
     target.searchParams.set('signin', 'failed');

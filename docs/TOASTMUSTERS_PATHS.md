@@ -222,8 +222,8 @@ on dev by the normal pipeline and rolled back with the deploy.
   clean-URL redirect to `/x` answers first, and then the 301 moves `/x`. Google indexes the clean URLs, so this matters only to a link
   that names the file.
 - **Sign-in started on a moved page.** `handleOAuthCallback` (`worker/auth.js`)
-  swaps a `returnTo` that has moved for `/timer/app`, so a sign-in from the
-  landing page ends on `WEB_ORIGIN/timer/app`, signed in, and not on a page
+  swaps a `returnTo` that has moved for `/account`, so a sign-in from the
+  landing page ends on `WEB_ORIGIN/account`, signed in, and not on a page
   that now 301s to a host with no session cookie. It uses the same helper, so
   it turns itself off when `WEB_ORIGIN` moves off the old host.
 - **Marketplace and listing: no change.** The listing's and the manifest's
@@ -301,8 +301,10 @@ curl -sI $ZOOM/ | head -1                                               # 200, u
 Then, by hand:
 
 - **Dev:** on `https://www.timer-dev.toastmusters.com/`, use "Sign in with Zoom"
-  in the account menu. It ends on `https://www.timer-dev.simple-tech.app/timer/app`,
-  signed in. (Web sign-in is behind the `pro` flag: on in dev, dark in
+  in the account menu. It ends on `https://www.timer-dev.simple-tech.app/account`,
+  signed in. Not on the web timer: sign-in only signs in. Returning to the
+  page it started from needs step 2b, when the session cookie can live on
+  `www.toastmusters.com`. (Web sign-in is behind the `pro` flag: on in dev, dark in
   production.)
 - **Both:** the web timer at `$OLD/timer/app` loads with no blocked scripts in
   the console, and its saved settings are still there.
