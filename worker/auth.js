@@ -7,6 +7,7 @@ import { flagEnabled } from './flags.js';
 // neither module touches the other's exports until a request is handled.
 import { saveZoomContact } from './contact.js';
 import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
+import { oldWebHostTarget } from './old-web-host.js';
 
 /**
  * Who is calling, and how the web app signs in.
@@ -57,17 +58,22 @@ export function parseCookies(header) {
   return out;
 }
 
-function cookie(name, value, maxAgeSec) {
+/**
+ * The one template every `tt_` cookie the Worker sets is built from (the
+ * "approved before" mark in worker/reconnect.js uses it too), so each of them
+ * is host-only by construction.
+ */
+export function hostOnlyCookie(name, value, maxAgeSec) {
   // No Domain attribute: host-only, so a cookie set on the canonical web host
   // never leaks to the zoom.* host or to a sibling domain.
   return `${name}=${value}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; Secure; SameSite=Lax`;
 }
 
 export const sessionCookie = (token, maxAgeSec = Math.floor(WEB_SESSION_TTL_MS / 1000)) =>
-  cookie(SESSION_COOKIE, token, maxAgeSec);
-export const clearSessionCookie = () => cookie(SESSION_COOKIE, '', 0);
-const oauthCookie = (nonce) => cookie(OAUTH_COOKIE, nonce, Math.floor(STATE_TTL_MS / 1000));
-const clearOauthCookie = () => cookie(OAUTH_COOKIE, '', 0);
+  hostOnlyCookie(SESSION_COOKIE, token, maxAgeSec);
+export const clearSessionCookie = () => hostOnlyCookie(SESSION_COOKIE, '', 0);
+const oauthCookie = (nonce) => hostOnlyCookie(OAUTH_COOKIE, nonce, Math.floor(STATE_TTL_MS / 1000));
+const clearOauthCookie = () => hostOnlyCookie(OAUTH_COOKIE, '', 0);
 
 // ---------------------------------------------------------------------------
 // Session reading (both transports)
@@ -384,8 +390,15 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
     return null;
   }
 
-  const returnTo = sanitizeReturnTo(payload.returnTo);
+  let returnTo = sanitizeReturnTo(payload.returnTo);
   const origin = env.WEB_ORIGIN || url.origin;
+  // A page that has moved off WEB_ORIGIN (worker/old-web-host.js) would 301 to a
+  // host that never saw the session cookie set below, and the user would look
+  // signed out. Land on the account page instead: it stays on this host, and it
+  // shows the user they are signed in without opening the web timer they never
+  // asked for. Switches itself off if WEB_ORIGIN moves: the helper then answers
+  // null for it.
+  if (oldWebHostTarget(new URL(returnTo, origin), env)) returnTo = '/account';
   const failed = (reason) => {
     const target = new URL(returnTo, origin);
     target.searchParams.set('signin', 'failed');

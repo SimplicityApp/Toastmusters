@@ -5,6 +5,7 @@ status: draft
 covers:
   - packages/shared/appLinks.js
   - apps/web/src/pages/Landing.jsx
+  - apps/web/src/pages/Reconnect.jsx
   - apps/web/src/pages/OAuthRedirect.jsx
   - apps/web/src/pages/BillingSuccess.jsx
 automated:
@@ -31,8 +32,10 @@ the wrong app (production from a dev page, or the reverse).
 ## Steps
 
 ### DL-01 · auto · Page carries this build's client id
-Do: open the dev landing page and read every "Open in Zoom" and "Add to Zoom" href (page JS),
-including the "Add to Zoom" link inside the "Watch the demo" dialog.
+Do: open the dev landing page and read every "Add to Zoom" href (page JS), including the one
+inside the "Watch the demo" dialog. Then follow "Reconnect it" to `/reconnect` and read "Approve
+in Zoom" and "Already approved? Open in Zoom". Since #96 the landing page links to `/reconnect`
+instead of carrying the deeplink itself.
 Expect: all use the dev client id (`kgpoX2A6TY2BvdctzK9iw`); no `DsFHK5sNQs2_VFyeQky2sg`.
 Evidence: the hrefs.
 
@@ -40,10 +43,13 @@ Evidence: the hrefs.
 Do: `curl -s -o /dev/null -w '%{http_code} %{redirect_url}' <deeplink>` for the page's link,
 and for the production link as a control. Then close the app in the meeting panel (⋯ → Close
 current app), open the link, and look at the result.
-Expect: a 302 to `zoom.us/launch/zoomapp/<token>` and the Zoom client opens the app (dev shows
-the BETA badge). A 200 "Oops, The application is not found" is a failure.
+Expect: production: a 302 to `zoom.us/launch/zoomapp/<token>` and the Zoom client opens the
+app; a 200 "Oops, The application is not found" is a failure. Dev: a 200 "not found" is
+expected, because the dev app has no Marketplace app page, so its deeplink never resolves; only
+DL-01 (the dev id is in the link) can pass there.
 Evidence: curl output for both ids; screenshot of the panel.
-Last run (2026-10-13): production 302, dev 200 "not found". FAIL for dev.
+Last run (2026-10-13): production 302, dev 200 "not found" (expected on dev, see above).
+Dev result reconfirmed 2026-11-01.
 
 ### DL-03 · auto · Production link unchanged
 Do: with `VITE_ZOOM_OAUTH_REDIRECT` unset, or the production client id, read the link.
@@ -53,6 +59,6 @@ Evidence: `appLinks.test.js`; curl 302.
 ## Not covered
 - The hero demo video, the "Watch the demo" dialog's playback and the `#tutorials` videos;
   they are website-only and covered by `DemoDialog.test.jsx` and `Landing.test.jsx`.
-- The "Open Zoom app" button on `/oauth/redirect` and `/billing/success` (they need a real
+- The "Open in Zoom" / "Open Zoom app" buttons on `/oauth/redirect` and `/billing/success` (they need a real
   install and a Stripe return); they share `zoomAppDeeplink()` with the landing page.
 - Where Zoom shows its "Open Zoom?" browser prompt, which depends on the browser.

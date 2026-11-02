@@ -41,11 +41,14 @@ sign-in**; run those after Step 3b.
    ```
 2. Log in to Zoom if prompted
 3. Review the permissions and click **Allow**
-4. You should be redirected to:
-   `https://www.timer-dev.simple-tech.app/oauth/redirect`
-5. Verify the redirect page loads with a success message ("You're all set!"),
-   as fast as before. In the background the Worker spends the code to save your
-   Zoom email and name (checked in Step 1d).
+4. You should be redirected to
+   `https://www.timer-dev.simple-tech.app/oauth/redirect`, which moves on at once
+   to `https://www.timer-dev.simple-tech.app/oauth/redirect?welcome=new`. Zoom's
+   one-time `code` is gone from the address bar. (A browser that has added the
+   app before lands on `?welcome=back` instead; see Step 6.)
+5. Verify the page loads with the success message "Zoom app installed
+   successfully", as fast as before. In the background the Worker spends the
+   code to save your Zoom email and name (checked in Step 1d).
 
 > **This submission adds the `user:read:user` scope** (it backs "Sign in with
 > Zoom" on the website — see Step P1 — and saving each user's Zoom email and
@@ -137,8 +140,8 @@ Zoom App SDK → Add APIs) and the `contact_capture` flag on. Dev has
 
 1. After Step 1 (or a re-add from `https://www.timer-dev.simple-tech.app/add-to-zoom`),
    read the key. Expected: the record exists with your Zoom email and name.
-   Reloading the success page re-sends a spent code; that fails harmlessly and
-   changes nothing.
+   The success page's URL no longer carries the code, so reloading it sends
+   nothing to Zoom and changes nothing.
 
 **In-client door, automatic.**
 
@@ -409,7 +412,9 @@ These events are logged server-side (PostHog analytics). To confirm they fire:
 
 ## Step 6: Re-install (Optional — Clean Slate)
 
-Use the same OAuth URL from Step 1 to reinstall the dev app and confirm the full cycle works end-to-end.
+Use the same OAuth URL from Step 1, in the same browser, to reinstall the dev app and confirm the full cycle works end-to-end.
+
+- Expected: the page lands on `https://www.timer-dev.simple-tech.app/oauth/redirect?welcome=back` and says **You're reconnected**, with an **Open in Zoom** button that opens the app in the Zoom client. The browser remembers that it added the app in Step 1. A different browser, or one with cleared cookies, sees "Zoom app installed successfully" as in Step 1.
 
 ---
 
