@@ -44,7 +44,12 @@ Evidence: screenshot of the video frame; debug log shows one `setVirtualBackgrou
 ### TC-03 · auto · Yellow then red at the thresholds
 Do: let the speech run past 1:00 and then 2:00 (use `capture-timeline.sh`).
 Expect: yellow at the yellow threshold, red at the red threshold, one background change each.
-Evidence: timeline shots with timestamps.
+Never before the threshold: since #88 the tick rounds elapsed time down to the tenth.
+Evidence: timeline shots with timestamps. Since #88, PostHog `card_color_applied` per change
+(`detect_lag_ms`, `total_ms`, `frame_width` 384).
+Last run (2026-11-01, dev cd97ad0, partial: overlay timing only, 1min role, not the whole spec):
+every colour reached the video within one or two 30 fps frames of the sidebar's change;
+`detect_lag_ms` 0-32, `zoom_reply_ms` 133-350. Log: test-runs/2026-11-01-overlay-timing/run.md.
 
 ### TC-04 · auto · Finish resets the video
 Do: press Finish.

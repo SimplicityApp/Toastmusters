@@ -9,6 +9,7 @@ import { handleMe } from './me.js';
 import { handleAuthStart, handleOAuthCallback, handleLogout, zoomAuthorizeUrl } from './auth.js';
 import { ZOOM_MARKETPLACE_LISTING_URL } from '../packages/shared/appLinks.js';
 import { isLegacyTableTopicsHost, isTableTopicsPath, legacyTableTopicsTarget, serveTableTopics } from './tabletopics.js';
+import { oldWebHostTarget } from './old-web-host.js';
 import { handleBilling } from './billing.js';
 import { handleClub } from './club.js';
 import { handleClubAsset } from './club-assets.js';
@@ -39,16 +40,20 @@ const ROOT_TO_ZOOM_REWRITES = {
 // on two hosts splits link equity and leaves the canonical tag as the only
 // signal to search engines; a redirect makes www the single indexable origin.
 // The timer host under both the old and the new domain (docs/DOMAIN_MIGRATION.md)
-// canonicalizes to its *own* www host; the cross-domain redirect comes in a
-// later phase. The bare toastmusters.com root is parked here for now too.
+// canonicalizes to its *own* www host. On the old simple-tech.app host the
+// cross-domain redirect of its public pages (step 2c in fetch, worker/old-web-host.js)
+// runs first, so the bare host's public pages reach the main site in one hop;
+// only its app paths come through here to the old www host. The bare
+// toastmusters.com root is parked here for now too.
 const APEX_HOST_PATTERN = /^(timer(-dev)?\.(simple-tech\.app|toastmusters\.com)|toastmusters\.com)$/;
 
 // The toastmusters.com subdomain the timer used to live on. With ROOT_ORIGIN
 // set, each of its URLs 301s to the same page on the main site in one hop
 // (the web timer's old /app becomes /timer/app). zoom.timer.toastmusters.com
 // is not on this list: it may become the Zoom app's home when the Zoom app
-// moves, and a cached 301 would get in the way. Nor is timer.simple-tech.app,
-// which keeps serving until its own redirect step (#81).
+// moves, and a cached 301 would get in the way. Nor are the simple-tech.app
+// hosts: only their public pages move (step 2c, worker/old-web-host.js); their
+// app routes stay until the WEB_ORIGIN move (docs/TOASTMUSTERS_PATHS.md, step 2).
 const LEGACY_TIMER_HOST_PATTERN = /^(www\.)?timer\.toastmusters\.com$/;
 
 /** The main-site URL for a request to the old timer.toastmusters.com host. */
@@ -240,6 +245,32 @@ export default {
       return Response.redirect(legacyTableTopicsTarget(url, env.ROOT_ORIGIN), 301);
     }
 
+    // 2c. The old web host's public pages move to the main site (#98). Only the
+    //     public pages: sign-in, Stripe and the Zoom install all come back to
+    //     WEB_ORIGIN on this host, so its app routes keep being served. After
+    //     every API route above (a 301 would drop a POST body) and before the
+    //     apex rule, so the bare timer.simple-tech.app/ takes one hop, not two.
+    //     The helper holds the https and ROOT_ORIGIN guards. Built by hand
+    //     because Response.redirect() cannot carry Cache-Control, and without
+    //     one Chromium keeps a 301 until the user clears the cache. A day
+    //     still reads as a permanent move to Google, and lets a rollback reach
+    //     every browser within a day.
+    //
+    //     One exception: a marked browser's bare / stays for the reconnect page
+    //     (4a). WEB_ORIGIN's root is where Zoom drops a user whose approval
+    //     lapsed, and the mark is host-only, so the main site could not read it.
+    //     For the same reason the bare / 301 is never cached: its answer
+    //     depends on the cookie, and a browser that cached it before it was
+    //     marked would skip the reconnect page.
+    const moved = reconnectRedirect(request, url) ? null : oldWebHostTarget(url, env);
+    if (moved) {
+      const bareRoot = url.pathname === '/' && !url.search;
+      return new Response(null, {
+        status: 301,
+        headers: { Location: moved, 'Cache-Control': bareRoot ? 'no-store' : 'public, max-age=86400' },
+      });
+    }
+
     // 2. Canonical host: apex -> www (301). The zoom.<domain> host is a
     //    separate app and is left alone.
     //
@@ -298,7 +329,8 @@ export default {
     //     the install landing above) and opens a bare / goes to the reconnect
     //     page: that is where Zoom drops a user whose approval lapsed. Any query
     //     string, the zoom.<domain> host and unmarked browsers fall through to
-    //     the homepage (worker/reconnect.js). After the apex redirect, so a bare
+    //     the homepage (worker/reconnect.js). Step 2c leaves a marked bare / on
+    //     the old web host for this check. After the apex redirect, so a bare
     //     apex visit canonicalizes to www first, and before the asset lookup, so
     //     no cached homepage answers ahead of it.
     const reconnect = reconnectRedirect(request, url);
