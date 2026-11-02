@@ -29,6 +29,8 @@ test('timer basic flow', async ({ page }) => {
 
   // Continue the timer
   await page.getByRole('button', { name: /CONTINUE/i }).click();
+  // CONTINUE minimizes the panel too, like START — restore it
+  await page.getByTitle('Show control panel').click();
   await page.waitForTimeout(500);
 
   // Finish the speech

@@ -116,6 +116,7 @@ test.describe('Web App — Performance @performance', () => {
     await page.waitForTimeout(500);
     await page.getByRole('button', { name: /STOP/i }).click();
     await page.getByRole('button', { name: /CONTINUE/i }).click();
+    await page.getByTitle('Show control panel').click();
     await page.getByRole('button', { name: /AGENDA/i }).click();
     await page.getByRole('button', { name: /LIVE/i }).click();
 
