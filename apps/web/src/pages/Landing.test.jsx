@@ -139,6 +139,22 @@ describe('Landing', () => {
     expect(screen.getByText(/California to EMEA to Southeast Asia/)).toBeInTheDocument();
     expect(screen.getByText(/fun, low-stress way to participate/)).toBeInTheDocument();
   });
+
+  // The role section links the role guides from its body, not only the footer,
+  // so "Toastmasters timer" reads as one topic across the role and the tool.
+  it('links the timer role guides from the Timer role section', () => {
+    render(
+      <MemoryRouter>
+        <Landing />
+      </MemoryRouter>
+    );
+
+    const section = document.getElementById('timer-role');
+    expect(within(section).getByRole('link', { name: 'Toastmasters Timer role guide' })).toHaveAttribute('href', '/toastmasters-timer-role-guide');
+    expect(within(section).getByRole('link', { name: 'Timer script' })).toHaveAttribute('href', '/toastmasters-timer-script');
+    expect(within(section).getByRole('link', { name: 'Toastmasters timing chart' })).toHaveAttribute('href', '/toastmasters-timing-chart');
+    expect(within(section).getByRole('link', { name: 'speech type' })).toHaveAttribute('href', '/toastmasters-speech-types-and-timing');
+  });
 });
 
 describe('Landing demo placement', () => {
