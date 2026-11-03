@@ -56,8 +56,14 @@ export default memo(function LiveTab() {
   } = useTimer();
   const { showToast } = useToast();
 
+  // The role the picker starts on: Standard Speech, unless this device or its
+  // club removed it from the list. A <select> whose value is not among its
+  // options shows the first option while the state keeps the removed role, and
+  // START then finds no rules for it ("Please set timing rules first").
+  const defaultRole = roleOptions.includes('Standard Speech') ? 'Standard Speech' : roleOptions[0] || 'Standard Speech';
+
   const [speakerName, setSpeakerName] = useState(currentSpeaker?.name || '');
-  const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || 'Standard Speech');
+  const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || defaultRole);
   const [customRules, setCustomRules] = useState({ ...DEFAULT_CUSTOM_RULES });
   // Break Time counts down from this. Not persisted: 10 minutes is the meeting
   // norm, and a club that broke for 5 yesterday should not silently break for
@@ -197,6 +203,15 @@ export default memo(function LiveTab() {
   // over — which is why this tracks elapsedTime rather than isRunning alone.
   const speechActive = isRunning || elapsedTime > 0;
 
+  // The selected role left the list (removed in Edit Rules, or by a club
+  // publish): move to the default rather than leave START with no rules. Never
+  // under a speech in progress, which carries its own rules on the speaker.
+  useEffect(() => {
+    if (speechActive || roleOptions.length === 0 || roleOptions.includes(selectedRole)) return;
+    setSelectedRole(defaultRole);
+    setCurrentSpeaker({ name: speakerName || '', role: defaultRole });
+  }, [speechActive, roleOptions, selectedRole, defaultRole, speakerName, setCurrentSpeaker]);
+
   // Whether a color belongs on the organizer's tile right now. The video modes
   // run only while a speech is being timed: nothing before START, nothing once it
   // is finished or reset, so the organizer gets their normal video back between
@@ -287,7 +302,7 @@ export default memo(function LiveTab() {
       // If switching to Custom role but no rules yet, keep current customRules (don't reset)
     } else {
       setSpeakerName('');
-      setSelectedRole('Standard Speech');
+      setSelectedRole(defaultRole);
       // Don't reset custom rules here - they should persist until explicitly changed
     }
   }, [currentSpeaker]);
