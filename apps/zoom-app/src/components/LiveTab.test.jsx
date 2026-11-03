@@ -193,3 +193,40 @@ describe('RESET and the "Show my own background" preference', () => {
     expect(resetButton().getAttribute('data-tooltip')).toContain('hand your own background back');
   });
 });
+
+describe('the starting role when Standard Speech is removed', () => {
+  // A device (or club) that removed Standard Speech and added its own roles.
+  const CHAIR = { green: 60, yellow: 90, red: 120, graceAfterRed: 30 };
+  beforeEach(() => {
+    localStorage.setItem('toastmaster_hidden_builtin_roles', JSON.stringify(['Standard Speech']));
+    localStorage.setItem('toastmaster_role_rules', JSON.stringify({ ChairToast1: CHAIR }));
+    localStorage.setItem('toastmaster_role_order', JSON.stringify(['ChairToast1']));
+  });
+
+  const rolePicker = () => screen.getAllByRole('combobox')[0];
+
+  it('starts on the first role in the list and times it with that role\'s rules', () => {
+    renderLive();
+
+    expect(rolePicker()).toHaveValue('Short Roles');
+    expect(screen.getByText(/Timing rules: Green: 30 seconds/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /start/i }));
+
+    expect(screen.queryByText('Please set timing rules first')).not.toBeInTheDocument();
+    expect(applyOverlay).toHaveBeenCalled();
+  });
+
+  it('starts on an added role when every built-in is removed, and START works', () => {
+    localStorage.setItem('toastmaster_hidden_builtin_roles', JSON.stringify(Object.keys(DEFAULT_ROLE_RULES)));
+    renderLive();
+
+    expect(rolePicker()).toHaveValue('ChairToast1');
+    expect(screen.getByText(/Timing rules: Green: 1 minute/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /start/i }));
+
+    expect(screen.queryByText('Please set timing rules first')).not.toBeInTheDocument();
+    expect(applyOverlay).toHaveBeenCalled();
+  });
+});

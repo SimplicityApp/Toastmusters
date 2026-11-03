@@ -16,8 +16,41 @@ client returns all three; log both (`Zoom SDK configured` and the
 | status | Meaning | What the app does |
 |---|---|---|
 | `unauthenticated` | Not signed into Zoom at all. A true guest, in the client's **basic mode**. | Nothing. Not the organizer; `promptAuthorize` is refused anyway (`disabled_for_basic_mode`). |
-| `authenticated` | Signed into Zoom, has **not** added the app (or the grant lapsed). Zoom asks permission on every `setVirtualBackground`. | `CONNECTION_UNAUTHORIZED`: amber banner + "Approve in Zoom" modal. |
-| `authorized` | Added the app and consented to the current scopes. | Nothing — the healthy state. |
+| `authenticated` | Signed into Zoom, has **not** added the app (or the grant lapsed). Zoom asks permission on every `setVirtualBackground`. | `CONNECTION_UNAUTHORIZED`: amber banner + "Approve in Zoom" modal — on open, or mid-session when a connected user drops to it. |
+| `authorized` | Added the app and consented to the current scopes. | Nothing — the healthy state. While the guest-mode notice is up, it stands the notice down with an "Approved" toast. |
+
+### The status contract is an assumption — re-check it on every upgrade
+
+*Recorded 2026-10-06, against `@zoom/appssdk` `^0.16.36`
+(`apps/zoom-app/package.json`) and desktop client 7.2.x.*
+
+All of the in-client grant detection in `ZoomConnectionNotice` rests on three
+things Zoom does not guarantee. Re-verify each one on every Zoom SDK or client
+upgrade, using the guest-mode setup below and Step 1c of `ZOOM_TEST_PLAN.md`.
+
+| Assumption | What breaks if it stops holding | Status |
+|---|---|---|
+| `authenticated` means the grant dropped: never added, removed, or lapsed after a scope change. | The notice raises guest mode for a user whose grant is fine. | Verified on open (Step 1c). |
+| `authorized` means the grant is intact **for the current scopes**. | A user missing a newly added scope stays `authorized` and the notice says nothing. Inside Zoom the app cannot see which scopes were granted, so only web sign-in (`reason=scope_not_granted`, see `WEB_SIGNIN.md`) would catch it. | Verified on open; not verified against a missing scope. |
+| `onMyUserContextChange` fires when the grant **drops** mid-session, not only on role and screen-name changes. | A grant that drops while the panel is open is caught only at the next open, as before. The mid-session notice is correct but stays dormant. | **Unverified.** Zoom documents the event for role and screen-name changes. It is observed firing on approval (`authenticated` → `authorized`, log line in the table at the end). Whether it fires on a drop is open; record the result here once tested. |
+
+How the notice reads a status report, once the open-time check has resolved
+(reports arriving before that are ignored, so a drop is never counted twice):
+
+| Status Zoom now reports | Notice currently shows | Result |
+|---|---|---|
+| `authenticated` | nothing (connected) | Raise the guest-mode notice; `zoom_connection_degraded` with `detected: 'mid_session'` |
+| `authorized` | guest-mode notice | Clear it, "Approved" toast, `zoom_reauthorized` |
+| `authorized` | nothing (connected) | Nothing — a role or screen-name change |
+| `unauthenticated` or unknown (`null`) | anything | Nothing — not evidence of a lost grant, as on open |
+| anything | a re-add notice (revoked / outside Zoom) | Nothing — those are decided at open only |
+
+The open-time check sends `detected: 'on_open'` on the same event. The modal
+still shows at most once per Zoom session (`sessionStorage`
+`toastmaster_reconnect_modal_seen`), whichever way the notice came up; a
+second drop in the same meeting brings back only the banner. The banner goes
+up at once, but the modal never covers a running timer: while a speech is
+being timed it stays queued, and it opens when the timer stops.
 
 ## `promptAuthorize` is contextual, not a capability grant
 

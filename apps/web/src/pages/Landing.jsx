@@ -600,6 +600,8 @@ const BTN_SECONDARY = 'inline-flex items-center justify-center rounded-full bord
 // web_timer, marketplace, reconnect); `location` is where it sits. The
 // static guide pages and the reconnect page send the same event
 // (public/site-analytics.js, Reconnect.jsx).
+const INLINE_LINK = 'font-medium text-ink underline underline-offset-4 decoration-stone-300 hover:decoration-ink transition-colors'
+
 const trackCta = (cta, location) => () => trackEvent('cta_clicked', { cta, location, page: '/' })
 
 export default function Landing() {
@@ -890,6 +892,17 @@ export default function Landing() {
           <h2 className="font-display text-3xl font-extrabold tracking-tight mb-4">What is the Timer role in Toastmasters?</h2>
           <p className="text-stone-600 leading-relaxed mb-10">
             The Timer is one of the most important meeting roles in Toastmasters. The Timer tracks how long each speaker talks and signals them using colored lights — green, yellow, and red — so they stay within their allotted time. Keeping speeches on time ensures the meeting runs smoothly and every speaker gets a fair chance to practice.
+          </p>
+          {/* In-body links to the role guides. The footer links them too, but a
+              link in the section that explains the role tells search engines
+              these pages belong to the "Toastmasters timer" topic, which mixes
+              the meeting role with timer tools. */}
+          <p className="text-stone-600 leading-relaxed -mt-6 mb-10">
+            New to the role? Read the{' '}
+            <a href="/toastmasters-timer-role-guide" className={INLINE_LINK}>Toastmasters Timer role guide</a>, follow the word-for-word{' '}
+            <a href="/toastmasters-timer-script" className={INLINE_LINK}>Timer script</a>, and keep the{' '}
+            <a href="/toastmasters-timing-chart" className={INLINE_LINK}>Toastmasters timing chart</a> to hand for every{' '}
+            <a href="/toastmasters-speech-types-and-timing" className={INLINE_LINK}>speech type</a>.
           </p>
 
           <h2 className="font-display text-2xl font-extrabold tracking-tight mb-3">Standard Toastmasters timing rules</h2>
