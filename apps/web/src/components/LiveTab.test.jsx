@@ -247,3 +247,22 @@ describe('LiveTab "Time this" deep link', () => {
     expect(window.location.search).toBe('');
   });
 });
+
+describe('LiveTab starting role when Standard Speech is removed', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('toastmaster_hidden_builtin_roles', JSON.stringify(['Standard Speech']));
+  });
+  afterEach(() => localStorage.clear());
+
+  it('starts on the first role in the list, and START times it', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LiveTab />);
+
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('Short Roles');
+    await user.click(screen.getByRole('button', { name: /start/i }));
+
+    expect(screen.queryByText('Please set timing rules first')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+  });
+});

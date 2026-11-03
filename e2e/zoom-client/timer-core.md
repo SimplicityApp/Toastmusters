@@ -85,6 +85,14 @@ Expect: starts at 00:00, no red card. (Needs an hour of waiting, or editing the 
 timestamp in `localStorage`, which the skill may do as a shortcut.)
 Evidence: `localStorage` timestamp and the booted state.
 
+### TC-10 · auto · Starting role when Standard Speech is removed
+Do: with Standard Speech removed from the role list (Edit Rules, or a club publish without
+it), open or refresh the app (⋯ → Refresh app) and press START without touching the role.
+Expect: the role picker shows the first role in the list, the "Timing rules" line matches
+that role, and START runs the timer. No "Please set timing rules first" warning.
+Evidence: screenshot of the picker and the running timer; a `timer_started` event in
+PostHog carrying that role.
+
 ## Not covered
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).

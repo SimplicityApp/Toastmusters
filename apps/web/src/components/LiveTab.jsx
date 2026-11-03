@@ -43,8 +43,14 @@ export default memo(function LiveTab({ onTimerStart }) {
   // way it does in the meeting.
   const { kit: clubKit } = useClub();
 
+  // The role the picker starts on: Standard Speech, unless this device or its
+  // club removed it from the list. A <select> whose value is not among its
+  // options shows the first option while the state keeps the removed role, and
+  // START then finds no rules for it ("Please set timing rules first").
+  const defaultRole = roleOptions.includes('Standard Speech') ? 'Standard Speech' : roleOptions[0] || 'Standard Speech';
+
   const [speakerName, setSpeakerName] = useState(currentSpeaker?.name || '');
-  const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || 'Standard Speech');
+  const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || defaultRole);
   const [customRules, setCustomRules] = useState({ ...DEFAULT_CUSTOM_RULES });
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const [showEditRulesModal, setShowEditRulesModal] = useState(false);
@@ -103,9 +109,19 @@ export default memo(function LiveTab({ onTimerStart }) {
       }
     } else {
       setSpeakerName('');
-      setSelectedRole('Standard Speech');
+      setSelectedRole(defaultRole);
     }
   }, [currentSpeaker]);
+
+  // The selected role left the list (removed in Edit Rules, or by a club
+  // publish): move to the default rather than leave START with no rules. Never
+  // under a speech in progress, which carries its own rules on the speaker.
+  const speechActive = isRunning || elapsedTime > 0;
+  useEffect(() => {
+    if (speechActive || roleOptions.length === 0 || roleOptions.includes(selectedRole)) return;
+    setSelectedRole(defaultRole);
+    setCurrentSpeaker({ name: speakerName || '', role: defaultRole });
+  }, [speechActive, roleOptions, selectedRole, defaultRole, speakerName, setCurrentSpeaker]);
 
   useEffect(() => {
     if (selectedRole === 'Custom' && roleRules['Custom']) {
