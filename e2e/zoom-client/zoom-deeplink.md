@@ -40,6 +40,9 @@ Expect: all use the dev client id (`kgpoX2A6TY2BvdctzK9iw`); no `DsFHK5sNQs2_VFy
 Evidence: the hrefs.
 Reviewed 2026-11-02 against the Timer role section's new in-body guide links: no Zoom link
 changed, so no step changes.
+Reviewed 2026-11-02 against #94: `appLinks.js` gains `ZOOM_MANAGE_APPS_URL` and
+`ZOOM_SIGNIN_PERMISSION_HELP_URL` for the web sign-in failure actions; `zoomAppDeeplink()` is
+unchanged, so no step changes.
 
 ### DL-02 · auto · Zoom resolves the link
 Do: `curl -s -o /dev/null -w '%{http_code} %{redirect_url}' <deeplink>` for the page's link,

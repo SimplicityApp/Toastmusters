@@ -1,8 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { resetEntitlementForTests, resetFlagsForTests, setFlags } from '@toastmaster-timer/shared';
 import { resetWebIdentityForTests } from '../utils/webIdentity';
+import { trackEvent } from '../utils/posthog';
+import SignInFailureNotice from '../components/SignInFailureNotice';
 import Account from './Account';
 
 function stubMe(body, status = 200) {
@@ -48,6 +50,28 @@ describe('Account', () => {
       </MemoryRouter>
     );
     expect(await screen.findByRole('alert')).toHaveTextContent('closed the Zoom sign-in');
+  });
+
+  // The global strip skips /account, so the inline notice is the only one there
+  // and the only one that records being shown.
+  it('offers Sign in again on a failure, and the strip stays silent', async () => {
+    stubMe({ error: 'Unauthorized' }, 401);
+    setFlags({ pro: true });
+    trackEvent.mockClear();
+    render(
+      <MemoryRouter initialEntries={['/account?signin=failed&reason=denied&x=1']}>
+        <SignInFailureNotice />
+        <Account />
+      </MemoryRouter>
+    );
+    const alert = await screen.findByRole('alert');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(within(alert).getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      `/api/auth/zoom/start?returnTo=${encodeURIComponent('/account?x=1')}`
+    );
+    const shown = trackEvent.mock.calls.filter(([event]) => event === 'signin_failure_shown');
+    expect(shown).toEqual([['signin_failure_shown', { reason: 'denied', surface: 'account' }]]);
   });
 
   it('shows the plan and billing controls for a signed-in Pro user', async () => {

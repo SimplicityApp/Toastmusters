@@ -1,5 +1,6 @@
 import { verifyZoomSignature, generateCrcResponse } from './zoom-verify.js';
 import { purgeUserData } from './user-data.js';
+import { capturePostHogEvent } from './posthog.js';
 
 /** JSON Response helper. */
 function json(data, status = 200) {
@@ -7,32 +8,6 @@ function json(data, status = 200) {
     status,
     headers: { 'content-type': 'application/json' },
   });
-}
-
-/**
- * Send an event to PostHog via the HTTP capture API.
- */
-async function capturePostHogEvent(env, eventName, properties = {}) {
-  const apiKey = env.POSTHOG_API_KEY;
-  if (!apiKey) return;
-
-  try {
-    await fetch('https://us.i.posthog.com/capture/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        event: eventName,
-        properties: {
-          distinct_id: properties.distinct_id || 'zoom-webhook',
-          ...properties,
-        },
-        timestamp: new Date().toISOString(),
-      }),
-    });
-  } catch (err) {
-    console.error('PostHog capture failed:', err.message);
-  }
 }
 
 /**

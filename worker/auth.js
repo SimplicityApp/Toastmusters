@@ -6,6 +6,7 @@ import { flagEnabled } from './flags.js';
 // contact.js imports the Zoom round trips from here; the cycle is safe because
 // neither module touches the other's exports until a request is handled.
 import { saveZoomContact } from './contact.js';
+import { capturePostHogEvent } from './posthog.js';
 import { ZOOM_AUTHORIZE_URL } from '../packages/shared/appLinks.js';
 import { oldWebHostTarget } from './old-web-host.js';
 
@@ -183,6 +184,96 @@ export function sanitizeReturnTo(value, fallback = '/timer/app') {
   return value;
 }
 
+/** The query params `failed()` adds to a return URL. */
+const SIGNIN_PARAMS = ['signin', 'reason'];
+
+/**
+ * A successful sign-in's return path, minus any earlier failure params:
+ * "/account?signin=failed&reason=x&tab=1" → "/account?tab=1".
+ *
+ * Without this a retry started from a failed URL — the header's sign-in link
+ * carries `pathname + search` as its `returnTo` — would land back on
+ * `?signin=failed` and show the old failure after a sign-in that worked. A path
+ * with neither param is returned untouched, so nothing else is re-encoded.
+ */
+export function withoutSigninParams(returnTo) {
+  const url = new URL(returnTo, 'https://return.invalid');
+  if (!SIGNIN_PARAMS.some((name) => url.searchParams.has(name))) return returnTo;
+  for (const name of SIGNIN_PARAMS) url.searchParams.delete(name);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+// ---------------------------------------------------------------------------
+// Why GET /users/me failed
+// ---------------------------------------------------------------------------
+
+/**
+ * Scopes that let a user-managed app read GET /v2/users/me: the granular
+ * `user:read:user` (and its admin form), or the classic `user:read` (and its
+ * admin form) on an older app.
+ */
+const USER_READ_SCOPES = new Set(['user:read:user', 'user:read:user:admin', 'user:read', 'user:read:admin']);
+
+/**
+ * Whether the token response's `scope` shows the user-read permission missing.
+ *
+ * True only when Zoom sent `scope` as a string and it names none of the
+ * user-read scopes. An absent or non-string `scope` is "unknown", not
+ * "missing": Zoom documents the field, but one report says it can lag a
+ * Marketplace change, so it is never trusted on its own to block a sign-in.
+ *
+ * @param {unknown} scope - the token response's space-separated `scope`
+ * @returns {boolean}
+ */
+export function tokenLacksUserRead(scope) {
+  if (typeof scope !== 'string') return false;
+  return !scope.split(/[\s,]+/).some((s) => USER_READ_SCOPES.has(s));
+}
+
+/**
+ * Tell a missing permission apart from a bad token or an outage, after
+ * GET /v2/users/me answered non-2xx.
+ *
+ * Two independent signals, either one is enough:
+ *  - the token's granted `scope` names no user-read scope (tokenLacksUserRead);
+ *  - Zoom's error says so: `code: 4711`, or (for the rare `code: 104`) a message
+ *    containing "does not contain scope".
+ * A bad or expired token is 401 / code 124 and matches neither.
+ *
+ * Logs the status, Zoom's code and which signal fired — never the token —
+ * so production logs show what a scope-less token really returns.
+ *
+ * Never throws: an unreadable body counts as "no code".
+ *
+ * @param {Response} meRes - the failed /users/me response
+ * @param {unknown} grantedScope - the token response's `scope`
+ * @returns {Promise<{reason: 'scope_not_granted'|'profile',
+ *   details: {zoom_status: number|null, zoom_code: number|string|null,
+ *   scope_signal?: 'token_scope'|'error_code'|'both'}}>}
+ */
+export async function classifyProfileFailure(meRes, grantedScope) {
+  let body = null;
+  try {
+    body = await meRes.json();
+  } catch {
+    body = null;
+  }
+  const code = body && typeof body === 'object' && body.code != null ? body.code : null;
+  const message = body && typeof body === 'object' && typeof body.message === 'string' ? body.message : '';
+
+  const byToken = tokenLacksUserRead(grantedScope);
+  const byError = Number(code) === 4711 || /does not contain scope/i.test(message);
+
+  const status = typeof meRes?.status === 'number' ? meRes.status : null;
+  const signals = [byToken && 'token-scope', byError && 'error-code'].filter(Boolean);
+  console.error('Zoom users/me failed:', status, code ?? '-', signals.join(',') || 'no-scope-signal');
+
+  const details = { zoom_status: status, zoom_code: code };
+  if (!byToken && !byError) return { reason: 'profile', details };
+  details.scope_signal = byToken && byError ? 'both' : byToken ? 'token_scope' : 'error_code';
+  return { reason: 'scope_not_granted', details };
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -315,7 +406,7 @@ export async function handleAuthStart(request, url, env, { now = Date.now(), ctx
  * @param {string} code
  * @param {string} redirectUri
  * @param {{codeVerifier?: string, fetchImpl?: typeof fetch}} [options]
- * @returns {Promise<{ok: boolean, accessToken: string|null, status: number}>}
+ * @returns {Promise<{ok: boolean, accessToken: string|null, status: number, scope: string|null}>}
  */
 export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, fetchImpl = fetch } = {}) {
   const basic = Buffer.from(`${env.ZOOM_CLIENT_ID}:${env.ZOOM_CLIENT_SECRET}`).toString('base64');
@@ -340,7 +431,8 @@ export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, f
   }
   const tokens = await tokenRes.json();
   const accessToken = typeof tokens?.access_token === 'string' && tokens.access_token ? tokens.access_token : null;
-  return { ok: Boolean(accessToken), accessToken, status: tokenRes.status };
+  const scope = typeof tokens?.scope === 'string' ? tokens.scope : null;
+  return { ok: Boolean(accessToken), accessToken, status: tokenRes.status, scope };
 }
 
 /**
@@ -351,14 +443,16 @@ export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, f
  *
  * @param {string} accessToken
  * @param {typeof fetch} [fetchImpl]
- * @returns {Promise<{ok: boolean, me: Object|null, status: number}>}
+ * @returns {Promise<{ok: boolean, me: Object|null, status: number, response?: Response}>}
  */
 export async function fetchZoomMe(accessToken, fetchImpl = fetch) {
   const meRes = await fetchImpl(ZOOM_ME_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!meRes.ok) {
     // 400/401 here almost always means the app lacks the user:read scope.
     console.error('Zoom users/me failed:', meRes.status);
-    return { ok: false, me: null, status: meRes.status };
+    // The unread response rides along, so the sign-in callback can tell a
+    // missing scope from a bad token (classifyProfileFailure).
+    return { ok: false, me: null, status: meRes.status, response: meRes };
   }
   return { ok: true, me: await meRes.json(), status: meRes.status };
 }
@@ -376,6 +470,13 @@ export async function fetchZoomMe(accessToken, fetchImpl = fetch) {
  * shares the URL, and a real install redirect has to keep working while
  * sign-in is dark. Checked after the state, so an install never costs a flag
  * lookup.
+ *
+ * Every callback that gets past those checks records exactly one outcome to
+ * PostHog — `web_signin_succeeded` or `web_signin_failed` with its reason — so
+ * the two together are every sign-in that reached Zoom's callback. A missing
+ * permission also records `zoom_scope_not_granted`. The events are person-less
+ * counters (a failed sign-in never learns the Zoom id) and run under
+ * `ctx.waitUntil`, so the redirect never waits on PostHog.
  *
  * @returns {Promise<Response|null>}
  */
@@ -399,11 +500,34 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
   // asked for. Switches itself off if WEB_ORIGIN moves: the helper then answers
   // null for it.
   if (oldWebHostTarget(new URL(returnTo, origin), env)) returnTo = '/account';
-  const failed = (reason) => {
+  // One id per attempt until the Zoom id is known; a success overrides it with
+  // the same `zoom:<uid>` the clients identify as.
+  const track = async (event, { distinct_id = `signin:${payload.nonce}`, ...props } = {}) => {
+    const capture = capturePostHogEvent(
+      env,
+      event,
+      { distinct_id, $process_person_profile: false, surface: 'web', ...props },
+      { fetchImpl }
+    );
+    if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(capture);
+    else await capture;
+  };
+
+  const failed = async (reason, details = {}) => {
+    await track('web_signin_failed', { reason, ...details });
+    if (reason === 'scope_not_granted') await track('zoom_scope_not_granted', details);
     const target = new URL(returnTo, origin);
     target.searchParams.set('signin', 'failed');
     target.searchParams.set('reason', reason);
     return redirect(target.toString(), [clearOauthCookie()]);
+  };
+
+  const succeeded = async (uid, session) => {
+    await track('web_signin_succeeded', { distinct_id: `zoom:${uid}` });
+    return redirect(new URL(withoutSigninParams(returnTo), origin).toString(), [
+      sessionCookie(session),
+      clearOauthCookie(),
+    ]);
   };
 
   const nonce = parseCookies(request.headers.get('cookie'))[OAUTH_COOKIE];
@@ -415,10 +539,15 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
 
   try {
     const tokens = await exchangeZoomCode(env, code, `${origin}/oauth/redirect`, { fetchImpl });
-    if (!tokens.ok) return failed('exchange');
+    if (!tokens.ok) return failed('exchange', tokens.status >= 300 ? { zoom_status: tokens.status } : {});
 
+    // Always asked, whatever `tokens.scope` says: a profile read that works
+    // signs the user in. The scope only helps explain a read that fails.
     const profile = await fetchZoomMe(tokens.accessToken, fetchImpl);
-    if (!profile.ok) return failed('profile');
+    if (!profile.ok) {
+      const { reason, details } = await classifyProfileFailure(profile.response, tokens.scope);
+      return failed(reason, details);
+    }
     const { me } = profile;
     const uid = typeof me?.id === 'string' && me.id ? me.id : null;
     if (!uid) return failed('profile');
@@ -434,7 +563,7 @@ export async function handleOAuthCallback(request, url, env, { fetchImpl = fetch
     const session = mintSessionToken(uid, env.SESSION_SIGNING_KEY, now, WEB_SESSION_TTL_MS);
     if (!session) return failed('session');
 
-    return redirect(new URL(returnTo, origin).toString(), [sessionCookie(session), clearOauthCookie()]);
+    return succeeded(uid, session);
   } catch (error) {
     console.error('Sign in with Zoom failed:', error?.message || error);
     return failed('network');

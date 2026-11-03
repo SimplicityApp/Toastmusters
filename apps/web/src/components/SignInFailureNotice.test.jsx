@@ -1,7 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { trackEvent } from '../utils/posthog';
 import SignInFailureNotice from './SignInFailureNotice';
+
+beforeEach(() => {
+  trackEvent.mockClear();
+});
 
 const at = (path) =>
   render(
@@ -30,6 +35,21 @@ describe('SignInFailureNotice', () => {
   it('defers to the account page', () => {
     at('/account?signin=failed&reason=denied');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('offers Sign in again, back to the same page without the failure params', () => {
+    at('/timer/app?signin=failed&reason=exchange');
+    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      `/api/auth/zoom/start?returnTo=${encodeURIComponent('/timer/app')}`
+    );
+    expect(trackEvent).toHaveBeenCalledWith('signin_failure_shown', { reason: 'exchange', surface: 'banner' });
+  });
+
+  it('records nothing when there is no notice', () => {
+    at('/timer/app');
+    at('/account?signin=failed&reason=denied');
+    expect(trackEvent).not.toHaveBeenCalledWith('signin_failure_shown', expect.anything());
   });
 
   it('can be dismissed', async () => {
