@@ -76,12 +76,24 @@ describe('the card images storage note', () => {
     expect(upgradeLink()).toBeNull();
   });
 
-  it('tells a Pro user their images follow them, whatever the flag says', async () => {
+  it('tells a Pro user their images follow them once pro is released', async () => {
+    setEntitlement({ plan: 'pro', status: 'active', entitled: true, source: 'subscription' });
+    setFlags({ pro: true });
+    await renderModal();
+
+    expect(screen.getByText(/backed up and follow you to your other devices/)).toBeInTheDocument();
+    expect(upgradeLink()).toBeNull();
+  });
+
+  // The pro flag is the source of truth for Pro in the UI, so a Pro plan reads
+  // as free while it is off.
+  it('treats a Pro plan as free while pro is unreleased', async () => {
     setEntitlement({ plan: 'pro', status: 'active', entitled: true, source: 'subscription' });
     setFlags({ pro: false });
     await renderModal();
 
-    expect(screen.getByText(/backed up and follow you to your other devices/)).toBeInTheDocument();
+    expect(screen.getByText(/stored only in this browser/)).toBeInTheDocument();
+    expect(screen.queryByText(/backed up and follow you/)).toBeNull();
     expect(upgradeLink()).toBeNull();
   });
 });

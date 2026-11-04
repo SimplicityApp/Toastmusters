@@ -58,7 +58,7 @@ function runThrough(statuses, { isRunning = true } = {}) {
 
 describe('the card-change chime', () => {
   it('chimes each card for a Pro user who turned it on', () => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement(PRO);
     updateSoundSettings({ cues: true, volume: 0.5 });
     runThrough(['green', 'yellow', 'red']);
@@ -70,15 +70,23 @@ describe('the card-change chime', () => {
   });
 
   it('stays quiet when turned off', () => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement(PRO);
     runThrough(['green', 'yellow']);
     expect(soundEngine.playCue).not.toHaveBeenCalled();
   });
 
   it('stays quiet for a free user, even with the setting saved on', () => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement({ plan: 'free' });
+    updateSoundSettings({ cues: true });
+    runThrough(['green']);
+    expect(soundEngine.playCue).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet for a Pro plan while pro is unreleased', () => {
+    setFlags({ sounds: true, pro: false });
+    setEntitlement(PRO);
     updateSoundSettings({ cues: true });
     runThrough(['green']);
     expect(soundEngine.playCue).not.toHaveBeenCalled();
@@ -93,7 +101,7 @@ describe('the card-change chime', () => {
   });
 
   it('does not chime on a reset back to blue', () => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement(PRO);
     updateSoundSettings({ cues: true });
     runThrough(['green', 'blue']);
@@ -103,7 +111,7 @@ describe('the card-change chime', () => {
 
 describe('break music', () => {
   beforeEach(() => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement(PRO);
     updateSoundSettings({ music: true });
   });
@@ -135,7 +143,7 @@ describe('break music', () => {
 
 describe('the Sounds modal', () => {
   it('lets a Pro user turn the chime on', () => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement(PRO);
     render(<SoundsModal isOpen onClose={() => {}} />);
     const chime = screen.getByRole('checkbox', { name: /chime when the card changes/i });
@@ -169,8 +177,18 @@ describe('the Sounds modal', () => {
     expect(screen.queryByRole('button', { name: /upgrade to pro/i })).toBeNull();
   });
 
+  it('locks a Pro plan as a Pro feature while pro itself is unreleased', () => {
+    setFlags({ sounds: false, pro: false });
+    setEntitlement(PRO);
+    render(<SoundsModal isOpen onClose={() => {}} />);
+    expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
+    expect(screen.getByText(/sounds are a pro feature/i)).toBeInTheDocument();
+    expect(screen.queryByText(/coming soon/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /upgrade to pro/i })).toBeNull();
+  });
+
   it('shows no lock to a Pro user once sounds are released', () => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement(PRO);
     render(<SoundsModal isOpen onClose={() => {}} />);
     expect(screen.queryByLabelText('Locked')).toBeNull();
@@ -191,7 +209,7 @@ describe('the Sounds modal', () => {
   });
 
   it('stops a music preview on close', () => {
-    setFlags({ sounds: true });
+    setFlags({ sounds: true, pro: true });
     setEntitlement(PRO);
     const onClose = vi.fn();
     render(<SoundsModal isOpen onClose={onClose} />);

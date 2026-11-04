@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
         json: {
           uid: 'e2e-sounds',
           entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'subscription' },
-          flags: { sounds: true },
+          flags: { sounds: true, pro: true },
         },
       });
     }
@@ -80,4 +80,26 @@ test('a free user sees Sounds locked, with every control disabled', async ({ pag
   await expect(page.getByText('Sounds are a Pro feature.')).toBeVisible();
   await expect(page.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
   await expect(page.getByRole('slider', { name: 'Volume' })).toBeDisabled();
+});
+
+test('a Pro plan sees Sounds locked as Pro while pro is unreleased', async ({ page }) => {
+  // The pro flag is the source of truth for Pro in the UI: with it off, a
+  // paying user is shown the same lock as a free one, not "coming soon".
+  await page.route('**/api/me*', (route) =>
+    route.fulfill({
+      json: {
+        uid: 'e2e-pro-dark',
+        entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'subscription' },
+        flags: { sounds: false, pro: false },
+      },
+    })
+  );
+  await page.goto('/timer/app');
+  const button = page.getByRole('button', { name: /^Sounds \(locked\)/ });
+  await expect(button).toHaveAttribute('title', 'Sounds are a Pro feature. Upgrade to Pro to use them.');
+
+  await button.click();
+  await expect(page.getByText('Sounds are a Pro feature.')).toBeVisible();
+  await expect(page.getByText(/coming soon/i)).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
 });
