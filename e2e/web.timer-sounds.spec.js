@@ -66,3 +66,18 @@ test('the Sounds modal turns the chime off', async ({ page }) => {
   await page.waitForTimeout(3500);
   expect(await page.evaluate(() => window.__tones.length)).toBe(0);
 });
+
+test('a free user sees Sounds locked, with every control disabled', async ({ page }) => {
+  // Registered after beforeEach's route, so it answers /api/me first.
+  await page.route('**/api/me*', (route) =>
+    route.fulfill({ json: { uid: 'e2e-free', entitlement: { plan: 'free' }, flags: { sounds: false, pro: false } } })
+  );
+  await page.goto('/timer/app');
+  const button = page.getByRole('button', { name: /^Sounds \(locked\)/ });
+  await expect(button).toHaveAttribute('title', 'Sounds are a Pro feature. Upgrade to Pro to use them.');
+
+  await button.click();
+  await expect(page.getByText('Sounds are a Pro feature.')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
+  await expect(page.getByRole('slider', { name: 'Volume' })).toBeDisabled();
+});

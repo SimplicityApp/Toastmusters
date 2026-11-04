@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, memo, lazy, Suspense } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { Play, Square, RotateCcw, Image, Volume2 } from 'lucide-react';
+import { Play, Square, RotateCcw, Image, Volume2, Lock } from 'lucide-react';
 import SpeakerInput from './SpeakerInput';
 import TimerDisplay from './TimerDisplay';
 const EditRulesModal = lazy(() => import('./EditRulesModal'));
@@ -14,7 +14,7 @@ import { parseSpeakerFromSearch, stripSpeakerParams } from '../utils/speakerDeep
 import { getCardImageUrl, preloadCardImages } from '../utils/cardArtwork';
 import { trackEvent } from '../utils/posthog';
 import { useClub } from '../hooks/useClub';
-import { useSoundsAccess } from '../hooks/useSounds';
+import { SOUNDS_LOCK_MESSAGES, useSoundsAccess } from '../hooks/useSounds';
 import { clubBadgePlacement } from '@toastmaster-timer/shared';
 
 const PREVIEW_COLORS = [
@@ -58,7 +58,7 @@ export default memo(function LiveTab({ onTimerStart }) {
   const [showEditRulesModal, setShowEditRulesModal] = useState(false);
   const [showCardImagesModal, setShowCardImagesModal] = useState(false);
   const [showSoundsModal, setShowSoundsModal] = useState(false);
-  const { visible: soundsVisible } = useSoundsAccess();
+  const { lockReason: soundsLockReason } = useSoundsAccess();
   // Bumped on upload/reset so the tile and page background re-read the images.
   const [, setCardImagesGeneration] = useState(0);
   const [previewColor, setPreviewColor] = useState(null);
@@ -295,16 +295,21 @@ export default memo(function LiveTab({ onTimerStart }) {
           >
             <Image className="h-4 w-4" />
           </button>
-          {soundsVisible && (
-            <button
-              onClick={() => setShowSoundsModal(true)}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-              title="Sounds"
-              aria-label="Sounds"
-            >
-              <Volume2 className="h-4 w-4" />
-            </button>
-          )}
+          {/* Shown even when locked, so free users can see what Pro adds. The
+              modal still opens; its controls are what is locked. */}
+          <button
+            onClick={() => setShowSoundsModal(true)}
+            className={`relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
+              soundsLockReason ? 'text-gray-300 hover:text-gray-400' : 'text-gray-500 hover:text-gray-700'
+            }`}
+            title={soundsLockReason ? SOUNDS_LOCK_MESSAGES[soundsLockReason] : 'Sounds'}
+            aria-label={soundsLockReason ? `Sounds (locked): ${SOUNDS_LOCK_MESSAGES[soundsLockReason]}` : 'Sounds'}
+          >
+            <Volume2 className="h-4 w-4" />
+            {soundsLockReason && (
+              <Lock className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 text-gray-500" aria-hidden="true" />
+            )}
+          </button>
         </div>
       )}
 

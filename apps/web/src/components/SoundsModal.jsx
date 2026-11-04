@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom'
-import { X } from 'lucide-react'
+import { X, Lock } from 'lucide-react'
 import { updateSoundSettings } from '@toastmaster-timer/shared'
 import { useEntitlement } from '../hooks/useEntitlement'
 import { useFlag } from '../hooks/useFlag'
-import { soundEngine, useSoundSettings, useSoundsAccess } from '../hooks/useSounds'
+import { SOUNDS_LOCK_MESSAGES, soundEngine, useSoundSettings, useSoundsAccess } from '../hooks/useSounds'
 import { trackEvent } from '../utils/posthog'
 
 const CUE_BUTTONS = [
@@ -18,7 +18,7 @@ const CUE_BUTTONS = [
  */
 export default function SoundsModal({ isOpen, onClose }) {
   const settings = useSoundSettings()
-  const { usable } = useSoundsAccess()
+  const { usable, lockReason } = useSoundsAccess()
   const { known } = useEntitlement()
   // The account page sells Pro, and stays dark until pro is released.
   const { enabled: proEnabled, known: flagsKnown } = useFlag('pro')
@@ -31,6 +31,7 @@ export default function SoundsModal({ isOpen, onClose }) {
         <div className="flex justify-between items-center mb-1">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             Sounds
+            {lockReason && <Lock className="h-4 w-4 text-gray-400" aria-label="Locked" />}
             <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
               Pro
             </span>
@@ -43,24 +44,31 @@ export default function SoundsModal({ isOpen, onClose }) {
           For speakers who can&apos;t watch the card while they speak.
         </p>
 
-        {!usable && (
-          <p className="text-sm text-gray-700 bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4">
-            Sounds are part of Pro.
-            {known && flagsKnown && proEnabled && (
-              <>
-                {' '}
-                <Link to="/account" className="text-blue-600 hover:text-blue-700 underline">
-                  Upgrade to Pro
-                </Link>{' '}
-                to turn them on.
-              </>
-            )}
+        {lockReason && (
+          <p className="flex items-start gap-2 text-sm text-gray-700 bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4">
+            <Lock className="h-4 w-4 mt-0.5 flex-shrink-0 text-gray-500" aria-hidden="true" />
+            <span>
+              {lockReason === 'pro' ? 'Sounds are a Pro feature.' : SOUNDS_LOCK_MESSAGES.unreleased}
+              {lockReason === 'pro' && known && flagsKnown && proEnabled && (
+                <>
+                  {' '}
+                  <Link to="/account" className="text-blue-600 hover:text-blue-700 underline">
+                    Upgrade to Pro
+                  </Link>{' '}
+                  to turn them on.
+                </>
+              )}
+            </span>
           </p>
         )}
 
-        <fieldset disabled={!usable} className={`space-y-4 ${usable ? '' : 'opacity-50'}`}>
+        <fieldset
+          disabled={!usable}
+          title={lockReason ? SOUNDS_LOCK_MESSAGES[lockReason] : undefined}
+          className={`space-y-4 ${usable ? '' : 'opacity-50 cursor-not-allowed'}`}
+        >
           <div className="space-y-2">
-            <label className="flex items-start gap-2.5 cursor-pointer">
+            <label className={`flex items-start gap-2.5 ${usable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
               <input
                 type="checkbox"
                 checked={settings.cues}
@@ -72,8 +80,13 @@ export default function SoundsModal({ isOpen, onClose }) {
                 className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
               />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-gray-900">Chime when the card changes</span>
-                <span className="block text-xs text-gray-500">One soft note at green, two at yellow, three at red.</span>
+                <span className={`flex items-center gap-1 text-sm font-medium ${usable ? 'text-gray-900' : 'text-gray-400'}`}>
+                  Chime when the card changes
+                  {!usable && <Lock className="h-3 w-3" aria-hidden="true" />}
+                </span>
+                <span className={`block text-xs ${usable ? 'text-gray-500' : 'text-gray-400'}`}>
+                  One soft note at green, two at yellow, three at red.
+                </span>
               </span>
             </label>
             <div className="flex items-center gap-2 pl-6">
