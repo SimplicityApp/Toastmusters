@@ -7,6 +7,7 @@ covers:
   - apps/zoom-app/src/components/TimerSounds.jsx
   - apps/zoom-app/src/components/SoundsModal.jsx
   - apps/zoom-app/src/hooks/useSounds.js
+  - apps/zoom-app/src/components/LiveTab.jsx
 automated:
   - packages/shared/__tests__/timerSounds.test.js
   - apps/zoom-app/src/components/TimerSounds.test.jsx
@@ -14,7 +15,7 @@ automated:
   - e2e/web.timer-sounds.spec.js
 needs:
   - dev deployed
-  - FLAGS_FORCE "1" on dev (the `sounds` flag on)
+  - FLAGS_FORCE "1" on dev (the `sounds` flag on); "0" for TS-08 only
   - a free account, then a Pro one (club code via /pro/<CODE>, or a subscription)
   - speakers or headphones on the test computer
   - a second participant on another computer, for TS-07 only
@@ -32,17 +33,26 @@ and only a second participant proves that "Share sound" carries it.
 ## Purpose
 Catches a webview that blocks Web Audio (autoplay policy), so the chime is silent in Zoom
 while it works in a browser. Also catches music that keeps playing after a break ends, a
-free user who can switch sounds on, and a chime that stops when the timer switches tabs.
+free user who can switch sounds on, a Sounds button that hides instead of locking, and a chime that stops when the timer switches tabs.
 
 ## Steps
 
 ### TS-01 · auto · Sounds button and the locked modal on a free plan
 Do: open the app on a free account. On the Live tab, with the timer stopped, click the
 speaker icon to the right of the Card Images icon under the preview colours.
-Expect: a "Sounds" modal with a Pro tag, the text "Sounds are part of Pro.", and greyed-out
-controls. The checkboxes cannot be ticked.
+Expect: the speaker icon is grey with a small lock, and hovering it shows "Sounds are a Pro
+feature. Upgrade to Pro to use them." It opens a "Sounds" modal with a Pro tag and a lock,
+the text "Sounds are a Pro feature.", and greyed-out controls with a lock beside each
+title. The checkboxes cannot be ticked, and hovering them shows the same tooltip.
 Evidence: screenshot; `localStorage.toastmaster_sound_settings` is absent or has
 `"cues":false`.
+
+### TS-08 · auto · Locked for Pro while the `sounds` flag is off
+Do: on a Pro account, with `sounds` off (FLAGS_FORCE "0" on dev, or the flag off in
+PostHog), open the Live tab and click the speaker icon.
+Expect: the icon is shown, grey with a lock. The modal opens with "Sounds are coming
+soon." and no Upgrade link, and its controls cannot be used.
+Evidence: screenshot.
 
 ### TS-02 · human · Test chimes are audible in the Zoom webview
 Do: on a Pro account, open Sounds and click Test: Green, Yellow, Red.

@@ -151,8 +151,36 @@ describe('the Sounds modal', () => {
     setEntitlement({ plan: 'free' });
     render(<SoundsModal isOpen onClose={() => {}} />);
     expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
-    expect(screen.getByText(/sounds are part of pro/i)).toBeInTheDocument();
+    expect(screen.getByText(/sounds are a pro feature/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /upgrade to pro/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Locked')).toBeInTheDocument();
+    expect(document.querySelector('[data-tooltip]')).toHaveAttribute(
+      'data-tooltip',
+      'Sounds are a Pro feature. Upgrade to Pro to use them.',
+    );
+  });
+
+  it('opens locked for a Pro user while sounds are unreleased, without selling Pro', () => {
+    setFlags({ sounds: false, pro: true });
+    setEntitlement(PRO);
+    render(<SoundsModal isOpen onClose={() => {}} />);
+    expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
+    expect(screen.getByText(/sounds are coming soon/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /upgrade to pro/i })).toBeNull();
+  });
+
+  it('shows no lock to a Pro user once sounds are released', () => {
+    setFlags({ sounds: true });
+    setEntitlement(PRO);
+    render(<SoundsModal isOpen onClose={() => {}} />);
+    expect(screen.queryByLabelText('Locked')).toBeNull();
+    expect(document.querySelector('[data-tooltip]')).toBeNull();
+  });
+
+  it('shows no lock before the flag and plan answers arrive', () => {
+    render(<SoundsModal isOpen onClose={() => {}} />);
+    expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
+    expect(screen.queryByLabelText('Locked')).toBeNull();
   });
 
   it('offers no Upgrade link while Pro is unreleased', () => {
