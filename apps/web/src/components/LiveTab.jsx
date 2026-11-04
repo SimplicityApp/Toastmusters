@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo, memo, lazy, Suspense } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { Play, Square, RotateCcw, Image } from 'lucide-react';
+import { Play, Square, RotateCcw, Image, Volume2 } from 'lucide-react';
 import SpeakerInput from './SpeakerInput';
 import TimerDisplay from './TimerDisplay';
 const EditRulesModal = lazy(() => import('./EditRulesModal'));
 const CardImagesModal = lazy(() => import('./CardImagesModal'));
+const SoundsModal = lazy(() => import('./SoundsModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
 import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, initCardImages } from '@toastmaster-timer/shared';
 import { setPageBackgroundFromStatus } from '../utils/pageBackground';
@@ -13,6 +14,7 @@ import { parseSpeakerFromSearch, stripSpeakerParams } from '../utils/speakerDeep
 import { getCardImageUrl, preloadCardImages } from '../utils/cardArtwork';
 import { trackEvent } from '../utils/posthog';
 import { useClub } from '../hooks/useClub';
+import { useSoundsAccess } from '../hooks/useSounds';
 import { clubBadgePlacement } from '@toastmaster-timer/shared';
 
 const PREVIEW_COLORS = [
@@ -55,6 +57,8 @@ export default memo(function LiveTab({ onTimerStart }) {
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const [showEditRulesModal, setShowEditRulesModal] = useState(false);
   const [showCardImagesModal, setShowCardImagesModal] = useState(false);
+  const [showSoundsModal, setShowSoundsModal] = useState(false);
+  const { visible: soundsVisible } = useSoundsAccess();
   // Bumped on upload/reset so the tile and page background re-read the images.
   const [, setCardImagesGeneration] = useState(0);
   const [previewColor, setPreviewColor] = useState(null);
@@ -291,6 +295,16 @@ export default memo(function LiveTab({ onTimerStart }) {
           >
             <Image className="h-4 w-4" />
           </button>
+          {soundsVisible && (
+            <button
+              onClick={() => setShowSoundsModal(true)}
+              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              title="Sounds"
+              aria-label="Sounds"
+            >
+              <Volume2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       )}
 
@@ -355,6 +369,12 @@ export default memo(function LiveTab({ onTimerStart }) {
               preloadCardImages();
             }}
           />
+        </Suspense>
+      )}
+
+      {showSoundsModal && (
+        <Suspense fallback={null}>
+          <SoundsModal isOpen={showSoundsModal} onClose={() => setShowSoundsModal(false)} />
         </Suspense>
       )}
     </div>

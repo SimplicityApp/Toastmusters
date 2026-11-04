@@ -98,5 +98,7 @@ PostHog carrying that role.
 - A second participant seeing the video (needs a second computer).
 - Choosing the background you return to between speeches. Its picker lives only in Card
   Images (`OwnBackgroundPicker.jsx`); the mode menu's "My Background…" item was removed.
+- Sounds, opened from the speaker icon beside Card Images (shown only with the `sounds`
+  flag on). See [timer-sounds](timer-sounds.md).
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
   `TimerContext.jsx`). See [agenda-import](agenda-import.md).

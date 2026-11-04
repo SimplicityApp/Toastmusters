@@ -11,6 +11,7 @@ Read this first. Update it in the same PR as any spec change.
 | [connection-notice](connection-notice.md) | draft | never | guest-mode banner and "Approve Toastmusters Timer in Zoom" modal at open; raised mid-session when Zoom drops the grant, modal held until the timer stops (#85) |
 | [reauth-landing](reauth-landing.md) | stale | never | install landing: `tt_approved` mark, `?welcome=new` / `?welcome=back`, "You're reconnected" and Open in Zoom; a marked browser's bare `/` redirects to `/reconnect` (`/?home` and the `zoom.` host do not); where Zoom lands a guest after approving (#96) |
 | [contact-capture](contact-capture.md) | draft | never | Zoom email/name capture: authorize, "Stay in touch" card, browser and web sign-in doors, purge on uninstall (#83) |
+| [timer-sounds](timer-sounds.md) | draft | never | Pro sounds: card-change chime (1/2/3 notes), break music during Take a Break, locked for free plans, audible through Share sound (#105) |
 | pro-club | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` P1–P7, plus the internal Club Pro plan (`06-zoom-client-test-plan-club-pro.md`); reference run `test-runs/2026-09-28-club-pro/run.md` |
 | webhooks-lifecycle | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 4, 5, 6 |
 
@@ -19,5 +20,5 @@ yet. Migrate one at a time, running each once so `verified_at` is real.
 
 ## Run order for a full pass
 Dependencies between specs, so the skill can batch human steps: `auth-identity` →
-`connection-notice` → `reauth-landing` → `contact-capture` → `timer-core` → `agenda-import` → `pro-club` → `webhooks-lifecycle` (deauth
+`connection-notice` → `reauth-landing` → `contact-capture` → `timer-core` → `timer-sounds` → `agenda-import` → `pro-club` → `webhooks-lifecycle` (deauth
 last, it removes the app).

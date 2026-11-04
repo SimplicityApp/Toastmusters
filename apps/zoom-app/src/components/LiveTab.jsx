@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef, useMemo, memo, lazy, Suspense } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { Play, Square, RotateCcw, Eraser, Video, Image } from 'lucide-react';
+import { Play, Square, RotateCcw, Eraser, Video, Image, Volume2 } from 'lucide-react';
 import SpeakerInput from './SpeakerInput';
 import TimerDisplay from './TimerDisplay';
 import TimerStage from './TimerStage';
 import OverlayModeMenu, { MODE_LABELS } from './OverlayModeMenu';
 const EditRulesModal = lazy(() => import('./EditRulesModal'));
 const CardImagesModal = lazy(() => import('./CardImagesModal'));
+const SoundsModal = lazy(() => import('./SoundsModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
 import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, BREAK_ROLE, BREAK_QUICK_PICKS, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages } from '@toastmaster-timer/shared';
 import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE } from '../utils/zoomSdk';
 import { useClub } from '../hooks/useClub';
+import { useSoundsAccess } from '../hooks/useSounds';
 import { formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle } from '@toastmaster-timer/shared';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { trackEvent } from '../utils/posthog';
@@ -71,6 +73,8 @@ export default memo(function LiveTab() {
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const [showEditRulesModal, setShowEditRulesModal] = useState(false);
   const [showCardImagesModal, setShowCardImagesModal] = useState(false);
+  const [showSoundsModal, setShowSoundsModal] = useState(false);
+  const { visible: soundsVisible } = useSoundsAccess();
   // Bumped whenever a custom card image is uploaded or reset, so the overlay
   // effect below re-pushes whatever is currently showing with the new artwork.
   const [cardImagesGeneration, setCardImagesGeneration] = useState(0);
@@ -1262,6 +1266,16 @@ export default memo(function LiveTab() {
           >
             <Image className="h-4 w-4" />
           </button>
+          {soundsVisible && (
+            <button
+              onClick={() => setShowSoundsModal(true)}
+              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              data-tooltip="Sounds"
+              aria-label="Sounds"
+            >
+              <Volume2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       )}
 
@@ -1379,6 +1393,12 @@ export default memo(function LiveTab() {
             onClose={() => setShowCardImagesModal(false)}
             onImagesChanged={() => setCardImagesGeneration((generation) => generation + 1)}
           />
+        </Suspense>
+      )}
+
+      {showSoundsModal && (
+        <Suspense fallback={null}>
+          <SoundsModal isOpen={showSoundsModal} onClose={() => setShowSoundsModal(false)} />
         </Suspense>
       )}
     </div>

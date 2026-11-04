@@ -34,6 +34,10 @@ export const FLAG_FALLBACKS = Object.freeze({
   // The browser doors save it unflagged.
   // removeBy: 2027-03-31
   contact_capture: false,
+  // Timer sounds (Pro): the card-change chime and break music, in both apps
+  // (packages/shared/timerSounds.js).
+  // removeBy: 2027-03-31
+  sounds: false,
 });
 
 // The ingestion host, called directly rather than through the browser's
