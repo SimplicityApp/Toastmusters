@@ -206,7 +206,7 @@
         "ENTITLEMENT_ENFORCE": "1",
         "STRIPE_AUTOMATIC_TAX": "0",
         "MAGIC_LINK_FROM": "no-reply@dev.toastmusters.com",
-        "FLAGS_FORCE": "1",
+        "FLAGS_FORCE": "0",
         "ZOOM_APP_HOME_URL": "https://zoom.timer-dev.simple-tech.app"
       }
     }
