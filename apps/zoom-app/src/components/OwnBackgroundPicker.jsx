@@ -14,8 +14,7 @@ import { useToast } from '../context/ToastContext';
 /**
  * Pick the background the timer puts back when a speech ends.
  *
- * Shown in two places — the Card Images modal and its own modal off the mode
- * menu — so it is a section rather than a dialog of its own.
+ * A section of the Card Images modal rather than a dialog of its own.
  *
  * Why it exists: without one, handing the organizer their background back means
  * asking Zoom what they had and asking for its pixels, across APIs that are not

@@ -8,7 +8,6 @@ import TimerStage from './TimerStage';
 import OverlayModeMenu, { MODE_LABELS } from './OverlayModeMenu';
 const EditRulesModal = lazy(() => import('./EditRulesModal'));
 const CardImagesModal = lazy(() => import('./CardImagesModal'));
-const OwnBackgroundModal = lazy(() => import('./OwnBackgroundModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
 import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, BREAK_ROLE, BREAK_QUICK_PICKS, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages } from '@toastmaster-timer/shared';
 import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE } from '../utils/zoomSdk';
@@ -72,7 +71,6 @@ export default memo(function LiveTab() {
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const [showEditRulesModal, setShowEditRulesModal] = useState(false);
   const [showCardImagesModal, setShowCardImagesModal] = useState(false);
-  const [showOwnBackgroundModal, setShowOwnBackgroundModal] = useState(false);
   // Bumped whenever a custom card image is uploaded or reset, so the overlay
   // effect below re-pushes whatever is currently showing with the new artwork.
   const [cardImagesGeneration, setCardImagesGeneration] = useState(0);
@@ -978,7 +976,6 @@ export default memo(function LiveTab() {
           revealFaceWhenIdle={revealFaceWhenIdle}
           onToggleRevealFaceWhenIdle={handleToggleRevealFaceWhenIdle}
           onCustomizeCards={() => setShowCardImagesModal(true)}
-          onCustomizeOwnBackground={() => setShowOwnBackgroundModal(true)}
         />
       </div>
 
@@ -1382,12 +1379,6 @@ export default memo(function LiveTab() {
             onClose={() => setShowCardImagesModal(false)}
             onImagesChanged={() => setCardImagesGeneration((generation) => generation + 1)}
           />
-        </Suspense>
-      )}
-
-      {showOwnBackgroundModal && (
-        <Suspense fallback={null}>
-          <OwnBackgroundModal onClose={() => setShowOwnBackgroundModal(false)} />
         </Suspense>
       )}
     </div>

@@ -96,5 +96,7 @@ PostHog carrying that role.
 ## Not covered
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).
+- Choosing the background you return to between speeches. Its picker lives only in Card
+  Images (`OwnBackgroundPicker.jsx`); the mode menu's "My Background…" item was removed.
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
   `TimerContext.jsx`). See [agenda-import](agenda-import.md).
