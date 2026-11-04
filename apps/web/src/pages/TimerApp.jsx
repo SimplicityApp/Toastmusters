@@ -13,6 +13,7 @@ const AgendaTab = lazy(() => import('../components/AgendaTab'))
 import ReportTab from '../components/ReportTab'
 import Footer from '../components/Footer'
 import PeriodicPrompts from '../components/PeriodicPrompts'
+import TimerSounds from '../components/TimerSounds'
 import AccountMenu from '../components/AccountMenu'
 import ClubStatusBanner from '../components/ClubStatusBanner'
 import '../App.css'
@@ -132,6 +133,7 @@ export default function TimerApp() {
     <ToastProvider>
       <TimerProvider>
         <TimerAppContent />
+        <TimerSounds />
       </TimerProvider>
     </ToastProvider>
   )
