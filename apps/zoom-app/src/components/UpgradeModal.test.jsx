@@ -8,6 +8,8 @@ import {
   CLUB_STORAGE_KEY,
   resetClubForTests,
   resetEntitlementForTests,
+  resetFlagsForTests,
+  setFlags,
   initClubFromCache,
   getEntitlement,
 } from '@toastmaster-timer/shared';
@@ -48,6 +50,7 @@ beforeEach(() => {
   localStorage.clear();
   resetClubForTests();
   resetEntitlementForTests();
+  resetFlagsForTests();
   resolveZoomIdentity.mockResolvedValue({ identified: true, uid: 'u1' });
   global.fetch = vi.fn();
 });
@@ -240,6 +243,9 @@ describe('an already-activated device', () => {
  * their own club code: the code was rendered on one browser-only page.
  */
 describe('setting up a club', () => {
+  // The modal only opens while pro is released, and a Pro plan counts only then.
+  beforeEach(() => setFlags({ pro: true }));
+
   const createdResponse = (over = {}) => ({
     clubToken: 'tok.sig',
     created: true,

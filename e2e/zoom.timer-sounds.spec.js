@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
         identified: true,
         uid: 'e2e-sounds',
         entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'subscription' },
-        flags: { sounds: true },
+        flags: { sounds: true, pro: true },
       },
     })
   );

@@ -7,6 +7,7 @@ covers:
   - apps/zoom-app/src/components/TimerSounds.jsx
   - apps/zoom-app/src/components/SoundsModal.jsx
   - apps/zoom-app/src/hooks/useSounds.js
+  - apps/zoom-app/src/hooks/useEntitlement.js
   - apps/zoom-app/src/components/LiveTab.jsx
 automated:
   - packages/shared/__tests__/timerSounds.test.js
@@ -15,7 +16,8 @@ automated:
   - e2e/web.timer-sounds.spec.js
 needs:
   - dev deployed
-  - FLAGS_FORCE "1" on dev (the `sounds` flag on); "0" for TS-08 only
+  - FLAGS_FORCE "1" on dev (`pro` and `sounds` on); "0" for TS-09 only; cleared, with `pro` on
+    and `sounds` off for your uid in PostHog, for TS-08 only
   - a free account, then a Pro one (club code via /pro/<CODE>, or a subscription)
   - speakers or headphones on the test computer
   - a second participant on another computer, for TS-07 only
@@ -47,12 +49,22 @@ title. The checkboxes cannot be ticked, and hovering them shows the same tooltip
 Evidence: screenshot; `localStorage.toastmaster_sound_settings` is absent or has
 `"cues":false`.
 
-### TS-08 · auto · Locked for Pro while the `sounds` flag is off
-Do: on a Pro account, with `sounds` off (FLAGS_FORCE "0" on dev, or the flag off in
-PostHog), open the Live tab and click the speaker icon.
+### TS-08 · auto · Locked for Pro while only the `sounds` flag is off
+Do: on a Pro account, with `pro` on and `sounds` off (FLAGS_FORCE cleared on dev and the
+flags targeted at your uid in PostHog; FLAGS_FORCE "0" turns `pro` off too, which is TS-09),
+open the Live tab and click the speaker icon.
 Expect: the icon is shown, grey with a lock. The modal opens with "Sounds are coming
 soon." and no Upgrade link, and its controls cannot be used.
 Evidence: screenshot.
+
+### TS-09 · auto · A Pro plan is locked as free while the `pro` flag is off
+Do: on the Pro account from TS-08 (a subscription, a grant, or a club on this device), with
+FLAGS_FORCE "0" on dev, open the Live tab and click the speaker icon.
+Expect: the same lock as TS-01: "Sounds are a Pro feature. Upgrade to Pro to use them." on
+hover and "Sounds are a Pro feature." in the modal, never "coming soon", and no Upgrade
+link. The footer shows no Pro chip. The `pro` flag is the source of truth for Pro in the
+app, so the plan alone unlocks nothing while it is off.
+Evidence: screenshot; `GET /api/me?flags=1` shows `"plan":"pro"` and `"pro":false`.
 
 ### TS-02 · human · Test chimes are audible in the Zoom webview
 Do: on a Pro account, open Sounds and click Test: Green, Yellow, Red.

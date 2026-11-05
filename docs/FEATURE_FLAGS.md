@@ -72,13 +72,15 @@ production, create `contact_capture` in PostHog and target yourself as in
 [Turning a flag on](#turning-a-flag-on-for-yourself-in-production); the
 measured funnel is in `docs/ZOOM_LISTING_PRO.md`.
 
-`pro` covers billing, web sign-in and clubs. They are all Pro features that
-launch together, so one switch covers them.
+`pro` covers billing, web sign-in, clubs, and whether the app treats a Pro plan as
+Pro at all. They are all Pro features that launch together, so one switch covers
+them.
 
 | Surface | 404 / hidden while `pro` is off (or, in the UI, unknown) | Never gated |
 |---|---|---|
 | Billing | `POST /api/billing/checkout`, `POST /api/billing/portal` (after the session check, so no session is still 401). Zoom: the Footer **Upgrade**/**Pro** button and the **Upgrade to Pro** link in Card images, which are the Upgrade modal's only doors. Both apps: **Manage billing** on the club banner. Web: the plan section on `/account` | `GET /api/billing/checkout-status`, the Stripe webhook, the success/cancel pages, entitlement itself |
 | Web sign-in | `GET /api/auth/zoom/start`. A sign-in callback on `/oauth/redirect` falls through to the install page instead, so Marketplace installs keep working. Web: **Sign in** in the account menu, the signed-out card on `/account` | `POST /api/auth/logout` |
+| Pro in the UI | `useEntitlement().isPro` in both apps is the plan **and** `pro`, so every Pro feature in the app reads a Pro plan as free while `pro` is off: Sounds shows the "Pro feature" lock (not "coming soon"), Card images says images stay in this browser, the account menu says Account. `known` waits for the flags as well as the plan | the server, which keeps keying on `entitled`: a paying user's sync, card backups and club archive carry on. Club surfaces that read the club record (`club.entitled`): the badge, presets, the archive |
 | Clubs | `/api/club/activate`, `/create`, `/magic-link` and `/manage`, whatever the method, checked before anything else so even an unauthenticated create is 404. Zoom: the code field and **Set up my club**, inside the Upgrade modal. Web: the setup card and code field on `/account`; `/club/admin`, `/club/manage` and `/pro/:code` are the not-found view (`FlagGate`) | `GET /api/club` (the daily refresh), presets, `meetings/*` (including queued speeches), the admin routes, `manage/signout`, `/api/club-assets/*` |
 
 A refusal is a bare 404, the same as any unknown URL. The reason is logged
