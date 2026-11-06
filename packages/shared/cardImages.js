@@ -23,6 +23,7 @@
 // rest of the session, so migration is invisible.
 
 import { notifyLocalWrite } from './storageEvents.js';
+import { loadClub, loadClubCards, readCardSource, writeCardSource } from './club.js';
 const SETTINGS_KEY = 'toastmaster_custom_card_images';
 const SETTINGS_VERSION = 3;
 
@@ -49,6 +50,13 @@ const OWN_BACKGROUND_IMAGE_KEY = 'own-background';
 const OWN_BACKGROUND_FLAG_KEY = 'toastmaster_own_background';
 
 export const CARD_COLORS = ['blue', 'green', 'yellow', 'red'];
+
+// The club's published set (club.js keeps which hashes it is). It is never one
+// of the device's own sets: it is not in the metadata, it cannot be deleted
+// here, and its Blobs are keyed by hash, so a republished set replaces the old
+// one without a delete step and an unchanged image is never fetched twice.
+export const CLUB_CARD_SET_ID = 'club';
+const clubImageKey = (hash) => `club:${hash}`;
 
 // Cache-buster for the built-in files. They are served with
 // `max-age=31536000, immutable`, so this must be bumped whenever their
@@ -104,6 +112,10 @@ const CARD_JPEG_QUALITY = 0.85;
 
 // Metadata: { selectedSetId, customSets: [{ id, colors: [...] }] }.
 let settingsCache = null;
+// Whether the metadata key exists at all. Absent means this device has never
+// made a choice of its own, which is what lets the club's set show by default.
+let settingsStored = false;
+const listeners = new Set();
 
 // `${setId}:${color}` -> a displayable URL: an object URL minted from the
 // stored Blob, or a legacy data URL still being served out of localStorage.
@@ -152,8 +164,10 @@ function normalizeMeta(raw) {
 function readStoredState() {
   const inlineImages = new Map();
   let meta = normalizeMeta(null);
+  settingsStored = false;
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
+    settingsStored = Boolean(raw);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
@@ -212,9 +226,11 @@ function writeSettings(meta) {
   try {
     if (normalized.selectedSetId === DEFAULT_SET_ID && normalized.customSets.length === 0) {
       localStorage.removeItem(SETTINGS_KEY);
+      settingsStored = false;
       notifyLocalWrite(SETTINGS_KEY);
     } else {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION, ...normalized }));
+      settingsStored = true;
       notifyLocalWrite(SETTINGS_KEY);
     }
     settingsCache = normalized;
@@ -408,6 +424,15 @@ async function loadImagesIntoCache() {
       }
     }
   }
+  // Only the club's current set is kept. A set it has since replaced, or a
+  // club this device has left, is swept with the other orphans.
+  for (const hash of Object.values(loadClubCards()?.images ?? {})) {
+    const key = clubImageKey(hash);
+    referenced.add(key);
+    if (!imageUrlCache.has(key) && isBlobLike(stored.get(key))) {
+      cacheBlobUrl(key, stored.get(key));
+    }
+  }
 
   // A crash between a Blob write and its metadata write leaves orphans;
   // they are invisible, so sweep them here rather than letting them pile up.
@@ -430,7 +455,12 @@ async function loadImagesIntoCache() {
  * @returns {{url: string} | {file: string}}
  */
 export function resolveCardImage(color) {
-  const { selectedSetId } = getCardImageSettings();
+  const selectedSetId = activeCardSetId();
+  if (selectedSetId === CLUB_CARD_SET_ID) {
+    const url = getClubCardImage(color);
+    if (url) return { url };
+    return { file: CLASSIC_FILES[color] || CLASSIC_FILES.blue };
+  }
   const defaultSet = getDefaultCardSet(selectedSetId);
   if (defaultSet) {
     return { file: defaultSet.files[color] || defaultSet.files.blue };
@@ -453,14 +483,120 @@ export function getCustomCardImage(setId, color) {
 // Writes
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The club's set
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether this device has a club set it could show: a club that is still
+ * entitled, with a set published. A lapsed club keeps its cached record, so
+ * this is what makes lapse fall back to the device's own cards for free.
+ */
+export function clubCardSetAvailable() {
+  return Boolean(loadClub()?.entitled && loadClubCards());
+}
+
+/**
+ * The set the timer is showing: the club's, or one of the device's own.
+ *
+ * The same switch as the club's presets. A device that has never chosen cards
+ * of its own opens on the club's set; one that has keeps its own, with the
+ * club's one tap away in the picker.
+ *
+ * @returns {string} CLUB_CARD_SET_ID, a built-in id, or a custom set id
+ */
+export function activeCardSetId() {
+  const { selectedSetId } = getCardImageSettings();
+  if (!clubCardSetAvailable()) return selectedSetId;
+  const source = readCardSource();
+  if (source === 'club') return CLUB_CARD_SET_ID;
+  if (source === 'own') return selectedSetId;
+  return settingsStored ? selectedSetId : CLUB_CARD_SET_ID;
+}
+
+/**
+ * One color of the club's set, as a displayable URL. Null when the set skips
+ * that color (the Classic card shows, as for a custom set) or its Blob has not
+ * arrived yet.
+ */
+export function getClubCardImage(color) {
+  const hash = loadClubCards()?.images?.[color];
+  return hash ? imageUrlCache.get(clubImageKey(hash)) || null : null;
+}
+
+/** The club set's hashes this device does not hold yet. */
+export function missingClubCardHashes() {
+  const hashes = new Set(Object.values(loadClubCards()?.images ?? {}));
+  return [...hashes].filter((hash) => !imageUrlCache.has(clubImageKey(hash)));
+}
+
+/**
+ * Keep the club set's images, downloaded or just published from here.
+ *
+ * @param {Array<[string, Blob]>} entries - [hash, Blob]
+ * @returns {Promise<string[]>} hashes actually stored
+ */
+export async function storeClubCardBlobs(entries) {
+  const usable = entries.filter(([hash, blob]) => hash && isBlobLike(blob));
+  if (!usable.length) return [];
+  const db = await openImageDb();
+  if (!db) return [];
+  try {
+    await idbPutMany(db, usable.map(([hash, blob]) => [clubImageKey(hash), blob]));
+  } catch (error) {
+    console.error('Failed to store the club card images:', error);
+    return [];
+  }
+  for (const [hash, blob] of usable) {
+    revokeCached(clubImageKey(hash));
+    cacheBlobUrl(clubImageKey(hash), blob);
+  }
+  notifyCardImages();
+  return usable.map(([hash]) => hash);
+}
+
+/**
+ * Hear about card artwork that changed without the picker being open: the
+ * club's set arriving, being replaced, or going away.
+ *
+ * @param {() => void} listener
+ * @returns {() => void} unsubscribe
+ */
+export function subscribeCardImages(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Tell subscribers the cards the timer shows may have changed. */
+export function notifyCardImages() {
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch {
+      // One bad subscriber must not stop the others hearing about it.
+    }
+  }
+}
+
 /**
  * Select which set the timer shows. Metadata-only, so it is synchronous.
+ *
+ * Choosing the club's set, or any other set while the club's is on offer, moves
+ * the card switch explicitly, so the derived default never decides for someone
+ * who has already decided.
+ *
  * @returns {boolean} false when the id names no existing set or storage
  *   refused the write
  */
 export function selectCardSet(setId) {
+  if (setId === CLUB_CARD_SET_ID) {
+    if (!clubCardSetAvailable()) return false;
+    writeCardSource('club');
+    return true;
+  }
   const meta = getCardImageSettings();
   if (!getDefaultCardSet(setId) && !meta.customSets.some((set) => set.id === setId)) return false;
+  if (clubCardSetAvailable()) writeCardSource('own');
   return writeSettings({ ...meta, selectedSetId: setId });
 }
 
@@ -496,6 +632,8 @@ export async function addCustomCardSet(imagesByColor) {
     customSets: [...meta.customSets, { id, colors }],
   };
   if (!writeSettings(nextMeta)) return null;
+  // A set just added is a set someone wants to see, club or no club.
+  if (clubCardSetAvailable()) writeCardSource('own');
 
   for (const color of colors) cacheBlobUrl(imageKey(id, color), imagesByColor[color]);
 
@@ -752,4 +890,14 @@ export async function storeCardBlobs(entries) {
     cacheBlobUrl(key, blob);
   }
   return usable.map(([key]) => key);
+}
+
+/** Test seam: forget everything held in memory, as a page reload would. */
+export function resetCardImagesForTests() {
+  settingsCache = null;
+  settingsStored = false;
+  imageUrlCache.clear();
+  initPromise = null;
+  dbPromise = null;
+  listeners.clear();
 }

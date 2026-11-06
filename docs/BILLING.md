@@ -31,7 +31,7 @@ Zoom app polls GET /api/me until plan === 'pro'
   payments waiting to become a club under `club-pending:<cus_id>`.
   Bind a namespace as `ENTITLEMENTS` to move them; no code change.
 - Club records live in the same namespace under their own prefixes — `club:`,
-  `club-by-code:`, `club-by-customer:`, `club-by-email:`, `club-presets:`,
+  `club-by-code:`, `club-by-customer:`, `club-by-email:`, `club-presets:`, `club-cards:`,
   `club-device:`, `club-member:`, `club-magic:`, `meeting:`, `speech:`,
   `report-share:`. The full inventory is in
   [CLUBS.md](./CLUBS.md#kv-inventory).

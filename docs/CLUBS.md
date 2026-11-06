@@ -62,8 +62,9 @@ rights to an anonymous device"** true by construction.
 
 | | admin | editor | member / guest device |
 |---|---|---|---|
-| Club presets, brand kit, archive | yes | yes | yes |
-| "Share with my club" (publish) | yes | yes | no |
+| Club presets, brand kit, card set, archive | yes | yes | yes |
+| "Share with my club" (presets, card set) | yes | yes | no |
+| Remove the card set | yes | no | no |
 | Roster, grant/revoke, kit editor | yes | no | no |
 | Billing | yes | no | no |
 
@@ -89,6 +90,7 @@ clubState = {
   kit:     { name, logoUrl, primaryColor, showOnCards, showOnReports } | null,
   presets: { rules, order, hiddenBuiltins, publishedBy, publishedAt } | null,
   badge:   { x, y, scale },                  ← the club's default placement
+  cards:   { label, images: { color: sha256 }, publishedBy, publishedAt } | null,
   timezone,
   role,                                      ← this caller's role, or null
   plan, entitled, status, currentPeriodEnd, cancelAtPeriodEnd, source
@@ -110,6 +112,8 @@ mid-meeting.
 toastmaster_club                    { clubToken, ver, club, kit, badge, plan, … }
 toastmaster_club_presets            the club's published list
 toastmaster_preset_source           'club' | 'personal'
+toastmaster_club_cards              the club's card set: label and image hashes
+toastmaster_card_source             'club' | 'own'
 toastmaster_club_badge              this device's badge move, if it made one
 toastmaster_club_outbox             finished speeches not yet uploaded
 toastmaster_club_grace_dismissed    the day the renewal reminder was dismissed
@@ -130,6 +134,25 @@ on the club's list; a device with its own presets keeps them. Editing the club's
 list asks once, then forks it into the timer's own keys
 (`packages/shared/clubPresets.js`).
 
+## Card set: a switch, like presets
+
+A club can publish one set of timing-card artwork. An admin or editor presses
+**Share with my club** on one of their own custom sets in **Card Images**; the
+images go to `club-card/<clubId>/<hash>` and the set to `club-cards:<clubId>`, and
+`ver` moves. Every club device downloads what it is missing into IndexedDB
+(`packages/shared/clubCards.js`), so the card-switch path never waits on the
+network.
+
+Which set shows follows the preset rule: a device that never chose cards of its
+own opens on the club's set; one that did keeps its own, with the club's one tap
+away in the picker. Choosing in the picker moves `toastmaster_card_source`
+explicitly. A lapsed or left club drops the set from the picker and the device
+shows its own choice again; nothing is deleted. An admin can take the set down
+from the console.
+
+Publishing prunes images no set names any more, sparing uploads newer than 15
+minutes so a second publisher's uploads survive until their own publish lands.
+
 ## KV inventory
 
 All in the `PROFILES` namespace, alongside the entitlement and Stripe prefixes.
@@ -146,6 +169,8 @@ club-pending:<cus_id>                  { uid, clubName, email, stripeCustomerId,
                                          checkoutSessionId, paidAt }
 club-presets:<clubId>                  { rules, order, hiddenBuiltins, badge,
                                          publishedBy, publishedAt }
+club-cards:<clubId>                    { label, images: { color: sha256 },
+                                         publishedBy, publishedAt }
 club-device:<clubId>:<deviceId>        { label, uid|null, activatedAt, lastSeenAt, revokedAt }
 club-member:<clubId>:zoom:<uid>        { role, displayName, addedAt, revokedAt }
 club-magic:<token>                     { clubId, email, exp }      15-minute TTL
@@ -158,6 +183,8 @@ report-share-by-meeting:<clubId>:<id>  <token>         ← so a re-share reuses 
 R2 (CARD_ASSETS)
 club/<clubId>/<hash>                   the club logo — served publicly, immutable
 club/<clubId>/r-<token>.png            a shared report's OG preview image
+club-card/<clubId>/<hash>              a card set image — private, never under club/
+                                       (which /api/club-assets serves to anyone)
 ```
 
 `invTs` is an inverted timestamp so `list({prefix:'meeting:<clubId>:'})` comes
@@ -170,6 +197,10 @@ History list costs exactly one operation.
 POST /api/club/activate                   public, rate-limited
 GET  /api/club                            X-Club
 PUT  /api/club/presets                    X-Club + uid, role admin|editor
+PUT  /api/club/cards/<hash>               X-Club + uid, role admin|editor (one image)
+PUT  /api/club/cards                      X-Club + uid, role admin|editor (the set)
+GET  /api/club/cards/<hash>               X-Club, or an admin's console session
+DELETE /api/club/cards                    admin
 POST /api/club/meetings/<id>/speeches      X-Club, + device revocation read
 GET  /api/club/meetings                   X-Club
 GET  /api/club/meetings/<id>              X-Club

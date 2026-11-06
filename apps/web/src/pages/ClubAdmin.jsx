@@ -371,6 +371,110 @@ function KitEditor({ kit, clubName, onSaved }) {
   )
 }
 
+const CARD_COLORS = ['blue', 'green', 'yellow', 'red']
+const CARD_LABELS = { blue: 'Idle (blue)', green: 'Green', yellow: 'Yellow', red: 'Red' }
+
+/**
+ * The club's card set, as the console shows it. Read-only apart from Remove:
+ * a set is published from a timer's card picker, where the artwork already
+ * is, not uploaded here.
+ *
+ * The images are private, so they are fetched with the console's credentials
+ * and shown from object URLs rather than linked.
+ */
+function ClubCards({ cards, onRemoved }) {
+  const [urls, setUrls] = useState({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!cards?.images) return undefined
+    let cancelled = false
+    const minted = []
+    Promise.all(
+      Object.entries(cards.images).map(async ([color, hash]) => {
+        try {
+          const response = await fetch(`/api/club/cards/${hash}`, {
+            credentials: 'same-origin',
+            headers: { ...clubHeaders() },
+          })
+          if (!response.ok) return null
+          const url = URL.createObjectURL(await response.blob())
+          minted.push(url)
+          return [color, url]
+        } catch {
+          return null
+        }
+      })
+    ).then((entries) => {
+      if (!cancelled) setUrls(Object.fromEntries(entries.filter(Boolean)))
+    })
+    return () => {
+      cancelled = true
+      minted.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [cards])
+
+  if (!cards?.images) {
+    return (
+      <p className="mt-3 text-sm text-gray-300">
+        No card set yet. An admin or editor shares one from <strong>Card Images</strong> in the timer, and every
+        club device shows it.
+      </p>
+    )
+  }
+
+  const remove = async () => {
+    setBusy(true)
+    setError(null)
+    const result = await api('/api/club/cards', { method: 'DELETE' })
+    setBusy(false)
+    if (!result.ok) {
+      setError('Could not remove the card set. Please try again.')
+      return
+    }
+    trackEvent('club_cards_removed', { surface: 'web' })
+    onRemoved?.()
+  }
+
+  return (
+    <div className="mt-3">
+      <p className="text-sm text-gray-200">
+        {cards.label || 'Club cards'}
+        {cards.publishedAt ? <span className="text-gray-400"> · shared {shortDate(cards.publishedAt)}</span> : null}
+      </p>
+      <div className="mt-2 grid grid-cols-4 gap-2">
+        {CARD_COLORS.map((color) =>
+          urls[color] ? (
+            <img
+              key={color}
+              src={urls[color]}
+              alt={`${CARD_LABELS[color]} card`}
+              className="aspect-video w-full rounded border border-white/10 object-cover"
+            />
+          ) : (
+            <div
+              key={color}
+              className="flex aspect-video w-full items-center justify-center rounded border border-dashed border-white/10 text-center text-xs text-gray-500"
+            >
+              {cards.images[color] ? '…' : 'Classic'}
+            </div>
+          )
+        )}
+      </div>
+      <button
+        onClick={remove}
+        disabled={busy}
+        className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-60"
+      >
+        <Trash2 className="h-4 w-4" />
+        Remove card set
+      </button>
+      {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
+    </div>
+  )
+}
+
 const KIT_ERRORS = {
   invalid_name: 'A club needs a name, and it has to fit in 80 characters.',
   invalid_color: 'Pick a colour in #rrggbb form.',
@@ -578,6 +682,18 @@ export default function ClubAdmin() {
                   onSaved={() => load()}
                 />
               </div>
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
+              <h3 className="text-sm uppercase tracking-wide text-gray-400">Card set</h3>
+              <ClubCards
+                cards={roster.cards}
+                onRemoved={() => {
+                  load()
+                  // This browser may be a club device too; let it drop the set now.
+                  refreshClub({ force: true }).catch(() => {})
+                }}
+              />
             </section>
 
             <section className="mt-6 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
