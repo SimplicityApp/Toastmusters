@@ -102,3 +102,6 @@ PostHog carrying that role.
   the `sounds` flag is on and the account is Pro). See [timer-sounds](timer-sounds.md).
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
   `TimerContext.jsx`). See [agenda-import](agenda-import.md).
+- A club card set arriving, changing or going away while the app is open. `LiveTab.jsx`
+  re-pushes the current card then, and only then; a device with no club card set pushes
+  exactly as above. See [club-card-sets](club-card-sets.md).
