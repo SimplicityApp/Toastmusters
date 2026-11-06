@@ -7,7 +7,7 @@ import App from './App.jsx'
 import './index.css'
 import { initPostHog, trackEvent } from './utils/posthog.js'
 import { startWebSession } from './utils/webIdentity.js'
-import { initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter } from '@toastmaster-timer/shared'
+import { initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter, startClubCardSync } from '@toastmaster-timer/shared'
 
 // Before the first paint, and synchronous: a browser that joined a club is Pro,
 // and reading that out of localStorage now is what stops the plan flashing
@@ -44,6 +44,9 @@ deferInit(() => {
   refreshClub().catch((error) => {
     console.warn('Failed to refresh the club:', error)
   })
+  // The club's card set, fetched where this browser lacks it, now and whenever
+  // the club changes.
+  startClubCardSync()
   // An upload that does not go out is invisible from here — the device keeps
   // its own copy and the timer sees nothing wrong — so it has to report itself.
   setArchiveReporter(trackEvent)

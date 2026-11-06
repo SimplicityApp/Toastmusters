@@ -26,6 +26,13 @@ export const CLUB_STORAGE_KEY = 'toastmaster_club';
 export const CLUB_PRESETS_STORAGE_KEY = 'toastmaster_club_presets';
 /** Which list this device is running: 'club' or 'personal'. */
 export const PRESET_SOURCE_STORAGE_KEY = 'toastmaster_preset_source';
+/** The club's published card set, as the device last received it: hashes, not pixels. */
+export const CLUB_CARDS_STORAGE_KEY = 'toastmaster_club_cards';
+/**
+ * Which cards this device shows: 'club' or 'own'. Unset means derived, as the
+ * preset switch is: a device that never chose its own cards shows the club's.
+ */
+export const CARD_SOURCE_STORAGE_KEY = 'toastmaster_card_source';
 /**
  * Where this device puts the club's badge, when it has moved it.
  *
@@ -173,6 +180,82 @@ export function saveClubPresets(presets) {
     else localStorage.removeItem(CLUB_PRESETS_STORAGE_KEY);
   } catch {
     // Private mode. The club still works this page load; it just re-fetches.
+  }
+}
+
+// Parsed once and kept: the card resolver reads this on every status change,
+// which sits inside the 25 ms card-switch budget.
+let cardsCache;
+let cardsLoaded = false;
+
+function normalizeClubCards(raw) {
+  if (!raw || typeof raw !== 'object' || !raw.images || typeof raw.images !== 'object') return null;
+  const images = {};
+  for (const [color, hash] of Object.entries(raw.images)) {
+    if (typeof hash === 'string' && hash) images[color] = hash;
+  }
+  if (!Object.keys(images).length) return null;
+  return {
+    label: typeof raw.label === 'string' && raw.label ? raw.label : null,
+    images,
+    publishedBy: raw.publishedBy ?? null,
+    publishedAt: typeof raw.publishedAt === 'number' ? raw.publishedAt : null,
+  };
+}
+
+/**
+ * The club's published card set, as this device last received it, or null.
+ *
+ * @returns {{label: string|null, images: Object<string, string>, publishedBy: string|null,
+ *   publishedAt: number|null}|null}
+ */
+export function loadClubCards() {
+  if (!cardsLoaded) {
+    try {
+      const raw = localStorage.getItem(CLUB_CARDS_STORAGE_KEY);
+      cardsCache = raw ? normalizeClubCards(JSON.parse(raw)) : null;
+    } catch {
+      cardsCache = null;
+    }
+    cardsLoaded = true;
+  }
+  return cardsCache ?? null;
+}
+
+/** @param {Object|null} cards - null removes the key */
+export function saveClubCards(cards) {
+  const normalized = normalizeClubCards(cards);
+  cardsCache = normalized;
+  cardsLoaded = true;
+  try {
+    if (normalized) localStorage.setItem(CLUB_CARDS_STORAGE_KEY, JSON.stringify(normalized));
+    else localStorage.removeItem(CLUB_CARDS_STORAGE_KEY);
+  } catch {
+    // Private mode. The in-memory copy carries this page load.
+  }
+}
+
+/** The stored card switch, or null when it has never been set explicitly. */
+export function readCardSource() {
+  try {
+    const value = localStorage.getItem(CARD_SOURCE_STORAGE_KEY);
+    return value === 'club' || value === 'own' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move the card switch. Explicit only, like the preset switch.
+ *
+ * @param {'club'|'own'|null} source - null clears it back to derived
+ */
+export function writeCardSource(source) {
+  try {
+    if (source === 'club' || source === 'own') localStorage.setItem(CARD_SOURCE_STORAGE_KEY, source);
+    else localStorage.removeItem(CARD_SOURCE_STORAGE_KEY);
+  } catch {
+    // The derived default still answers for this page load.
   }
 }
 
@@ -683,8 +766,10 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
 
   // Activation is the one moment a device has no club list at all, so the
   // published one is taken unconditionally. Whether it is the list that shows
-  // is a separate question, answered by the switch in clubPresets.js.
+  // is a separate question, answered by the switch in clubPresets.js. The card
+  // set lands the same way, behind its own switch in cardImages.js.
   saveClubPresets(body.presets ?? null);
+  saveClubCards(body.cards ?? null);
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
   warmLogoQuietly();
@@ -746,6 +831,7 @@ export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
   // Same landing as activation: the creator's device is on the club before this
   // resolves, so nobody is ever shown a code and asked to type it back in.
   saveClubPresets(body.presets ?? null);
+  saveClubCards(body.cards ?? null);
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
   warmLogoQuietly();
@@ -821,7 +907,12 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
   // a device's list exactly as it was, and only an actual publish replaces it —
   // and even then the switch is not touched, so a device sitting on its own
   // presets stays there with a newer club list waiting behind the toggle.
-  if ((body.ver ?? 1) !== (club.ver ?? 1)) saveClubPresets(body.presets ?? null);
+  const verMoved = (body.ver ?? 1) !== (club.ver ?? 1);
+  if (verMoved) saveClubPresets(body.presets ?? null);
+  // The card set rides the same version. It is also taken when this device has
+  // none at all, so a device that last refreshed on a bundle that did not know
+  // about card sets still receives the one already published.
+  if (verMoved || (!loadClubCards() && body.cards)) saveClubCards(body.cards ?? null);
 
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken ?? club.clubToken, lastRefreshAt: now }));
   applyPlan(clubEntitlementOf(entry));
@@ -868,6 +959,10 @@ export function leaveClub({ fetchImpl } = {}) {
   // the club was active, so there is nothing to put back.
   saveClubPresets(null);
   writePresetSource(null);
+  // The card set and its switch go too. The device's own sets were never
+  // touched, so its own choice is simply what shows again.
+  saveClubCards(null);
+  writeCardSource(null);
   // The badge placement goes with the club: it is a position on the club's
   // badge, and there is no badge to place once the club is gone.
   clearClubBadgeOverride();
@@ -905,10 +1000,28 @@ export function rememberPublishedPresets(ver, presets) {
   return store({ ...club, ver: typeof ver === 'number' ? ver : club.ver });
 }
 
+/**
+ * Take the answer to a card-set publish or removal, for the same reason
+ * `rememberPublishedPresets` exists: the publisher's own device must not read
+ * its next refresh as news.
+ *
+ * @param {number} ver
+ * @param {Object|null} cards
+ * @returns {Object|null} the club as it now stands
+ */
+export function rememberPublishedCards(ver, cards) {
+  const club = loadClub();
+  if (!club) return null;
+  saveClubCards(cards ?? null);
+  return store({ ...club, ver: typeof ver === 'number' ? ver : club.ver });
+}
+
 /** Test seam: drop the in-memory copy so the next read comes from storage. */
 export function resetClubForTests() {
   cached = undefined;
   loaded = false;
+  cardsCache = undefined;
+  cardsLoaded = false;
   listeners.clear();
   logoImage = null;
   logoImageUrl = null;
