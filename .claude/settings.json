@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/factory/stop-gate.mjs", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}

@@ -26,7 +26,8 @@ anything the real Zoom client shows, that means the matching spec in `e2e/zoom-c
 3. If no spec covers the area, add one from `_template.md` and list it in `INDEX.md`.
 4. Run `npm run test:specs`. It fails on malformed specs and dangling `covers` paths.
 5. Do not touch `verified_at` / `verified_on` unless you actually ran the spec. Those record a
-   real run, not an edit. If you changed behaviour and did not rerun, set `status: stale`.
+   real run, not an edit. Running it is part of done (below); `status: stale` means a run was
+   blocked, not skipped.
 
 Read `e2e/zoom-client/README.md` for the spec format. To run the specs against the real Zoom
 client, use the `zoom-app-testing` skill; it starts from `e2e/zoom-client/INDEX.md`.
@@ -34,6 +35,41 @@ client, use the `zoom-app-testing` skill; it starts from `e2e/zoom-client/INDEX.
 last edited ("drift"). Review the spec against the change and commit it; don't bypass with
 `--no-verify` to get around it. Before a release, run `npm run test:specs -- --stale --strict`
 and rerun any spec it lists (changed since last real run).
+
+## Definition of done
+A change is done when all of these hold, not when the code compiles:
+1. `npm test`, `npm run test:e2e` and `npm run test:specs` pass.
+2. Every Zoom-client spec whose `covers` includes a changed file ran in the real Zoom client
+   (`zoom-app-testing` skill) against this branch deployed to dev. Its `test-runs/<run>/run.md`
+   shows each step ✅, or ⏭ for a `human` step with the reason. Run it yourself right after
+   implementing; don't stop to ask whether to test.
+3. The PR body follows `.github/pull_request_template.md` and links the run.
+
+Stop short of step 2 only when blocked: the Mac is in use, Zoom wants a sign-in or app
+authorization, or the deploy fails. Then set the spec's `status: stale`, write what blocked it
+under "Not verified" in the PR, and label the PR `needs:zoom-test`.
+
+## Standing approvals
+Do these without asking when they are part of finishing a change:
+- Deploy the current branch to dev (`npm run cf:deploy:dev`). Workers Builds restores `dev`
+  on its next push.
+- Start Zoom and a test meeting (`zoom-up.sh`) and drive the Zoom client for the specs.
+- Flip `ENTITLEMENT_ENFORCE` / `FLAGS_FORCE` on dev for a spec's `needs`; restore them when
+  the run ends.
+- Create branches, commit, push a branch other than `dev`/`master`, open a draft PR, set the
+  factory labels.
+
+Before the first click in the Zoom client, say once in chat that you're taking the Mac and
+wait 60 seconds (no wait if the user said they're away). If `click.sh` refuses because Zoom
+isn't frontmost, the user is on the Mac: stop and wait for them.
+
+Still ask before: merging, anything on `master` or production, deleting data, sending
+messages, Stripe, and the skill's human-only list.
+
+## Factory
+Issues move through labels: `factory:ready` → `plan:review` → `plan:approved` →
+`needs:zoom-test` → `ready-for-review`. `/factory <n>` runs the next station and stops at a
+human gate. Read `.factory/README.md` before working on a `factory/` branch.
 
 ## Deploys (Cloudflare Workers Builds)
 Only `toastmaster-timer` (master) and `toastmaster-timer-dev` (dev) are Git-connected.

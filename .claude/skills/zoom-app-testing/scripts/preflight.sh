@@ -21,8 +21,8 @@ if [ -n "$KV" ]; then
 fi
 if pgrep -x zoom.us >/dev/null; then
   wins=$(osascript -e 'tell application "System Events" to tell process "zoom.us" to get name of every window' 2>/dev/null)
-  [[ "$wins" == *"Zoom Meeting"* ]] && ok "Zoom meeting window open" || bad "Zoom running but no meeting window ($wins)" "start or join a meeting and open the app in the Apps panel"
-else bad "Zoom not running" "open Zoom, start a meeting, open the app"; fi
+  [[ "$wins" == *"Zoom Meeting"* ]] && ok "Zoom meeting window open" || bad "Zoom running but no meeting window ($wins)" "run $(dirname "$0")/zoom-up.sh yourself (not a user step), then open the app from Apps"
+else bad "Zoom not running" "run $(dirname "$0")/zoom-up.sh yourself (not a user step), then open the app from Apps"; fi
 [ "$(defaults read ZoomChat webview.context.menu 2>/dev/null)" = "1" ] && ok "Zoom webview inspector enabled" \
   || warn "Zoom webview inspector off" "optional: defaults write ZoomChat webview.context.menu true, restart Zoom (right-click → Inspect gives DOM/localStorage)"
 disp=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution|Main Display" | tr -s ' ' | paste -sd ' ' -)
