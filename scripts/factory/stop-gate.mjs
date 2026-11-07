@@ -5,6 +5,7 @@
 // Lets the stop through when: not a factory/ branch, CI or FACTORY_STATION is set (headless
 // stations hand off to the Zoom station instead), or this stop already follows a block
 // (stop_hook_active), so a blocked run can explain itself and end.
+// `node stop-gate.mjs --hits` prints the specs the current branch touches (any branch).
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
@@ -35,12 +36,17 @@ export function decide({ branch, env = {}, stopHookActive, hits, changedAt, runs
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const lines = (s) => s.split('\n').filter(Boolean);
 
+// Files this branch changes against origin/dev, committed or not.
+function branchChanges(root) {
+  const base = git(root, ['merge-base', 'HEAD', BASE]);
+  const dirty = new Set([...lines(git(root, ['diff', '--name-only', 'HEAD'])), ...lines(git(root, ['ls-files', '--others', '--exclude-standard']))]);
+  return { base, dirty, changed: [...new Set([...lines(git(root, ['diff', '--name-only', base])), ...dirty])] };
+}
+
 function gather(root) {
   const branch = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (!branch.startsWith('factory/')) return { branch };
-  const base = git(root, ['merge-base', 'HEAD', BASE]);
-  const dirty = new Set([...lines(git(root, ['diff', '--name-only', 'HEAD'])), ...lines(git(root, ['ls-files', '--others', '--exclude-standard']))]);
-  const changed = [...new Set([...lines(git(root, ['diff', '--name-only', base])), ...dirty])];
+  const { base, dirty, changed } = branchChanges(root);
   const hits = specsHit(loadSpecs(root), changed);
   if (!hits.length) return { branch, hits };
   const hitFiles = [...new Set(hits.flatMap((h) => h.files))];
@@ -54,7 +60,11 @@ function gather(root) {
   return { branch, hits, changedAt: Math.max(committed, ...edited), runs };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === '--hits') {
+  // For the Zoom station: which specs does this branch touch? → [{ id, files }]
+  const root = git(process.cwd(), ['rev-parse', '--show-toplevel']);
+  console.log(JSON.stringify(specsHit(loadSpecs(root), branchChanges(root).changed), null, 2));
+} else if (process.argv[1] === fileURLToPath(import.meta.url)) {
   let input = {};
   try { input = JSON.parse(readFileSync(0, 'utf8') || '{}'); } catch {}
   try {
