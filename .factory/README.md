@@ -77,7 +77,7 @@ with `.factory/oracles/<n>.json` in one commit. From then on:
 | In a session | `/factory <n>`: runs the next station, continues until a human gate |
 | One station | `/factory-plan <n>`, `/factory-build <n>`, `/factory-zoom <n>`, ... |
 | Headless | `FACTORY_STATION=plan claude -p "/factory-plan <n>"` |
-| Triggered | `.github/workflows/factory-*.yml` (cloud stations), the Mac's scheduled task (zoom) |
+| Triggered | `.github/workflows/factory-plan.yml` / `factory-build.yml` (cloud), and the two clock-driven runs in `schedules.md`: the Mac's Zoom night shift and weekly ideation |
 
-The workflows stay inert until the repository variable `FACTORY_ENABLED` is `true` and the
-secrets in `.github/workflows/factory-build.yml` exist.
+The workflows stay inert until the repository variable `FACTORY_ENABLED` is `true`; they also
+need the Claude GitHub App and a secret (header of `factory-plan.yml`).
