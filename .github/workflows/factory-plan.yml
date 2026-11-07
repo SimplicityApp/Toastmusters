@@ -1,0 +1,69 @@
+# Factory station "plan" in the cloud. Runs when a factory actor promotes an issue
+# (factory:ready) and when a factory PR closes (a WIP slot frees up), then plans the oldest
+# ready issue if the WIP limit allows. See .factory/README.md.
+#
+# Inert until: repository variable FACTORY_ENABLED = true, the Claude GitHub App is installed
+# (github.com/apps/claude; its token lets pushes trigger CI), and the secret
+# CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY exists.
+name: Factory · plan
+
+on:
+  issues:
+    types: [labeled]
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+concurrency:
+  group: factory-plan
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  plan:
+    if: >-
+      vars.FACTORY_ENABLED == 'true' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'issues' && github.event.label.name == 'factory:ready') ||
+        (github.event_name == 'pull_request' && startsWith(github.event.pull_request.head.ref, 'factory/')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pick the issue (oldest ready, WIP allowing, gate opened by a factory actor)
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(node scripts/factory/state.mjs --queue | jq -r '.pick // empty')
+          if [ -z "$n" ]; then echo "Nothing to plan: WIP limit reached or no factory:ready issue."; exit 0; fi
+          next=$(node scripts/factory/state.mjs "$n" | jq -r '.next // empty')
+          if [ "$next" != plan ]; then echo "#$n: next is '$next', not plan."; exit 0; fi
+          echo "issue=$n" >> "$GITHUB_OUTPUT"
+      - name: Install
+        if: steps.pick.outputs.issue
+        run: |
+          npm ci
+          npm ci --prefix apps/zoom-app
+          npm ci --prefix apps/web
+          npm ci --prefix apps/table-topics
+      - uses: anthropics/claude-code-action@v1
+        if: steps.pick.outputs.issue
+        env:
+          FACTORY_STATION: plan
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: /factory-plan ${{ steps.pick.outputs.issue }}
+          claude_args: --max-turns 80 --allowedTools Bash,Read,Edit,Write,MultiEdit,Glob,Grep,Task,Skill

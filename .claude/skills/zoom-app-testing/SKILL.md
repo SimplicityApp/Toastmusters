@@ -1,6 +1,6 @@
 ---
 name: zoom-app-testing
-description: Drive the real Zoom desktop client (plus the web app and Worker logs) to run Toastmusters Timer manual test plans end to end, with screenshots and a timestamped run log as proof. Use this whenever the user wants to test, verify, QA, smoke-test or "click through" the Zoom app or a feature on dev/staging inside Zoom — e.g. "test the dev branch in my Zoom client", "run the club pro test plan", "check the badge on real video", "verify FINISH uploads", "automate the manual testing" — even if they don't say "skill" or name cliclick. Also use it to plan which steps of a test plan can run unattended versus which need the user.
+description: Drive the real Zoom desktop client (plus the web app and Worker logs) to run Toastmusters Timer manual test plans end to end, with screenshots and a timestamped run log as proof. Use this whenever the user wants to test, verify, QA, smoke-test or "click through" the Zoom app or a feature on dev/staging inside Zoom — e.g. "test the dev branch in my Zoom client", "run the club pro test plan", "check the badge on real video", "verify FINISH uploads", "automate the manual testing" — even if they don't say "skill" or name cliclick. Also use it unasked right after implementing a change whose files a Zoom-client spec `covers`: running those specs is part of done (CLAUDE.md), not a separate request. Also use it to plan which steps of a test plan can run unattended versus which need the user.
 ---
 
 # Zoom app testing (Toastmusters Timer)
@@ -40,15 +40,17 @@ Then **reorder** so the human steps collapse into as few sittings as possible �
 one before (sign-ins, consent, checkout), one in the middle (things that must happen after
 your first block, e.g. a Stripe cancel), one at the end. Respect data dependencies (a club
 must exist before activation; a "never paid" account must be tested before it checks out).
-Show the user this order and get a yes before starting. `references/planning.md` has the
-worked Club Pro example.
+If the plan has human steps, show the user the order once and get a yes, so they know when
+they're needed. If every step is `auto`, start without asking. `references/planning.md` has
+the worked Club Pro example.
 
 **Human-only, always:** Zoom sign-in and OAuth consent ("Allow" on an app authorization),
 typing passwords, entering card numbers on a deployed (non-localhost) host, sending messages
 (Zoom chat, WhatsApp, Slack, email), Stripe dashboard/portal cancel or renew, toggling Wi-Fi
-(it would cut your own connection), changing System Settings. Outward-facing actions the user
-can pre-approve once as a list: deploys, flipping `ENTITLEMENT_ENFORCE`, KV edits, `club-cli`
-writes.
+(it would cut your own connection), changing System Settings. Pre-approved (CLAUDE.md
+"Standing approvals"): deploying the branch to dev, starting Zoom and the test meeting,
+flipping `ENTITLEMENT_ENFORCE` / `FLAGS_FORCE` with a restore at the end. Still ask once, as a
+list, for KV edits and `club-cli` writes.
 
 ## 2. Preflight and start the run
 
@@ -56,6 +58,13 @@ writes.
 $S/preflight.sh --kv <dev PROFILES namespace id>   # fix every ❌ before continuing
 $S/new-run.sh <short-name> "<plan, branch, deployed version, gate value>"
 ```
+
+Zoom not running, or no meeting open, is **not a user step**: run `$S/zoom-up.sh`. It
+launches Zoom, starts the test meeting (`ZOOM_TEST_PMI` from `meeting.local`, gitignored, or
+Zoom's Start Meeting shortcut) and waits for the meeting window. Then open Toastmasters Timer
+from Apps with the per-step loop below. Ask the user only when it exits 2 or a snap shows a
+Zoom sign-in screen or an app authorization prompt. Before the first click, say once in chat
+that you're taking the Mac and wait 60 seconds.
 
 Then start, each with `run_in_background: true`:
 - `$S/tail.sh` — Worker log into the run folder (auto-reconnects).
