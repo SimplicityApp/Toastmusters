@@ -1,0 +1,41 @@
+name: Factory-ready issue
+description: A bug or feature written so the factory can plan it (testable acceptance criteria).
+labels: [idea]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who hits it, what they see, why it matters. 2–4 lines.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Numbers with their date range, user quotes, a reproduction. "None yet" is fine.
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: One per user-visible behaviour, each observable.
+      value: |
+        - AC-1: Given …, when …, then …
+    validations:
+      required: true
+  - type: dropdown
+    id: surfaces
+    attributes:
+      label: Surfaces
+      multiple: true
+      options: [zoom-app, web, worker, table-topics, shared]
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      description: High when it touches billing, auth, entitlements, env flags or production data.
+      options: [low, high]
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
