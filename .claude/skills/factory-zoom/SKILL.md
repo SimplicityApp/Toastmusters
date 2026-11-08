@@ -1,6 +1,6 @@
 ---
 name: factory-zoom
-description: Factory station "zoom" (this Mac only). Take the dev lock, deploy a factory PR's branch to dev, run the Zoom-client specs its diff touches in the real Zoom client with the zoom-app-testing skill, record the evidence, restore dev, then run factory-report. Use for "/factory-zoom <n>", the night-shift scheduled run, or when scripts/factory/state.mjs says next is zoom.
+description: Factory station "zoom" (this Mac only). Take the dev lock, deploy a factory PR's branch to dev, run the Zoom-client specs its diff touches in the real Zoom client with the zoom-app-testing skill, record the evidence, restore dev, then run factory-report. Use for "/factory-zoom <n>", the daily scheduled Zoom run, or when scripts/factory/state.mjs says next is zoom.
 argument-hint: <issue number> | next
 ---
 
