@@ -1,6 +1,10 @@
 # Factory station "build" in the cloud: oracle → implement → verify, ending at
 # needs:zoom-test for the Mac's Zoom station. Runs when a factory actor adds plan:approved to
 # a factory PR. Same switches as factory-plan.yml (FACTORY_ENABLED, Claude GitHub App, secret).
+#
+# Keep this file identical on dev and master. GitHub runs issue-triggered workflows from the
+# default branch (master), and the Claude action skips any workflow whose file differs from
+# the default branch's copy. The last step fails the run when that happens.
 name: Factory · build
 
 on:
@@ -67,3 +71,14 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: /factory-build ${{ steps.gate.outputs.issue }}
           claude_args: --max-turns 200 --allowedTools Bash,Read,Edit,Write,MultiEdit,Glob,Grep,Task,Skill
+      - name: Check the station ran
+        if: steps.gate.outputs.issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.gate.outputs.issue }}
+        run: |
+          next=$(node scripts/factory/state.mjs "$N" | jq -r '.next // empty')
+          if [ "$next" = build ]; then
+            echo "::error::#$N still needs build: the station didn't finish. If the Claude step logged 'Workflow validation failed', this file differs from master's copy."
+            exit 1
+          fi
