@@ -20,6 +20,14 @@ Each of these cost time in the 2026-09-28 Club Pro run. Grouped by where they bi
   mapping.
 
 ## Zoom client
+- **"<Host>'s Zoom Meeting" is the pre-join preview, not the meeting** (2026-11-07). Start
+  Meeting (⌃⌘V) opens a video preview with a Start button when "Always show this preview when
+  joining" is ticked; a substring match on "Zoom Meeting" took it for the meeting. The
+  meeting window is named exactly "Zoom Meeting". `zoom-up.sh` presses Return on the preview;
+  unticking that box once removes it.
+- **Zoom popovers need `--activate`.** Closing the preview opens a "Leave meeting" popover;
+  its button is not exposed to Accessibility (AXPress finds nothing), and a single
+  `click.sh` only dismissed it. `click.sh X,Y --activate` worked.
 - **The user may come back mid-run.** In the smoke test a click aimed at Zoom's REPORT tab
   landed in the user's Chrome window, which had come to the front. `click.sh` now refuses
   unless Zoom is frontmost; treat a refusal as "the user is here" and stop.

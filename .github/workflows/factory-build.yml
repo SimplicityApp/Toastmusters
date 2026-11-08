@@ -29,7 +29,7 @@ jobs:
       vars.FACTORY_ENABLED == 'true' && (
         github.event_name == 'workflow_dispatch' ||
         (github.event.label.name == 'plan:approved' && startsWith(github.event.pull_request.head.ref, 'factory/')))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.58 has no browsers for ubuntu-latest (26.04)
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
