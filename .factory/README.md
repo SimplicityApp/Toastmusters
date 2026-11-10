@@ -81,3 +81,9 @@ with `.factory/oracles/<n>.json` in one commit. From then on:
 
 The workflows stay inert until the repository variable `FACTORY_ENABLED` is `true`; they also
 need the Claude GitHub App and a secret (header of `factory-plan.yml`).
+
+`master` is the default branch, so `factory-plan.yml` and `factory-build.yml` must be
+identical on `dev` and `master`: issue-label events run the default branch's copy, and the
+Claude action skips a workflow that differs from it (the run then fails at "Check the station
+ran"). Change them with one PR into each branch, merged together. `ci.yml` reaches `master`
+with the next release.
