@@ -117,6 +117,32 @@ describe('parseSimpleFormatText: PRD worked examples', () => {
   });
 });
 
+describe('parseSimpleFormatText: built-in role in brackets (#90)', () => {
+  it('AC-1: the bracket role beats a keyword in the name ("Tim Timer (Standard Speech)")', () => {
+    expect(parseSimpleFormatText('Tim Timer (Standard Speech)', [])).toEqual([
+      { name: 'Tim Timer', role: 'Standard Speech' },
+    ]);
+  });
+
+  it('AC-2: the bracket role beats an earlier keyword in the name ("General Evaluation (Table Topics)")', () => {
+    const [item] = parseSimpleFormatText('Dominique - General Evaluation (Table Topics)', []);
+    expect(item.role).toBe('Table Topics');
+  });
+
+  it('AC-3: a bracket with no role words keeps whole-line detection', () => {
+    expect(parseSimpleFormatText('Person (A)', [])).toEqual([{ name: 'Person', role: 'Standard Speech' }]);
+    expect(parseSimpleFormatText('Tim Timer (Pathways L2)', [])).toEqual([
+      { name: 'Tim Timer', role: 'Short Roles' },
+    ]);
+  });
+
+  it('AC-4: a custom role in the bracket still wins ("Tim Timer (Closing)")', () => {
+    expect(parseSimpleFormatText('Tim Timer (Closing)', ['Closing'])).toEqual([
+      { name: 'Tim Timer', role: 'Closing' },
+    ]);
+  });
+});
+
 describe('matchCustomRole', () => {
   it('matches ignoring case, spacing and punctuation', () => {
     expect(matchCustomRole(' opening   REMARKS ', ['Opening Remarks'])).toBe('Opening Remarks');

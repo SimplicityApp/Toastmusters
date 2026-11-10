@@ -1,7 +1,7 @@
 ---
 id: agenda-import
 title: Simple Format import assigns custom roles in the Zoom client
-status: draft
+status: stale
 covers:
   - packages/shared/simpleFormatParser.js
   - apps/zoom-app/src/context/TimerContext.jsx
@@ -92,6 +92,21 @@ device.
 Evidence: page script: `toastmaster_agenda` is empty or absent, and
 `toastmaster_role_order` is `[]`.
 
+### IM-05 · auto · A built-in role in the brackets beats a keyword in the name
+Do: first run IM-04 (clean device). Agenda tab → Import Text → "Simple Format". Put these two
+lines on the clipboard with `pbcopy`, click the textarea, paste with ⌘V, press Import.
+```
+Tim Timer (Standard Speech)
+Dominique - General Evaluation (Table Topics)
+```
+Expect: toast "Imported 2 speaker(s)". Row "Tim Timer" shows Standard Speech and row
+"Dominique - General Evaluation" shows Table Topics. Click "Tim Timer": the Live tab role
+dropdown shows Standard Speech and the timing rules read Green: 5 minutes, Yellow: 6 minutes,
+Red: 7 minutes (not Short Roles' 1 / 1:30 / 2).
+Evidence: page script: `toastmaster_agenda` items are `Tim Timer` / `Standard Speech` and
+`Dominique - General Evaluation` / `Table Topics`. Screenshot of the Live tab rules line.
+Then Clear All in the Agenda tab.
+
 ## Not covered
 - Custom roles that come from Club Pro presets, or from older saved rules with no role
   order. The PR now covers these too (`customRoleNames` comes from the dropdown, not from
@@ -102,9 +117,8 @@ Evidence: page script: `toastmaster_agenda` is empty or absent, and
   bracket like `(Ice Breaker)` is never taken by a partial custom match). Unit tests in
   `simpleFormatParser.test.js` cover these, and the client adds nothing to them.
 - EasySpeak import. This change did not touch it, and it has no spec yet.
-- `(Table Topics Speech)` imports as a `Table Topics` role with no timing rules (#91). A
-  built-in keyword in the name overrides a built-in role in the bracket (#90). Both are
-  known open bugs. No step locks in either result.
+- `(Table Topics Speech)` imports as a `Table Topics` role with no timing rules (#91), a
+  known open bug. No step locks in that result. IM-05 covers #90.
 - The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
   `apps/web/src/context/TimerContext.test.jsx`, and `e2e/web.agenda-flow.spec.js` runs this
   import (IM-01, IM-02) in a plain browser.
