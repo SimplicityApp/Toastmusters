@@ -118,7 +118,7 @@ Then Clear All in the Agenda tab.
   `simpleFormatParser.test.js` cover these, and the client adds nothing to them.
 - EasySpeak import. This change did not touch it, and it has no spec yet.
 - `(Table Topics Speech)` imports as a `Table Topics` role with no timing rules (#91), a
-  known open bug. No step locks in that result. IM-05 covers #90.
+  known open bug. No step locks in that result. IM-05 covers #90 (fixed: the bracket's built-in role is tried before the whole line).
 - The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
   `apps/web/src/context/TimerContext.test.jsx`, and `e2e/web.agenda-flow.spec.js` runs this
   import (IM-01, IM-02) in a plain browser.
