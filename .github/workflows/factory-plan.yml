@@ -5,6 +5,10 @@
 # Inert until: repository variable FACTORY_ENABLED = true, the Claude GitHub App is installed
 # (github.com/apps/claude; its token lets pushes trigger CI), and the secret
 # CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY exists.
+#
+# Keep this file identical on dev and master. GitHub runs issue-triggered workflows from the
+# default branch (master), and the Claude action skips any workflow whose file differs from
+# the default branch's copy. The last step fails the run when that happens.
 name: Factory · plan
 
 on:
@@ -67,3 +71,14 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: /factory-plan ${{ steps.pick.outputs.issue }}
           claude_args: --max-turns 80 --allowedTools Bash,Read,Edit,Write,MultiEdit,Glob,Grep,Task,Skill
+      - name: Check the station ran
+        if: steps.pick.outputs.issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.pick.outputs.issue }}
+        run: |
+          next=$(node scripts/factory/state.mjs "$N" | jq -r '.next // empty')
+          if [ "$next" = plan ]; then
+            echo "::error::#$N still needs plan: the station didn't finish. If the Claude step logged 'Workflow validation failed', this file differs from master's copy."
+            exit 1
+          fi
