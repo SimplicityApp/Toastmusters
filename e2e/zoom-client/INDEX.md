@@ -4,7 +4,7 @@ Read this first. Update it in the same PR as any spec change.
 
 | Spec | Status | Verified | Covers |
 |---|---|---|---|
-| [timer-core](timer-core.md) | stale | never | start/colours/finish, resume after close; `audience_size` on `timer_started` for hosts, omitted for non-hosts (#107) |
+| [timer-core](timer-core.md) | draft | never | start/colours/finish, resume after close; `audience_size` on `timer_started` for hosts, omitted for non-hosts (#107) |
 | [agenda-import](agenda-import.md) | draft | never | Simple Format import assigns custom roles from the bracket text; imported role's thresholds on real video (#77) |
 | [zoom-deeplink](zoom-deeplink.md) | draft | never | "Open in Zoom" deeplink resolves and launches this build's app (dev vs production client id) |
 | auth-identity | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 1, 1b |
