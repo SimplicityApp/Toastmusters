@@ -122,3 +122,5 @@ Human because it needs a second signed-in Zoom account.
   the `sounds` flag is on and the account is Pro). See [timer-sounds](timer-sounds.md).
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
   `TimerContext.jsx`). See [agenda-import](agenda-import.md).
+- A failed participant read at START (`timer_started` still sent, no `audience_size`). The
+  Zoom client can't be made to fail it on demand; `LiveTab.test.jsx` covers it (#107 AC-5).
