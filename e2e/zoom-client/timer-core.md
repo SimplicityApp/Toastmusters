@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: draft
+status: stale
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -92,6 +92,26 @@ Expect: the role picker shows the first role in the list, the "Timing rules" lin
 that role, and START runs the timer. No "Please set timing rules first" warning.
 Evidence: screenshot of the picker and the running timer; a `timer_started` event in
 PostHog carrying that role.
+
+### TC-11 · auto · timer_started carries the meeting's audience size (#107)
+Do: as host, open the app first; if a second participant is available, let them join after
+the app is open. Then press START on any role.
+Expect: the `timer_started` event for this START has `audience_size` equal to the count in
+Zoom's Participants panel at the moment of the press (late joiners included), alongside the
+usual `speaker_name`, `role` and `timing_rules`. A host-only test meeting gives
+`audience_size: 1`; that is accepted as proof the property is attached. No names leave the
+device, only the number. The timer starts at once, not after the participant read.
+Evidence: PostHog `timer_started` for this START (`audience_size`, `zoom_meeting_id`);
+screenshot of Zoom's Participants count at the press. Note whether a second participant was
+present.
+
+### TC-12 · human · No audience_size for a non-host organizer (#107)
+Do: a second Zoom account that is neither host nor co-host opens the app in the same meeting
+and presses START.
+Expect: the timer runs normally and `timer_started` is sent without `audience_size`. The debug
+log shows one "Participant list needs host or co-host" warning for the press.
+Evidence: PostHog `timer_started` from that account with no `audience_size`; debug log line.
+Human because it needs a second signed-in Zoom account.
 
 ## Not covered
 - Colour accuracy on every camera/background setting.
