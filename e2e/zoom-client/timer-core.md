@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: draft
+status: current
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -13,8 +13,8 @@ automated:
 needs:
   - dev deployed
   - camera on, in a meeting
-verified_at: never
-verified_on: never
+verified_at: 2e965b6
+verified_on: 2026-11-11 (Zoom 7.2.5, macOS 26.7.2, dev a4c66603)
 ---
 
 # Core timer in the Zoom client
@@ -35,10 +35,12 @@ Do: Apps in the sidebar, open Toastmaster Timer.
 Expect: it loads from the `zoom.` host (`zoom.timer-dev.simple-tech.app` on dev), not `www.`.
 Evidence: `reqs.sh` shows the page load on the `zoom.` host.
 
-### TC-02 · auto · Green on start, count-up on video
-Do: Live tab, pick "Table Topics: 1–1.5–2 min", press Start with camera on.
-Expect: background turns green; elapsed time is drawn over the video and rises once a second
-(a virtual foreground layer, not baked into the background).
+### TC-02 · auto · Count-up on start, green at the threshold
+Do: Live tab, pick "Table Topics: 1–1.5–2 min" (or any short role if the device hides it),
+press Start with camera on.
+Expect: elapsed time is drawn over the video at once and rises once a second (a virtual
+foreground layer, not baked into the background). No colour card before the green threshold;
+green from the green threshold.
 Evidence: screenshot of the video frame; debug log shows one `setVirtualBackground` call.
 
 ### TC-03 · auto · Yellow then red at the thresholds
@@ -64,7 +66,9 @@ Expect: at most four new fixed colour backgrounds. None with a timestamp baked i
 Evidence: file count before and after.
 
 ### TC-06 · auto · Timer survives closing the app
-Do: start a speech, run ~10 s, close the app with X (not the back arrow), wait ~5 s, reopen.
+Do: start a speech, run ~10 s, close the app with ⋯ → Close current app, wait ~5 s, reopen
+from Apps. The Apps panel's own X only hides the app: Zoom keeps the webview, so there is no
+reload and no toast (seen 2026-11-11).
 Expect: a toast says the timer resumed; elapsed includes the closed seconds; card colour
 matches the elapsed time (yellow if the threshold passed while closed).
 Evidence: toast screenshot; saved timer state in `localStorage`.
