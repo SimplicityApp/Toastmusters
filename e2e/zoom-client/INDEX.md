@@ -5,7 +5,7 @@ Read this first. Update it in the same PR as any spec change.
 | Spec | Status | Verified | Covers |
 |---|---|---|---|
 | [timer-core](timer-core.md) | draft | never | start/colours/finish, resume after close |
-| [agenda-import](agenda-import.md) | draft | never | Simple Format import assigns custom roles from the bracket text; imported role's thresholds on real video (#77) |
+| [agenda-import](agenda-import.md) | current | 0ba1f1c, 2026-11-11 | Simple Format import assigns custom roles from the bracket text; imported role's thresholds on real video (#77) |
 | [zoom-deeplink](zoom-deeplink.md) | draft | never | "Open in Zoom" deeplink resolves and launches this build's app (dev vs production client id) |
 | auth-identity | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 1, 1b |
 | [connection-notice](connection-notice.md) | draft | never | guest-mode banner and "Approve Toastmusters Timer in Zoom" modal at open; raised mid-session when Zoom drops the grant, modal held until the timer stops (#85) |
