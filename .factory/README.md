@@ -81,6 +81,9 @@ with `.factory/oracles/<n>.json` in one commit. From then on:
 
 The workflows stay inert until the repository variable `FACTORY_ENABLED` is `true`; they also
 need the Claude GitHub App and a secret (header of `factory-plan.yml`).
+They run Claude Code on Opus 5.5 at high effort (`--model claude-opus-5-5 --effort high` in
+`claude_args`). With `CLAUDE_CODE_OAUTH_TOKEN` they use the account's Claude subscription, so
+each run counts against the same usage limits as interactive sessions.
 
 `master` is the default branch, so `factory-plan.yml` and `factory-build.yml` must be
 identical on `dev` and `master`: issue-label events run the default branch's copy, and the

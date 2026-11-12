@@ -4,7 +4,8 @@ import { ToastProvider } from '../context/ToastContext';
 import { TimerProvider } from '../context/TimerContext';
 import LiveTab from './LiveTab';
 import { BREAK_ROLE, DEFAULT_ROLE_RULES, deriveBreakRules } from '@toastmaster-timer/shared';
-import { applyOverlay, clearVideoPipelines, isOverlayActive } from '../utils/zoomSdk';
+import { applyOverlay, clearVideoPipelines, isOverlayActive, getZoomParticipants } from '../utils/zoomSdk';
+import { trackEvent } from '../utils/posthog';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom. Faithful to the real return shapes, since the tab
@@ -228,5 +229,126 @@ describe('the starting role when Standard Speech is removed', () => {
 
     expect(screen.queryByText('Please set timing rules first')).not.toBeInTheDocument();
     expect(applyOverlay).toHaveBeenCalled();
+  });
+});
+
+// Reach: how many people a START served, not how many times it was pressed.
+// Only a count leaves the device, and only when Zoom gave us the whole list.
+describe('timer_started and the meeting audience (#107)', () => {
+  const NO_PARTICIPANTS = { participants: [], role: 'host', restricted: false };
+  const people = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `Person ${i}` }));
+  const startButton = () => screen.getByRole('button', { name: /start/i });
+  const STANDARD = DEFAULT_ROLE_RULES['Standard Speech'];
+
+  afterEach(() => {
+    // Back to the module mock's default so other suites see an empty list.
+    getZoomParticipants.mockReset();
+    getZoomParticipants.mockResolvedValue(NO_PARTICIPANTS);
+  });
+
+  /** Let the idle callback and any participant read behind it run to completion. */
+  async function flushIdleWork() {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    await act(async () => {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+  }
+
+  /**
+   * Open the app with `atOpen` in the meeting, let the mount-time reads
+   * (the speaker suggestions) finish, then forget them: every assertion on
+   * getZoomParticipants below is about the read START makes.
+   */
+  async function openApp(atOpen = NO_PARTICIPANTS) {
+    getZoomParticipants.mockResolvedValue(atOpen);
+    renderLive();
+    await flushIdleWork();
+    getZoomParticipants.mockClear();
+  }
+
+  const timerStartedCalls = () => trackEvent.mock.calls.filter(([name]) => name === 'timer_started');
+
+  /** The one timer_started event's properties; fails if it was not sent exactly once. */
+  function timerStartedProps() {
+    const calls = timerStartedCalls();
+    expect(calls).toHaveLength(1);
+    return calls[0][1];
+  }
+
+  it('AC-1: carries audience_size for a host with the full list, alongside the usual properties', async () => {
+    const meeting = { participants: people(3), role: 'host', restricted: false };
+    await openApp(meeting);
+    getZoomParticipants.mockResolvedValue(meeting);
+    pickFromAgenda('Alice');
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    expect(timerStartedProps()).toEqual({
+      speaker_name: 'Alice',
+      role: 'Standard Speech',
+      timing_rules: { green: STANDARD.green, yellow: STANDARD.yellow, red: STANDARD.red },
+      audience_size: 3,
+    });
+  });
+
+  it('AC-2: counts the people in the meeting at START, not when the app opened', async () => {
+    await openApp({ participants: people(1), role: 'host', restricted: false });
+    // Three more people join after the app opened.
+    getZoomParticipants.mockResolvedValue({ participants: people(4), role: 'host', restricted: false });
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    expect(getZoomParticipants).toHaveBeenCalled();
+    expect(timerStartedProps()).toMatchObject({ audience_size: 4 });
+  });
+
+  it('AC-3: leaves audience_size out when the organizer is neither host nor co-host', async () => {
+    const meeting = { participants: people(1), role: 'attendee', restricted: true };
+    await openApp(meeting);
+    getZoomParticipants.mockResolvedValue(meeting);
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    // The read at START was made, so leaving the count out is the result of
+    // `restricted`, not of never asking.
+    expect(getZoomParticipants).toHaveBeenCalled();
+    const props = timerStartedProps();
+    expect(props).not.toHaveProperty('audience_size');
+    expect(props).toMatchObject({ role: 'Standard Speech' });
+  });
+
+  it('AC-4: leaves audience_size out when there is no Zoom SDK (empty participant list)', async () => {
+    const noSdk = { participants: [], role: '', restricted: false };
+    await openApp(noSdk);
+    getZoomParticipants.mockResolvedValue(noSdk);
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    expect(getZoomParticipants).toHaveBeenCalled();
+    const props = timerStartedProps();
+    expect(props).not.toHaveProperty('audience_size');
+    expect(props).toMatchObject({ role: 'Standard Speech' });
+  });
+
+  it('AC-5: starts at once and still sends timer_started, without audience_size, when the participant read fails', async () => {
+    await openApp({ participants: people(2), role: 'host', restricted: false });
+    getZoomParticipants.mockRejectedValue(new Error('SDK init failed'));
+
+    fireEvent.click(startButton());
+    // START never waits on Zoom: the timer is running before any idle work.
+    expect(screen.getByRole('button', { name: 'FINISH' })).toBeInTheDocument();
+
+    await flushIdleWork();
+
+    expect(getZoomParticipants).toHaveBeenCalled();
+    const props = timerStartedProps();
+    expect(props).not.toHaveProperty('audience_size');
+    expect(props).toMatchObject({ role: 'Standard Speech' });
   });
 });
