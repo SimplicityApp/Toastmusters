@@ -66,7 +66,8 @@ export function getDefaultGraceAfterRed(role) {
 
 // Helper to detect role from text
 // customRoleNames: optional array of user-added role names; exact match (case-insensitive) is tried first
-export function detectRoleFromText(text, customRoleNames = null) {
+// fallback: role returned when nothing matched; pass null to get null instead (caller has its own next step)
+export function detectRoleFromText(text, customRoleNames = null, fallback = 'Standard Speech') {
   const normalized = text.toLowerCase().trim();
 
   if (customRoleNames && customRoleNames.length > 0) {
@@ -169,6 +170,5 @@ export function detectRoleFromText(text, customRoleNames = null) {
     return 'Speech Evaluation';
   }
 
-  // Default fallback
-  return 'Standard Speech';
+  return fallback;
 }

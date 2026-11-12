@@ -89,7 +89,11 @@ export function parseSimpleFormatText(text, customRoleNames = []) {
     const groups = [...line.matchAll(BRACKET_GROUP)];
     const bracket = groups.length > 0 ? groups[groups.length - 1][1] : '';
     const customRole = bracket ? matchCustomRole(bracket, names) : null;
-    const role = customRole ?? detectRoleFromText(line, names);
+    // Bracket first (custom, then built-in keywords) so a keyword in the name can't beat it (#90)
+    const role =
+      customRole ??
+      (bracket ? detectRoleFromText(bracket, names, null) : null) ??
+      detectRoleFromText(line, names);
     return { name, role };
   });
 }
