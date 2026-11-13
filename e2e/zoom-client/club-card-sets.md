@@ -107,3 +107,6 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.
 - Card sets are one per club for now (open question 2 in the plan).
+- The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
+  2026-11-13: it changes which speaker loads, not the card artwork or its push; no step here
+  loads an agenda row. See [timer-core](timer-core.md) TC-13. Not rerun for it.

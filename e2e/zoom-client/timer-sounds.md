@@ -118,3 +118,6 @@ log.
 - A club card set re-pushing the card mid-speech (`LiveTab.jsx`). The chime follows the
   status (`cueForStatusChange` in `TimerSounds.jsx`), not the artwork, so it does not
   chime. See [club-card-sets](club-card-sets.md).
+- The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
+  2026-11-13: it changes which speaker loads, not the sounds; no step here loads an agenda
+  row. See [timer-core](timer-core.md) TC-13. Not rerun for it.

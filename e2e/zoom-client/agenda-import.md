@@ -29,7 +29,9 @@ role dropdown (same words; case, spacing and punctuation ignored). Every other r
 highlighted on the Agenda tab with a "Pick a role" list, and is not timed until a role is
 picked. The parser is unit-tested. This spec proves the deployed Zoom build does the same with
 text pasted into the real webview, and that an imported or picked role drives the video with
-its own thresholds.
+its own thresholds. The Live tab's own ways onto the agenda (its suggestions, the Full-Screen
+Timer's speaker list, the auto-advance after FINISH) refuse a highlighted row too; that is
+[timer-core](timer-core.md) TC-13.
 
 ## Purpose
 Catches an import that guesses: a row that silently lands on a near-miss custom role, a keyword
@@ -165,9 +167,6 @@ Then Clear All in the Agenda tab.
   deleted custom role in brackets, rows saved before #91 as `Table Topics`, and the Edit
   modal's "Pick a role…" start. Unit tests in `simpleFormatParser.test.js`,
   `TimerContext.test.jsx` and `AgendaTab.test.jsx` cover these; the client adds nothing.
-- The Live tab can still load a highlighted row through its agenda picker or the auto-advance
-  after FINISH, and then times it with the default role (behaviour from e876ca8, follow-up to
-  #91). The Agenda tab click is the only path this spec checks.
 - EasySpeak import. Its role mapping did not change; a row whose mapped role is hidden is
   highlighted like any other. No spec yet.
 - The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
