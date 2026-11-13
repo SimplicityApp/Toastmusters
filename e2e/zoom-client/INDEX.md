@@ -4,7 +4,7 @@ Read this first. Update it in the same PR as any spec change.
 
 | Spec | Status | Verified | Covers |
 |---|---|---|---|
-| [timer-core](timer-core.md) | current | b029a29, 2026-11-13 | start/colours/finish, resume after close; `audience_size` on `timer_started` for hosts, omitted for non-hosts (#107) |
+| [timer-core](timer-core.md) | stale | b029a29, 2026-11-13 | start/colours/finish, resume after close; `audience_size` on `timer_started` for hosts, omitted for non-hosts (#107); the Live tab's suggestions, stage picker and FINISH refuse an agenda row that needs a role (#91 follow-up: TC-13 ran green on 5de8185; the other steps last ran on b029a29, before that LiveTab change) |
 | [agenda-import](agenda-import.md) | current | b029a29, 2026-11-13 | Simple Format import takes exact role names from the bracket text and highlights the rest for a manual pick; imported and picked roles' thresholds on real video (#77, #91) |
 | [zoom-deeplink](zoom-deeplink.md) | draft | never | "Open in Zoom" deeplink resolves and launches this build's app (dev vs production client id) |
 | auth-identity | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 1, 1b |

@@ -244,6 +244,62 @@ test.describe('Zoom App — Functional Checks', () => {
     await expect(page.getByText('Please set timing rules first')).toHaveCount(0);
   });
 
+  test('the Live tab does not time a row that needs a role: suggestions, FINISH, stage picker (#91)', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    await page.getByRole('button', { name: /AGENDA/i }).click();
+    await page.getByRole('button', { name: /Import Text/i }).click();
+    await page.getByRole('button', { name: 'Simple Format' }).click();
+    await page.getByPlaceholder('John Doe (Ice Breaker)').fill('Bob (Ice Breaker)\nAlex (Table Topics)\nAlice (Standard Speech)');
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+    await expect(page.getByText('Imported 3 speaker(s). 1 needs a role')).toBeVisible();
+    await page.getByRole('button', { name: /LIVE/i }).click();
+
+    const nameInput = page.getByPlaceholder('Type speaker name...');
+    const rolePicker = page.locator('select');
+    const askForAlex = page.getByText('Pick a role for Alex on the Agenda tab first');
+    // The same warning comes back on each path; close it so the next check sees a new one.
+    const closeAsk = () => askForAlex.locator('..').getByRole('button', { name: 'Close' }).click();
+
+    // Panel suggestions: Alex is refused and nothing moves; Bob loads
+    await nameInput.click();
+    await page.getByText('Alex', { exact: true }).click();
+    await expect(askForAlex).toBeVisible();
+    await expect(nameInput).toHaveValue('');
+    await expect(rolePicker).toHaveValue('Standard Speech');
+    await closeAsk();
+
+    await nameInput.click();
+    await page.getByText('Bob', { exact: true }).click();
+    await expect(nameInput).toHaveValue('Bob');
+    await expect(rolePicker).toHaveValue('Ice Breaker');
+
+    // FINISH stops at Alex: no auto-load, no default role, field cleared
+    await page.getByRole('button', { name: /START/i }).click();
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: /FINISH/i }).click();
+    await expect(askForAlex).toBeVisible();
+    await expect(nameInput).toHaveValue('');
+    await expect(rolePicker).toHaveValue('Ice Breaker');
+    await closeAsk();
+
+    // Full-Screen Timer's agenda picker: Alex is refused, Alice loads
+    await page.getByRole('button', { name: /^Display mode:/ }).click();
+    await page.getByRole('menuitemradio', { name: /Full-Screen Timer/ }).click();
+    const stageName = page.getByTestId('timer-stage').getByRole('textbox', { name: 'Speaker name', exact: true });
+    const openStagePicker = () =>
+      page.getByRole('button', { name: 'Choose a speaker from the agenda or the meeting' }).click();
+
+    await openStagePicker();
+    await page.getByRole('option', { name: /Alex/ }).click();
+    await expect(askForAlex).toBeVisible();
+    await expect(stageName).toHaveValue('');
+
+    await openStagePicker();
+    await page.getByRole('option', { name: /Alice/ }).click();
+    await expect(stageName).toHaveValue('Alice');
+  });
+
   test('no console errors about missing context providers', async ({ page }) => {
     await page.goto('/zoom/');
     await page.waitForTimeout(1000);

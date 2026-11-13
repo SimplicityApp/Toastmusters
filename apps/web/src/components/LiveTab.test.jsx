@@ -1,10 +1,11 @@
-import { screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LiveTab from './LiveTab';
 import { renderWithProviders } from '../test/helpers';
 import { useEffect } from 'react';
 import { useTimer } from '../context/TimerContext';
 import { trackEvent } from '../utils/posthog';
+import { DEFAULT_ROLE_RULES } from '@toastmaster-timer/shared';
 
 describe('LiveTab', () => {
   describe('initial state', () => {
@@ -283,5 +284,128 @@ describe('LiveTab starting role when Standard Speech is removed', () => {
 
     expect(screen.queryByText('Please set timing rules first')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+  });
+});
+
+// #91: an imported row whose bracket named none of the user's roles keeps that
+// text as its role and has no rules. The Agenda tab asks for the role; the Live
+// tab's suggestions and FINISH must not load the row either, or the speaker is
+// timed under a role nobody chose.
+describe('LiveTab and an agenda row that needs a role (#91)', () => {
+  const CHAIR = { green: 60, yellow: 90, red: 120, graceAfterRed: 30 };
+  const BOB = { id: 'b1', name: 'Bob', role: 'Ice Breaker', rules: DEFAULT_ROLE_RULES['Ice Breaker'], completed: false };
+  // As Simple Format import leaves "Alex (Table Topics)": no such role, no rules.
+  const ALEX = { id: 'x1', name: 'Alex', role: 'Table Topics', completed: false };
+  const ALICE = { id: 'a1', name: 'Alice', role: 'Standard Speech', rules: DEFAULT_ROLE_RULES['Standard Speech'], completed: false };
+  const ASK_ALEX = 'Pick a role for Alex on the Agenda tab first';
+
+  const rolePicker = () => screen.getByRole('combobox');
+  const nameField = () => screen.getByPlaceholderText(/type speaker name/i);
+
+  /** Open the suggestion list and pick an agenda speaker (selection is on mousedown). */
+  function pickSuggestion(name) {
+    fireEvent.focus(nameField());
+    fireEvent.mouseDown(screen.getByText(name));
+  }
+
+  /** Renders the tab with a handle on the timer context, for what only it can do. */
+  function renderWithTimer() {
+    const handle = {};
+    function Grab() {
+      Object.assign(handle, useTimer());
+      return null;
+    }
+    renderWithProviders(<><Grab /><LiveTab /></>);
+    return handle;
+  }
+
+  /** START, let the clock run a few ticks, FINISH. */
+  async function timeASpeech(user) {
+    await user.click(screen.getByRole('button', { name: /start/i }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    await user.click(screen.getByRole('button', { name: /finish/i }));
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('toastmaster_agenda', JSON.stringify([BOB, ALEX, ALICE]));
+  });
+  afterEach(() => localStorage.clear());
+
+  it('a speaker suggestion that needs a role does not load', async () => {
+    renderWithProviders(<LiveTab />);
+    await waitFor(() => expect(rolePicker()).toHaveValue('Standard Speech'));
+
+    pickSuggestion('Alex');
+
+    expect(await screen.findByText(ASK_ALEX)).toBeInTheDocument();
+    expect(nameField()).toHaveValue('');
+    // Not timed under the default role either: nothing about the speaker moved.
+    expect(rolePicker()).toHaveValue('Standard Speech');
+
+    // A row with a role still loads from the same list.
+    pickSuggestion('Bob');
+    expect(nameField()).toHaveValue('Bob');
+    expect(rolePicker()).toHaveValue('Ice Breaker');
+  });
+
+  it('FINISH does not load a next speaker who needs a role, nor fall back to the default role', async () => {
+    const user = userEvent.setup();
+    const timer = renderWithTimer();
+    act(() => timer.loadSpeakerFromAgenda('b1'));
+    expect(rolePicker()).toHaveValue('Ice Breaker');
+
+    await timeASpeech(user);
+
+    expect(await screen.findByText(ASK_ALEX)).toBeInTheDocument();
+    expect(nameField()).toHaveValue('');
+    // Still Bob's role: neither Alex's text nor Standard Speech.
+    expect(rolePicker()).toHaveValue('Ice Breaker');
+    // The running order stops at Alex rather than skipping to Alice.
+    expect(timer.activeSpeakerId).toBeNull();
+    expect(timer.agenda.map((item) => item.completed)).toEqual([true, false, false]);
+  });
+
+  it('a hand-picked role that leaves the list still moves to the default role (e876ca8)', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('toastmaster_role_rules', JSON.stringify({ ChairToast1: CHAIR }));
+    localStorage.setItem('toastmaster_role_order', JSON.stringify(['ChairToast1']));
+    const timer = renderWithTimer();
+
+    await user.selectOptions(rolePicker(), 'ChairToast1');
+    act(() => timer.removeRoleRules('ChairToast1'));
+
+    expect(rolePicker()).toHaveValue('Standard Speech');
+    expect(screen.queryByText(/on the Agenda tab first/)).not.toBeInTheDocument();
+  });
+
+  it('lets go of a loaded agenda row whose role leaves the list, instead of re-roling it', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('toastmaster_role_rules', JSON.stringify({ ChairToast1: CHAIR }));
+    localStorage.setItem('toastmaster_role_order', JSON.stringify(['ChairToast1']));
+    localStorage.setItem('toastmaster_agenda', JSON.stringify([
+      { id: 'c1', name: 'Carol', role: 'ChairToast1', rules: CHAIR, completed: false },
+      BOB,
+    ]));
+    const timer = renderWithTimer();
+    act(() => timer.loadSpeakerFromAgenda('c1'));
+    expect(rolePicker()).toHaveValue('ChairToast1');
+
+    act(() => timer.removeRoleRules('ChairToast1'));
+
+    expect(await screen.findByText('Pick a role for Carol on the Agenda tab first')).toBeInTheDocument();
+    expect(nameField()).toHaveValue('');
+    expect(rolePicker()).toHaveValue('Standard Speech');
+    expect(timer.activeSpeakerId).toBeNull();
+    // The row keeps its role for the Agenda tab to flag; nothing re-roled it.
+    expect(timer.agenda.find((item) => item.id === 'c1')).toMatchObject({ role: 'ChairToast1', completed: false });
+
+    // A speech timed now is not Carol's: finishing it neither completes her
+    // row nor advances past it to Bob.
+    await timeASpeech(user);
+    expect(nameField()).toHaveValue('');
+    expect(timer.agenda.map((item) => item.completed)).toEqual([false, false]);
   });
 });

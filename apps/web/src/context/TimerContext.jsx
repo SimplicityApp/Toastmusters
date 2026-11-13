@@ -178,6 +178,15 @@ export function TimerProvider({ children }) {
     setCurrentSpeaker(prev => prev ? { ...prev, name } : null);
   }, []);
 
+  /**
+   * Detach the timer from the agenda without touching the agenda itself, so
+   * finishing neither completes that row nor advances past it. Used when the
+   * loaded row's role leaves the list and the Live tab lets go of it (#91).
+   */
+  const clearActiveSpeaker = useCallback(() => {
+    setActiveSpeakerId(null);
+  }, []);
+
   const setCurrentSpeakerAction = useCallback((speaker) => {
     if (!speaker) {
       setCurrentSpeaker(null);
@@ -442,6 +451,7 @@ export function TimerProvider({ children }) {
     resetTimer,
     setCurrentSpeaker: setCurrentSpeakerAction,
     updateSpeakerName,
+    clearActiveSpeaker,
     addToAgenda,
     removeFromAgenda,
     reorderAgenda,
@@ -471,6 +481,7 @@ export function TimerProvider({ children }) {
     resetTimer,
     setCurrentSpeakerAction,
     updateSpeakerName,
+    clearActiveSpeaker,
     addToAgenda,
     removeFromAgenda,
     reorderAgenda,

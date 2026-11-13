@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: current
+status: stale
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -10,6 +10,7 @@ covers:
 automated:
   - e2e/zoom.timer-flow.spec.js
   - apps/zoom-app/src/utils/zoomSdk.test.js
+  - apps/zoom-app/src/components/LiveTab.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting
@@ -117,6 +118,49 @@ log shows one "Participant list needs host or co-host" warning for the press.
 Evidence: PostHog `timer_started` from that account with no `audience_size`; debug log line.
 Human because it needs a second signed-in Zoom account.
 
+### TC-13 · auto · The Live tab does not time an agenda row that needs a role (#91)
+Do: Agenda tab → Import Text → "Simple Format". Click the textarea and type these three lines
+(`cliclick t:` per line, `kp:return` between them), then press Import.
+```
+Bob (Ice Breaker)
+Alex (Table Topics)
+Alice (Standard Speech)
+```
+If the role dropdown hides Ice Breaker or Standard Speech (a club's role list), put two listed
+roles in their brackets instead, and for Bob not the first one in the list (that is the
+default role, and step 2 must show the role did not fall back to it). Keep "(Table Topics)" for
+Alex unless that is listed. Read "Standard Speech" and "Ice Breaker" below as those roles.
+Open the Live tab in Timer + Camera or Timer Only. Then:
+1. Click the speaker name field and pick "Alex" from the Agenda suggestions.
+2. Pick "Bob" the same way. Press Start, let it run about 5 s, press Finish (answer Zoom's
+   reset prompt and the PostHog survey as the skill describes).
+3. Display mode → Full-Screen Timer. Open the speaker list (the arrow beside the name on the
+   stage) and pick "Alex". Open it again and pick "Alice".
+Expect:
+- After Import: toast "Imported 3 speaker(s). 1 needs a role"; on the Agenda tab only "Alex"
+  is highlighted, with "(Table Topics) is not one of your roles".
+- 1: a warning toast "Pick a role for Alex on the Agenda tab first". The name field stays
+  empty and the role dropdown stays on Standard Speech.
+- 2: Bob loads with Ice Breaker. After Finish the same toast shows, the name field is empty,
+  and the role dropdown stays on Ice Breaker: not Standard Speech, and not Alex's text.
+  Alex is not loaded.
+- 3: the toast shows above the stage and the stage's name stays empty. Picking "Alice" puts
+  "Alice" on the stage.
+Evidence: screenshots of each toast with the name field and role dropdown (and the stage for
+3). Page script (or on-screen rows if the inspector is off): `toastmaster_agenda` has Bob
+`completed: true`, Alex with `role: "Table Topics"`, no `rules`, `completed: false`. PostHog
+from this device: `speech_finished` for Bob with `role: "Ice Breaker"`, and no
+`timer_started` with `speaker_name: "Alex"`.
+Then: Display mode back to the one used before (closing the stage lands on Timer Only), and
+delete the three rows (Clear All if the agenda held nothing else).
+Run 2026-11-13 (5de8185, dev 5b28ba86, Zoom on macOS): passed. The device ran Claude Test
+Club's role list, so the lines were "Bob (1min Role)", "Alex (Table Topics)", "Alice (Tech
+Tip)" and the default role was ChairToast1. After FINISH the dropdown stayed on 1min Role.
+PostHog had `timer_started` / `speech_finished` for Bob only. The stage's speaker list needed a
+second click (the first focused the panel). Log: test-runs/2026-11-13-91-live-tab-needs-role/run.md.
+The other steps last ran on b029a29, before this LiveTab change, so the spec stays `stale`
+until they rerun on it.
+
 ## Not covered
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).
@@ -126,10 +170,16 @@ Human because it needs a second signed-in Zoom account.
   the `sounds` flag is on and the account is Pro). See [timer-sounds](timer-sounds.md).
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
   `TimerContext.jsx`). See [agenda-import](agenda-import.md). Reviewed against #91
-  (2026-11-13): that PR changes only `importBulkSpeakers` here; no step above uses it. The
-  steps above reran green on it the same day.
+  (2026-11-13): that PR changes only `importBulkSpeakers` here; no step above uses it.
+  TC-01…TC-08, TC-10 and TC-11 reran green on it (b029a29) the same day.
 - A failed participant read at START (`timer_started` still sent, no `audience_size`). The
   Zoom client can't be made to fail it on demand; `LiveTab.test.jsx` covers it (#107 AC-5).
 - A club card set arriving, changing or going away while the app is open. `LiveTab.jsx`
   re-pushes the current card then, and only then; a device with no club card set pushes
   exactly as above. See [club-card-sets](club-card-sets.md).
+- A loaded agenda row whose role is removed (Edit Rules, or a club publish) while it is up:
+  the Live tab lets go of the row with the same toast instead of moving it to the default
+  role. A hand-picked role that leaves the list still moves to the default (TC-10's rule).
+  Unit tests in both `LiveTab.test.jsx` files cover both; the client adds nothing.
+- The web timer (`apps/web`) refuses the same rows from its suggestions and after FINISH.
+  Unit tests in `apps/web/src/components/LiveTab.test.jsx`.
