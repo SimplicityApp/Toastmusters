@@ -1,7 +1,7 @@
 ---
 id: club-card-sets
 title: Club card sets (share card artwork with the club)
-status: draft
+status: stale
 covers:
   - worker/club-cards.js
   - packages/shared/clubCards.js
@@ -21,8 +21,8 @@ needs:
   - Zoom account A, an admin or editor of that club (club-member record)
   - a second computer or browser profile, B, with no cards of its own
   - ENTITLEMENT_ENFORCE "1" on dev for CC-08 only (ask first; revert after)
-verified_at: never
-verified_on: never
+verified_at: 23091dc
+verified_on: 2026-11-12
 ---
 
 # Club card sets (share card artwork with the club)
@@ -48,7 +48,8 @@ Evidence: localStorage `toastmaster_custom_card_images` lists `custom-1` with `[
 ### CC-02 · auto · A shares the set
 Do: on A, press **Share with my club** on Custom 1.
 Expect: toast "Shared with <club>. Every club device gets these cards." A's picker now also
-lists "Custom 1" as the club's set at the top. A's own selection does not change.
+lists "<club> cards" (e.g. "Claude Test Club cards") as the club's set at the top, not
+"Custom 1". A's own selection does not change.
 Evidence: `wrangler tail --env dev` shows two `PUT /api/club/cards/<hash>` → 200 and one
 `PUT /api/club/cards` → 200. KV `club-cards:<clubId>` holds both hashes; `club:<clubId>.ver`
 went up by 1. R2 has `club-card/<clubId>/<hash>` for each, and nothing under `club/<clubId>/`.
@@ -80,17 +81,27 @@ Evidence: a forced `PUT /api/club/cards` from that device returns 403.
 
 ### CC-07 · human · An admin removes the set from the console
 Do: on the web, open `/club/admin` as the club admin. Under Card set, press **Remove card set**.
-Expect: the section says there is no card set. On B's next app start, the club's set leaves
-the picker and B shows Classic.
+Expect: the section says there is no card set. On B's next club refresh, the club's set leaves
+the picker and B shows its own choice (Classic on a device that never chose). A club refresh runs at app start only when the last one is
+over 24 h old (`CLUB_REFRESH_INTERVAL_MS`); to see it now, set `lastRefreshAt` to 0 in B's
+`toastmaster_club` and reload.
 Evidence: tail shows `DELETE /api/club/cards` → 200; KV `club-cards:<clubId>` is gone and
 `ver` went up by 1.
 
 ### CC-08 · human · A lapsed club stops showing its set
 Do: with ENTITLEMENT_ENFORCE "1", republish a set from A, then set the club record to
-`canceled` with `currentPeriodEnd` in the past. Reload B.
+`canceled` with `currentPeriodEnd` in the past. Force B's refresh (`lastRefreshAt` 0) and reload.
 Expect: B shows its own choice (Classic) and the picker no longer lists the club's set. A's
 **Share with my club** is gone. Revert the club record and ENTITLEMENT_ENFORCE afterwards.
 Evidence: `GET /api/club` returns `entitled: false`; B's `toastmaster_club_cards` remains.
+
+### CC-09 · auto · A republishes; the old image is pruned
+Do: on A, add a second custom set and press **Share with my club** on it, at least 15 minutes
+after the first share.
+Expect: the club row at the top of A's picker shows the new set. Another club device keeps the
+previous set until its next club refresh (see CC-07).
+Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the new hashes and
+`ver` went up by 1; `GET /api/club/cards/<old hash>` with a club token → 404 (pruned).
 
 ## Not covered
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
