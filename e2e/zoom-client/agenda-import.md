@@ -1,7 +1,7 @@
 ---
 id: agenda-import
 title: Simple Format import assigns custom roles in the Zoom client
-status: draft
+status: current
 covers:
   - packages/shared/simpleFormatParser.js
   - apps/zoom-app/src/context/TimerContext.jsx
@@ -15,8 +15,9 @@ needs:
   - camera on, in a meeting
   - club presets not live on this device (not in a club, or "Use mine" in Edit Rules)
   - no custom roles on the device before IM-01 (note and remove any in the run log)
-verified_at: never
-verified_on: never
+  - built-in roles not hidden on this device (Standard Speech and Table Topics in the role dropdown), or IM-05's Live-tab check falls back to the first listed role
+verified_at: 0ba1f1c
+verified_on: 2026-11-11 (Zoom 7.2.5, macOS 26.7.2, dev c80dca2b)
 ---
 
 # Simple Format import assigns custom roles in the Zoom client
@@ -92,6 +93,25 @@ device.
 Evidence: page script: `toastmaster_agenda` is empty or absent, and
 `toastmaster_role_order` is `[]`.
 
+### IM-05 · auto · A built-in role in the brackets beats a keyword in the name
+Do: first run IM-04 (clean device). Agenda tab → Import Text → "Simple Format". Put these two
+lines on the clipboard with `pbcopy`, click the textarea, paste with ⌘V, press Import.
+```
+Tim Timer (Standard Speech)
+Dominique - General Evaluation (Table Topics)
+```
+Expect: toast "Imported 2 speaker(s)". Row "Tim Timer" shows Standard Speech and row
+"Dominique - General Evaluation" shows Table Topics. Click "Tim Timer": the Live tab role
+dropdown shows Standard Speech and the timing rules read Green: 5 minutes, Yellow: 6 minutes,
+Red: 7 minutes (not Short Roles' 1 / 1:30 / 2).
+Evidence: page script: `toastmaster_agenda` items are `Tim Timer` / `Standard Speech` and
+`Dominique - General Evaluation` / `Table Topics`. Screenshot of the Live tab rules line.
+Then Clear All in the Agenda tab.
+Run 2026-11-11 (0ba1f1c): the import half passed on the real client. The Live-tab half could
+not be checked: that device hid the built-in roles, so the dropdown had no Standard Speech and
+`LiveTab.jsx` moved the row to the first listed role (ChairToast1, 0:30/0:45/1:00). See the
+new `needs` line.
+
 ## Not covered
 - Custom roles that come from Club Pro presets, or from older saved rules with no role
   order. The PR now covers these too (`customRoleNames` comes from the dropdown, not from
@@ -101,10 +121,12 @@ Evidence: page script: `toastmaster_agenda` is empty or absent, and
 - Tie-breaks between custom roles, whole-word-only matching, and the built-in guard (a
   bracket like `(Ice Breaker)` is never taken by a partial custom match). Unit tests in
   `simpleFormatParser.test.js` cover these, and the client adds nothing to them.
+- An agenda row whose role is a hidden built-in: selecting it times the speaker with the
+  first listed role, with no notice, while the row keeps the original role (seen 2026-11-11;
+  behaviour from e876ca8, not this spec's change). No step locks it in.
 - EasySpeak import. This change did not touch it, and it has no spec yet.
-- `(Table Topics Speech)` imports as a `Table Topics` role with no timing rules (#91). A
-  built-in keyword in the name overrides a built-in role in the bracket (#90). Both are
-  known open bugs. No step locks in either result.
+- `(Table Topics Speech)` imports as a `Table Topics` role with no timing rules (#91), a
+  known open bug. No step locks in that result. IM-05 covers #90 (fixed: the bracket's built-in role is tried before the whole line).
 - The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
   `apps/web/src/context/TimerContext.test.jsx`, and `e2e/web.agenda-flow.spec.js` runs this
   import (IM-01, IM-02) in a plain browser.

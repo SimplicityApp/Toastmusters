@@ -182,6 +182,25 @@ test.describe('Zoom App — Functional Checks', () => {
     await expect(page.getByText('Timing rules: Green: 15 seconds, Yellow: 30 seconds, Red: 45 seconds')).toBeVisible();
   });
 
+  test("Simple Format import: the bracket's built-in role beats the name (#90)", async ({ page }) => {
+    await page.goto('/zoom/');
+
+    await page.getByRole('button', { name: /AGENDA/i }).click();
+    await page.getByRole('button', { name: /Import Text/i }).click();
+    await page.getByRole('button', { name: 'Simple Format' }).click();
+    await page
+      .getByPlaceholder('John Doe (Ice Breaker)')
+      .fill('Tim Timer (Standard Speech)\nDominique - General Evaluation (Table Topics)');
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await expect(page.getByText('Imported 2 speaker(s)')).toBeVisible();
+
+    const rows = page.locator('.cursor-pointer').filter({ has: page.getByRole('button', { name: /^Edit / }) });
+    await expect(rows).toHaveCount(2);
+    await expect(rows.locator('.font-medium')).toHaveText(['Tim Timer', 'Dominique - General Evaluation']);
+    await expect(rows.locator('.text-sm')).toHaveText(['(Standard Speech)', '(Table Topics)']);
+  });
+
   test('no console errors about missing context providers', async ({ page }) => {
     await page.goto('/zoom/');
     await page.waitForTimeout(1000);

@@ -4,6 +4,7 @@ import LiveTab from './LiveTab';
 import { renderWithProviders } from '../test/helpers';
 import { useEffect } from 'react';
 import { useTimer } from '../context/TimerContext';
+import { trackEvent } from '../utils/posthog';
 
 describe('LiveTab', () => {
   describe('initial state', () => {
@@ -95,6 +96,24 @@ describe('LiveTab', () => {
       await waitFor(() => {
         expect(onTimerStart).toHaveBeenCalledTimes(1);
       });
+    });
+
+    // #107: the web timer has no Zoom meeting to count, so reach falls back to
+    // one per start. A guessed audience_size here would inflate it.
+    it('sends timer_started without audience_size', async () => {
+      const user = userEvent.setup();
+      trackEvent.mockClear();
+      renderWithProviders(<LiveTab />);
+
+      await user.click(await screen.findByRole('button', { name: /start/i }));
+
+      await waitFor(() => {
+        expect(trackEvent).toHaveBeenCalledWith('timer_started', expect.anything());
+      });
+      const calls = trackEvent.mock.calls.filter(([name]) => name === 'timer_started');
+      expect(calls).toHaveLength(1);
+      expect(calls[0][1]).toMatchObject({ role: 'Standard Speech' });
+      expect(calls[0][1]).not.toHaveProperty('audience_size');
     });
   });
 

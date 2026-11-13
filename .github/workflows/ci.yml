@@ -1,0 +1,56 @@
+# The factory's floor: every PR into dev or master, and every push to them, runs the same
+# checks a session runs locally. Agents must not be the only thing checking agents.
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, master]
+  push:
+    branches: [dev, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04 # Playwright 1.58 has no browsers for ubuntu-latest (26.04)
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the spec and oracle checks read history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/*/package-lock.json
+      - name: Install
+        run: |
+          npm ci
+          npm ci --prefix apps/zoom-app
+          npm ci --prefix apps/web
+          npm ci --prefix apps/table-topics
+      - name: Unit tests
+        run: npm test
+      - name: Zoom-client specs are well formed
+        run: npm run test:specs
+      - name: Oracle tests untouched since the oracle commit
+        run: node scripts/factory/check-oracle.mjs --base origin/${{ github.base_ref || 'dev' }}
+      - name: Build
+        run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Web e2e
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

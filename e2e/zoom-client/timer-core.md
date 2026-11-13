@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: draft
+status: current
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -13,8 +13,8 @@ automated:
 needs:
   - dev deployed
   - camera on, in a meeting
-verified_at: never
-verified_on: never
+verified_at: 2e965b6
+verified_on: 2026-11-11 (Zoom 7.2.5, macOS 26.7.2, dev a4c66603)
 ---
 
 # Core timer in the Zoom client
@@ -35,10 +35,12 @@ Do: Apps in the sidebar, open Toastmaster Timer.
 Expect: it loads from the `zoom.` host (`zoom.timer-dev.simple-tech.app` on dev), not `www.`.
 Evidence: `reqs.sh` shows the page load on the `zoom.` host.
 
-### TC-02 · auto · Green on start, count-up on video
-Do: Live tab, pick "Table Topics: 1–1.5–2 min", press Start with camera on.
-Expect: background turns green; elapsed time is drawn over the video and rises once a second
-(a virtual foreground layer, not baked into the background).
+### TC-02 · auto · Count-up on start, green at the threshold
+Do: Live tab, pick "Table Topics: 1–1.5–2 min" (or any short role if the device hides it),
+press Start with camera on.
+Expect: elapsed time is drawn over the video at once and rises once a second (a virtual
+foreground layer, not baked into the background). No colour card before the green threshold;
+green from the green threshold.
 Evidence: screenshot of the video frame; debug log shows one `setVirtualBackground` call.
 
 ### TC-03 · auto · Yellow then red at the thresholds
@@ -64,7 +66,9 @@ Expect: at most four new fixed colour backgrounds. None with a timestamp baked i
 Evidence: file count before and after.
 
 ### TC-06 · auto · Timer survives closing the app
-Do: start a speech, run ~10 s, close the app with X (not the back arrow), wait ~5 s, reopen.
+Do: start a speech, run ~10 s, close the app with ⋯ → Close current app, wait ~5 s, reopen
+from Apps. The Apps panel's own X only hides the app: Zoom keeps the webview, so there is no
+reload and no toast (seen 2026-11-11).
 Expect: a toast says the timer resumed; elapsed includes the closed seconds; card colour
 matches the elapsed time (yellow if the threshold passed while closed).
 Evidence: toast screenshot; saved timer state in `localStorage`.
@@ -93,6 +97,26 @@ that role, and START runs the timer. No "Please set timing rules first" warning.
 Evidence: screenshot of the picker and the running timer; a `timer_started` event in
 PostHog carrying that role.
 
+### TC-11 · auto · timer_started carries the meeting's audience size (#107)
+Do: as host, open the app first; if a second participant is available, let them join after
+the app is open. Then press START on any role.
+Expect: the `timer_started` event for this START has `audience_size` equal to the count in
+Zoom's Participants panel at the moment of the press (late joiners included), alongside the
+usual `speaker_name`, `role` and `timing_rules`. A host-only test meeting gives
+`audience_size: 1`; that is accepted as proof the property is attached. No names leave the
+device, only the number. The timer starts at once, not after the participant read.
+Evidence: PostHog `timer_started` for this START (`audience_size`, `zoom_meeting_id`);
+screenshot of Zoom's Participants count at the press. Note whether a second participant was
+present.
+
+### TC-12 · human · No audience_size for a non-host organizer (#107)
+Do: a second Zoom account that is neither host nor co-host opens the app in the same meeting
+and presses START.
+Expect: the timer runs normally and `timer_started` is sent without `audience_size`. The debug
+log shows one "Participant list needs host or co-host" warning for the press.
+Evidence: PostHog `timer_started` from that account with no `audience_size`; debug log line.
+Human because it needs a second signed-in Zoom account.
+
 ## Not covered
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).
@@ -102,6 +126,8 @@ PostHog carrying that role.
   the `sounds` flag is on and the account is Pro). See [timer-sounds](timer-sounds.md).
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
   `TimerContext.jsx`). See [agenda-import](agenda-import.md).
+- A failed participant read at START (`timer_started` still sent, no `audience_size`). The
+  Zoom client can't be made to fail it on demand; `LiveTab.test.jsx` covers it (#107 AC-5).
 - A club card set arriving, changing or going away while the app is open. `LiveTab.jsx`
   re-pushes the current card then, and only then; a device with no club card set pushes
   exactly as above. See [club-card-sets](club-card-sets.md).

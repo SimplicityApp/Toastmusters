@@ -113,6 +113,8 @@ log.
 - The web timer's chime (`apps/web/src/components/TimerSounds.jsx`). It runs in a plain
   browser, which `e2e/` covers.
 - Sound on Zoom mobile and web clients.
+- START's `timer_started` analytics, including `audience_size` (#107). See
+  [timer-core](timer-core.md) TC-10 to TC-12.
 - A club card set re-pushing the card mid-speech (`LiveTab.jsx`). The chime follows the
   status (`cueForStatusChange` in `TimerSounds.jsx`), not the artwork, so it does not
   chime. See [club-card-sets](club-card-sets.md).

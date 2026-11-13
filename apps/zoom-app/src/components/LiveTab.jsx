@@ -11,7 +11,7 @@ const CardImagesModal = lazy(() => import('./CardImagesModal'));
 const SoundsModal = lazy(() => import('./SoundsModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
 import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, BREAK_ROLE, BREAK_QUICK_PICKS, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages, subscribeCardImages } from '@toastmaster-timer/shared';
-import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE, notifyCardImagesChanged, preloadBackgroundImages } from '../utils/zoomSdk';
+import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, getZoomParticipants, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE, notifyCardImagesChanged, preloadBackgroundImages } from '../utils/zoomSdk';
 import { useClub } from '../hooks/useClub';
 import { SOUNDS_LOCK_MESSAGES, useSoundsAccess } from '../hooks/useSounds';
 import { formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle } from '@toastmaster-timer/shared';
@@ -638,16 +638,23 @@ export default memo(function LiveTab() {
 
     startTimer();
 
-    // Track timer started event
-    (window.requestIdleCallback || setTimeout)(() => trackEvent('timer_started', {
-      speaker_name: speakerName || 'Unnamed',
-      role: selectedRole,
-      timing_rules: {
-        green: rules.green,
-        yellow: rules.yellow,
-        red: rules.red
-      }
-    }));
+    // Track timer started event. audience_size is the meeting's head count
+    // read at START (people join after the app opens); it is left out when
+    // Zoom withholds the list (non-host), there's no SDK, or the read fails.
+    (window.requestIdleCallback || setTimeout)(() => {
+      getZoomParticipants()
+        .catch(() => ({ participants: [], restricted: true }))
+        .then(({ participants, restricted }) => trackEvent('timer_started', {
+          speaker_name: speakerName || 'Unnamed',
+          role: selectedRole,
+          timing_rules: {
+            green: rules.green,
+            yellow: rules.yellow,
+            red: rules.red
+          },
+          ...(!restricted && participants.length > 0 && { audience_size: participants.length }),
+        }));
+    });
   };
 
   const handleContinue = () => {

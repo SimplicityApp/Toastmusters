@@ -1,0 +1,84 @@
+# Factory station "build" in the cloud: oracle → implement → verify, ending at
+# needs:zoom-test for the Mac's Zoom station. Runs when a factory actor adds plan:approved to
+# a factory PR. Same switches as factory-plan.yml (FACTORY_ENABLED, Claude GitHub App, secret).
+#
+# Keep this file identical on dev and master. GitHub runs issue-triggered workflows from the
+# default branch (master), and the Claude action skips any workflow whose file differs from
+# the default branch's copy. The last step fails the run when that happens.
+name: Factory · build
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+
+concurrency:
+  group: factory-build-${{ github.event.pull_request.number || inputs.issue }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  checks: read
+  id-token: write
+
+jobs:
+  build:
+    if: >-
+      vars.FACTORY_ENABLED == 'true' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.label.name == 'plan:approved' && startsWith(github.event.pull_request.head.ref, 'factory/')))
+    runs-on: ubuntu-24.04 # Playwright 1.58 has no browsers for ubuntu-latest (26.04)
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || 'dev' }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check the gate (plan:approved by a factory actor)
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          INPUT_ISSUE: ${{ inputs.issue }}
+        run: |
+          n="${INPUT_ISSUE:-$(echo "$BRANCH" | sed -nE 's#^factory/([0-9]+)-.*#\1#p')}"
+          next=$(node scripts/factory/state.mjs "$n" | jq -r '.next // empty')
+          if [ "$next" != build ]; then echo "#$n: next is '$next', not build."; exit 0; fi
+          echo "issue=$n" >> "$GITHUB_OUTPUT"
+      - name: Install
+        if: steps.gate.outputs.issue
+        run: |
+          npm ci
+          npm ci --prefix apps/zoom-app
+          npm ci --prefix apps/web
+          npm ci --prefix apps/table-topics
+          npx playwright install --with-deps chromium
+      - uses: anthropics/claude-code-action@v1
+        if: steps.gate.outputs.issue
+        env:
+          FACTORY_STATION: build
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: /factory-build ${{ steps.gate.outputs.issue }}
+          claude_args: --model claude-opus-5-5 --effort high --max-turns 200 --allowedTools Bash,Read,Edit,Write,MultiEdit,Glob,Grep,Task,Skill
+      - name: Check the station ran
+        if: steps.gate.outputs.issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.gate.outputs.issue }}
+        run: |
+          next=$(node scripts/factory/state.mjs "$N" | jq -r '.next // empty')
+          if [ "$next" = build ]; then
+            echo "::error::#$N still needs build: the station didn't finish. If the Claude step logged 'Workflow validation failed', this file differs from master's copy."
+            exit 1
+          fi

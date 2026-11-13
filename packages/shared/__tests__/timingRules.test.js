@@ -121,6 +121,16 @@ describe('getDefaultGraceAfterRed', () => {
 });
 
 describe('detectRoleFromText', () => {
+  describe('fallback parameter', () => {
+    it('returns null instead of Standard Speech when fallback is null and nothing matches', () => {
+      expect(detectRoleFromText('Pathways L2', null, null)).toBeNull();
+    });
+
+    it('still returns a matched role when fallback is null', () => {
+      expect(detectRoleFromText('Table Topics', null, null)).toBe('Table Topics');
+    });
+  });
+
   describe('exact case-insensitive matches', () => {
     it('maps "standard speech" to Standard Speech', () => {
       expect(detectRoleFromText('standard speech')).toBe('Standard Speech');
