@@ -4,8 +4,8 @@ Read this first. Update it in the same PR as any spec change.
 
 | Spec | Status | Verified | Covers |
 |---|---|---|---|
-| [timer-core](timer-core.md) | current | 2e965b6, 2026-11-11 | start/colours/finish, resume after close; `audience_size` on `timer_started` for hosts, omitted for non-hosts (#107) |
-| [agenda-import](agenda-import.md) | current | 0ba1f1c, 2026-11-11 | Simple Format import takes exact role names from the bracket text and highlights the rest for a manual pick; imported and picked roles' thresholds on real video (#77, #91) |
+| [timer-core](timer-core.md) | stale | 2e965b6, 2026-11-11 | start/colours/finish, resume after close; `audience_size` on `timer_started` for hosts, omitted for non-hosts (#107) |
+| [agenda-import](agenda-import.md) | stale | 0ba1f1c, 2026-11-11 | Simple Format import takes exact role names from the bracket text and highlights the rest for a manual pick; imported and picked roles' thresholds on real video (#77, #91) |
 | [zoom-deeplink](zoom-deeplink.md) | draft | never | "Open in Zoom" deeplink resolves and launches this build's app (dev vs production client id) |
 | auth-identity | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 1, 1b |
 | [connection-notice](connection-notice.md) | draft | never | guest-mode banner and "Approve Toastmusters Timer in Zoom" modal at open; raised mid-session when Zoom drops the grant, modal held until the timer stops (#85) |
