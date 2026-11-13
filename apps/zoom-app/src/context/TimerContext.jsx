@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules, parseSimpleFormatText } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules, parseSimpleFormatText, agendaItemNeedsRole } from '@toastmaster-timer/shared';
 import { calculateStatus, formatTime, getDisplaySeconds } from '@toastmaster-timer/shared';
 import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
@@ -173,8 +173,7 @@ export function TimerProvider({ children }) {
     return [...visibleBuiltins, ...customOrder, ...otherCustom];
   }, [hiddenBuiltinRoles, customRoleOrder, roleRules]);
 
-  // The custom roles the dropdown offers, in Edit Rules order. Simple Format
-  // import matches against this list, so any role you can pick you can import.
+  // The custom roles the dropdown offers, in Edit Rules order.
   const customRoleNames = useMemo(
     () => roleOptions.filter((r) => !(r in DEFAULT_ROLE_RULES) && r !== BREAK_ROLE),
     [roleOptions]
@@ -472,22 +471,29 @@ export function TimerProvider({ children }) {
     }
   }, [agenda, setCurrentSpeakerAction]);
 
+  // Simple Format import. A line gets a role only when its bracket names one
+  // the dropdown offers. Any other line keeps the text as written, with no
+  // rules, and the Agenda tab asks for its role: a guess times the speaker
+  // with the wrong colours and nobody notices until the card changes (#91).
   const importBulkSpeakers = useCallback((text) => {
-    const newItems = parseSimpleFormatText(text, customRoleNames).map(({ name, role }, index) => ({
-      id: `${Date.now()}-${index}`,
+    const stamp = Date.now();
+    const newItems = parseSimpleFormatText(text, roleOptions).map(({ name, role, roleText }, index) => ({
+      id: `${stamp}-${index}`,
       name,
-      role,
-      rules: roleRules[role] || DEFAULT_ROLE_RULES['Standard Speech'],
+      role: role ?? roleText,
+      ...(role && roleRules[role] && { rules: roleRules[role] }),
       completed: false,
     }));
+    const needsRole = newItems.filter((item) => agendaItemNeedsRole(item, roleOptions)).length;
     setAgenda(prev => [...prev, ...newItems]);
     trackEvent('agenda_imported', {
       import_type: 'bulk',
       items_count: newItems.length,
       custom_role_count: newItems.filter((item) => customRoleNames.includes(item.role)).length,
+      needs_role_count: needsRole,
     });
-    return newItems.length;
-  }, [roleRules, customRoleNames]);
+    return { count: newItems.length, needsRole };
+  }, [roleRules, roleOptions, customRoleNames]);
 
   const importEasySpeakSpeakers = useCallback((text) => {
     const parsedItems = parseEasySpeakText(text);

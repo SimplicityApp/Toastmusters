@@ -439,16 +439,35 @@ describe('TimerContext', () => {
   // importBulkSpeakers
   // ---------------------------------------------------------------------------
   describe('importBulkSpeakers', () => {
-    it('imports speakers from newline-separated text and returns count', () => {
+    it('imports speakers from newline-separated text and returns the counts', () => {
       const { result } = renderHook(() => useAllTimer(), { wrapper });
 
-      let count;
+      let summary;
       act(() => {
-        count = result.current.importBulkSpeakers('Alice\nBob');
+        summary = result.current.importBulkSpeakers('Alice (Ice Breaker)\nBob');
       });
 
-      expect(count).toBe(2);
+      // Bob names no role, so he needs one (#91)
+      expect(summary).toEqual({ count: 2, needsRole: 1 });
       expect(result.current.agenda).toHaveLength(2);
+      expect(result.current.agenda[1]).toMatchObject({ name: 'Bob', role: '' });
+      expect(result.current.agenda[1]).not.toHaveProperty('rules');
+    });
+
+    it('imports (Table Topics Speech) with its own rules and keeps (Table Topics) as written (#91)', () => {
+      const { result } = renderHook(() => useAllTimer(), { wrapper });
+
+      act(() => {
+        result.current.importBulkSpeakers('David Kim (Table Topics Speech)\nAlex (Table Topics)');
+      });
+
+      expect(result.current.agenda[0]).toMatchObject({
+        role: 'Table Topics Speech',
+        rules: { green: 60, yellow: 90, red: 120, graceAfterRed: 30 },
+      });
+      expect(result.current.agenda[1]).toMatchObject({ name: 'Alex', role: 'Table Topics' });
+      expect(result.current.agenda[1]).not.toHaveProperty('rules');
+      expect(trackEvent).toHaveBeenCalledWith('agenda_imported', expect.objectContaining({ needs_role_count: 1 }));
     });
 
     it('imports "Person (A)" as custom role A with its rules', () => {
@@ -495,6 +514,7 @@ describe('TimerContext', () => {
         import_type: 'bulk',
         items_count: 2,
         custom_role_count: 1,
+        needs_role_count: 0,
       });
     });
   });

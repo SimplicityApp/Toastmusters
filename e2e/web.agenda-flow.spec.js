@@ -16,14 +16,15 @@ const SIMPLE_FORMAT_TEXT = [
   'Lee (Moment of Reflection)',
 ].join('\n');
 
-// [row name, role shown] for each imported line, in order
+// [row name, role line] for each imported line, in order. Only an exact role
+// name is taken; every other line is left for the user to pick (#91).
 const EXPECTED_ROWS = [
-  ['Cam-Ly - Opening', 'Opening'],
-  ['Dominique - General Evaluation', 'Closing Remarks'],
-  ['Yu', 'Closing Remarks'],
-  ['Sam - Introduce Speakers', 'Hand over'],
-  ['Bob', 'Ice Breaker'],
-  ['Lee', 'Short Roles'],
+  ['Cam-Ly - Opening', '(Opening)'],
+  ['Dominique - General Evaluation', '(Closing) is not one of your roles'],
+  ['Yu', '(Closing Remarks - 2 min) is not one of your roles'],
+  ['Sam - Introduce Speakers', '(Hand over)'],
+  ['Bob', '(Ice Breaker)'],
+  ['Lee', '(Moment of Reflection) is not one of your roles'],
 ];
 
 // Add roles through the Live tab's "Edit timing rules" modal and save
@@ -97,13 +98,30 @@ test('Simple Format import assigns custom roles', async ({ page }) => {
   await page.getByPlaceholder('John Doe (Ice Breaker)').fill(SIMPLE_FORMAT_TEXT);
   await page.getByRole('button', { name: 'Import', exact: true }).click();
 
-  await expect(page.getByText('Imported 6 speaker(s)')).toBeVisible();
+  await expect(page.getByText('Imported 6 speaker(s). 3 need a role')).toBeVisible();
 
-  // Each row lands on the role from its last "(...)" group, matched to the custom roles
+  // A row gets the role its last "(...)" group names exactly; the rest are highlighted
   const rows = page.locator('.cursor-pointer').filter({ has: page.getByRole('button', { name: /^Edit / }) });
   await expect(rows).toHaveCount(EXPECTED_ROWS.length);
   await expect(rows.locator('.font-medium')).toHaveText(EXPECTED_ROWS.map(([name]) => name));
-  await expect(rows.locator('.text-sm')).toHaveText(EXPECTED_ROWS.map(([, role]) => `(${role})`));
+  await expect(rows.locator('.font-medium + div')).toHaveText(EXPECTED_ROWS.map(([, line]) => line));
+  await expect(page.locator('[data-needs-role]')).toHaveCount(3);
+  await expect(page.getByText('3 rows need a role.')).toBeVisible();
+
+  // A highlighted row does not open in the Live tab
+  await page.getByText('Lee', { exact: true }).click();
+  await expect(page.getByText('Pick a role for Lee first')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Import Text/i })).toBeVisible();
+
+  // Pick from the saved roles; the highlight and the banner go
+  await page.getByLabel('Pick a role for Dominique - General Evaluation').selectOption('Closing Remarks');
+  await page.getByLabel('Pick a role for Yu').selectOption('Closing Remarks');
+  await page.getByLabel('Pick a role for Lee').selectOption('Short Roles');
+  await expect(page.locator('[data-needs-role]')).toHaveCount(0);
+  await expect(page.getByText(/rows? needs? a role\./)).toHaveCount(0);
+  await expect(rows.locator('.font-medium + div')).toHaveText([
+    '(Opening)', '(Closing Remarks)', '(Closing Remarks)', '(Hand over)', '(Ice Breaker)', '(Short Roles)',
+  ]);
 
   // Loading an imported custom-role speaker uses that role's own timings
   await page.getByText('Cam-Ly - Opening', { exact: true }).click();
