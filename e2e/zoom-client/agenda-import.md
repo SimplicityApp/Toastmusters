@@ -1,7 +1,7 @@
 ---
 id: agenda-import
 title: Simple Format import takes exact role names and asks for the rest in the Zoom client
-status: stale
+status: current
 covers:
   - packages/shared/simpleFormatParser.js
   - apps/zoom-app/src/context/TimerContext.jsx
@@ -14,11 +14,11 @@ automated:
 needs:
   - dev deployed
   - camera on, in a meeting
-  - club presets not live on this device (not in a club, or "Use mine" in Edit Rules)
-  - no custom roles on the device before IM-01 (note and remove any in the run log)
-  - built-in roles not hidden on this device (Standard Speech, Ice Breaker and Table Topics Speech in the role dropdown); a hidden one is highlighted as "not one of your roles" in IM-02, IM-05 and IM-06
-verified_at: 0ba1f1c
-verified_on: 2026-11-11 (Zoom 7.2.5, macOS 26.7.2, dev c80dca2b)
+  - club presets not live on this device (not in a club, or "Mine" in Edit Timing Rules)
+  - no custom role on the device shares a name with a role or bracket text below (note the device's custom roles in the run log; leave the rest, they are the user's own list)
+  - built-in roles not hidden on this device (Standard Speech, Ice Breaker and Table Topics Speech in the role dropdown); a hidden one is highlighted as "not one of your roles" in IM-02, IM-05 and IM-06. Then IM-03, IM-05 and IM-06 use a listed role with the same thresholds where possible in its place (see the 2026-11-13 run under IM-06)
+verified_at: b029a29
+verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev a249d5d7)
 ---
 
 # Simple Format import takes exact role names and asks for the rest in the Zoom client
@@ -154,6 +154,13 @@ list; timeline shots with timestamps. Page script (or on-screen rows if the insp
 `items_count: 3`, `needs_role_count: 2`, and two `agenda_role_picked` events with
 `is_custom: false`.
 Then Clear All in the Agenda tab.
+Run 2026-11-13 (b029a29, dev a249d5d7): passed. The device ran its own copy of Claude Test
+Club's list (17 custom roles, every built-in hidden), so: IM-02 flagged Bob's hidden
+"(Ice Breaker)" too ("4 need a role", `needs_role_count: 4`); IM-03 picked 1min Role for Lee
+and 1-2min Role for Bob; IM-05 used "Tim Timer (Tech Tip)" (Live tab: Tech Tip, 3/4/5 min);
+IM-06 used "David Kim (1-2min Role)" (1:00/1:30/2:00) and picked 1-2min Role for Alex and
+1min Role for Bob, so `agenda_role_picked` carried `is_custom: true`. Inspector off: on-screen
+rows stood in for the page script. Log: test-runs/2026-11-13-91-zoom-specs/run.md.
 
 ## Not covered
 - Custom roles that come from Club Pro presets, or from older saved rules with no role
