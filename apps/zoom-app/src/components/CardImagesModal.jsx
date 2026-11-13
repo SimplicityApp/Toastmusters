@@ -235,9 +235,11 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
     }
   };
 
-  const handleShare = async (setId, label) => {
+  // No label: "Custom 1" is this device's slot name, and every other club device
+  // has its own "Custom 1". Unlabelled, the set reads "<club> cards" everywhere.
+  const handleShare = async (setId) => {
     setSharingSetId(setId);
-    const result = await publishCardSet(setId, { label, getToken: getSessionToken });
+    const result = await publishCardSet(setId, { getToken: getSessionToken });
     setSharingSetId(null);
     if (result.ok) {
       showToast(`Shared with ${clubLabel || 'your club'}. Every club device gets these cards.`, 'success');
@@ -298,7 +300,7 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
               // the Classic card.
               thumbSrc={(color) => getCustomCardImage(set.id, color) || getCardFileUrl(CLASSIC_FILES[color])}
               onDelete={() => handleDelete(set.id)}
-              onShare={club && canPublishCards() ? () => handleShare(set.id, `Custom ${index + 1}`) : undefined}
+              onShare={club && canPublishCards() ? () => handleShare(set.id) : undefined}
               sharing={sharingSetId === set.id}
             />
           ))}

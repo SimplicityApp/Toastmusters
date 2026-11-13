@@ -382,7 +382,7 @@ const CARD_LABELS = { blue: 'Idle (blue)', green: 'Green', yellow: 'Yellow', red
  * The images are private, so they are fetched with the console's credentials
  * and shown from object URLs rather than linked.
  */
-function ClubCards({ cards, onRemoved }) {
+function ClubCards({ cards, clubName, onRemoved }) {
   const [urls, setUrls] = useState({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -440,7 +440,7 @@ function ClubCards({ cards, onRemoved }) {
   return (
     <div className="mt-3">
       <p className="text-sm text-gray-200">
-        {cards.label || 'Club cards'}
+        {cards.label || `${clubName || 'Club'} cards`}
         {cards.publishedAt ? <span className="text-gray-400"> · shared {shortDate(cards.publishedAt)}</span> : null}
       </p>
       <div className="mt-2 grid grid-cols-4 gap-2">
@@ -688,6 +688,7 @@ export default function ClubAdmin() {
               <h3 className="text-sm uppercase tracking-wide text-gray-400">Card set</h3>
               <ClubCards
                 cards={roster.cards}
+                clubName={roster.club?.name}
                 onRemoved={() => {
                   load()
                   // This browser may be a club device too; let it drop the set now.

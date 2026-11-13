@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import {
   resetCardImagesForTests,
   resetClubForTests,
@@ -8,6 +8,7 @@ import {
   setEntitlement,
   setFlags,
 } from '@toastmaster-timer/shared';
+import { publishCardSet } from '@toastmaster-timer/shared';
 import CardImagesModal from './CardImagesModal';
 import { ToastProvider } from '../context/ToastContext';
 
@@ -22,6 +23,12 @@ vi.mock('../utils/zoomSdk', () => ({
   removeOwnBackground: vi.fn(),
 }));
 vi.mock('../utils/posthog', () => ({ trackEvent: vi.fn() }));
+// Only the publish is stubbed: the network and IndexedDB behind it are covered
+// in packages/shared/__tests__/clubCards.test.js.
+vi.mock('@toastmaster-timer/shared', async (importOriginal) => ({
+  ...(await importOriginal()),
+  publishCardSet: vi.fn(async () => ({ ok: true, ver: 3, cards: { label: null, images: { blue: 'a'.repeat(64) } } })),
+}));
 vi.mock('../utils/zoomIdentity', () => ({
   resolveZoomIdentity: vi.fn(async () => ({ identified: true, uid: 'u1' })),
   getSessionToken: vi.fn(() => 'session-token'),
@@ -96,6 +103,24 @@ describe('the club card set', () => {
     await renderModal();
     const share = screen.queryByRole('button', { name: /Share the Custom 1 card set with my club/ });
     expect(Boolean(share)).toBe(offered);
+  });
+
+  // "Custom 1" names a slot on the publisher's device; every other club device
+  // has its own "Custom 1", so sending it would show two rows with one name.
+  it('publishes without the slot name, so the set reads "<club> cards"', async () => {
+    joinClub({ role: 'admin', cards: null });
+    localStorage.setItem(
+      'toastmaster_custom_card_images',
+      JSON.stringify({ version: 3, selectedSetId: 'custom-1', customSets: [{ id: 'custom-1', colors: ['blue'] }] })
+    );
+    await renderModal();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Share the Custom 1 card set with my club/ }));
+    });
+    expect(publishCardSet).toHaveBeenCalledTimes(1);
+    const [setId, options] = publishCardSet.mock.calls[0];
+    expect(setId).toBe('custom-1');
+    expect(options?.label).toBeUndefined();
   });
 
   it('uses the label the publisher gave it', async () => {
