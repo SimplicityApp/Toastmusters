@@ -8,7 +8,7 @@ const EditRulesModal = lazy(() => import('./EditRulesModal'));
 const CardImagesModal = lazy(() => import('./CardImagesModal'));
 const SoundsModal = lazy(() => import('./SoundsModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
-import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, initCardImages } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, initCardImages, subscribeCardImages } from '@toastmaster-timer/shared';
 import { setPageBackgroundFromStatus } from '../utils/pageBackground';
 import { parseSpeakerFromSearch, stripSpeakerParams } from '../utils/speakerDeepLink';
 import { getCardImageUrl, preloadCardImages } from '../utils/cardArtwork';
@@ -80,6 +80,13 @@ export default memo(function LiveTab({ onTimerStart }) {
     });
     return () => { cancelled = true; };
   }, []);
+
+  // The club's card set arrives, changes or goes away while the page is open.
+  useEffect(() => subscribeCardImages(() => {
+    setCardImagesGeneration((generation) => generation + 1);
+    setPageBackgroundFromStatus(shownStatusRef.current);
+    preloadCardImages();
+  }), []);
 
   // On mount, seed the speaker. A "Time this" deep link (?role=...&name=...)
   // wins when nothing is loaded yet and the timer is idle; otherwise the

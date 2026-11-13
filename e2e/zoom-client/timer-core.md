@@ -128,3 +128,6 @@ Human because it needs a second signed-in Zoom account.
   `TimerContext.jsx`). See [agenda-import](agenda-import.md).
 - A failed participant read at START (`timer_started` still sent, no `audience_size`). The
   Zoom client can't be made to fail it on demand; `LiveTab.test.jsx` covers it (#107 AC-5).
+- A club card set arriving, changing or going away while the app is open. `LiveTab.jsx`
+  re-pushes the current card then, and only then; a device with no club card set pushes
+  exactly as above. See [club-card-sets](club-card-sets.md).

@@ -8,6 +8,7 @@ import { createClubForSubscriber } from './club-create.js';
 import { readClubName } from './billing.js';
 import { createStripeClient } from './stripe.js';
 import { handleClubPresets, readClubPresets } from './club-presets.js';
+import { handleClubCards, readClubCards, buildCards } from './club-cards.js';
 import { handleClubMeetings } from './club-meetings.js';
 import { handleClubAdminRoutes } from './club-admin-routes.js';
 import { handleMagicLinkRequest, handleClubManage, handleClubManageSignOut } from './club-magic.js';
@@ -161,7 +162,7 @@ export function shareUrlFor(env, code) {
  * The whole club, as a device needs to see it.
  *
  * The split down the middle of this document is the point. Content — the
- * presets, the brand kit, and the badge default — is versioned,
+ * presets, the brand kit, the badge default and the card set — is versioned,
  * and a device replaces its copy only when `ver` moves, which is what lets a
  * timer's local list survive a daily refresh and lose only to an actual
  * publish. Everything below `timezone` carries no version and is applied every
@@ -176,8 +177,9 @@ export function shareUrlFor(env, code) {
  * @param {{uid?: string|null}} [caller] - whose role to report, if anyone's
  */
 export async function buildClubState(env, clubId, club, access, { uid = null } = {}) {
-  const [presets, role] = await Promise.all([
+  const [presets, cards, role] = await Promise.all([
     readClubPresets(env, clubId),
+    readClubCards(env, clubId),
     readMemberRole(env, clubId, uid),
   ]);
 
@@ -195,6 +197,7 @@ export async function buildClubState(env, clubId, club, access, { uid = null } =
       }
       : null,
     badge: buildBadge(presets),
+    cards: buildCards(cards),
     timezone: club?.timezone ?? null,
     // Not versioned: a guest device sees null and a promotion takes effect on
     // the next refresh without anything being republished.
@@ -529,6 +532,7 @@ export async function handleClub(request, url, env, { ctx } = {}) {
   if (route === 'create') return handleClubCreate(request, env);
   if (route === 'leave') return handleClubLeave(request, env);
   if (route === 'presets') return handleClubPresets(request, env);
+  if (route === 'cards' || route.startsWith('cards/')) return handleClubCards(request, route, env);
   if (route === 'meetings' || route.startsWith('meetings/')) return handleClubMeetings(request, route, env);
 
   // The console's second door. Public (and rate-limited) on the way in, so it

@@ -1,17 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, Plus, Check, Trash2 } from 'lucide-react';
+import { X, Plus, Check, Trash2, Share2 } from 'lucide-react';
 import {
   CARD_COLORS,
+  CLUB_CARD_SET_ID,
   DEFAULT_CARD_SETS,
   getCardImageSettings,
+  activeCardSetId,
+  clubCardSetAvailable,
+  getClubCardImage,
   selectCardSet,
   addCustomCardSet,
   deleteCustomCardSet,
   getCustomCardImage,
   fileToCardBlob,
   initCardImages,
+  canPublishCards,
+  publishCardSet,
+  loadClubCards,
+  subscribeCardImages,
 } from '@toastmaster-timer/shared';
 import { getCardAssetUrl } from '../utils/cardArtwork';
+import { useClub } from '../hooks/useClub';
 import { useToast } from '../context/ToastContext';
 
 const COLOR_LABELS = {
@@ -34,12 +43,20 @@ const CLASSIC_FILES = DEFAULT_CARD_SETS[0].files;
 const STORAGE_FULL_MESSAGE =
   'Could not save — browser storage is full. Try smaller images or delete another custom set.';
 
+const SHARE_ERRORS = {
+  forbidden: 'Only your club’s admins and editors can share cards with the club. Sign in to share.',
+  upgrade_required: 'Your club’s Pro has ended, so it can’t take new cards.',
+  storage_limit: 'Your club’s card storage is full.',
+  image_too_large: 'One of these images is too large to share.',
+  network: 'Could not reach the server. Check your connection and try again.',
+};
+
 /**
  * One selectable set: a labeled row of the four cards. The row itself is the
  * radio; a custom set also carries a delete button, which must not double as
  * a click on the row.
  */
-function CardSetRow({ label, selected, onSelect, thumbSrc, onDelete }) {
+function CardSetRow({ label, selected, onSelect, thumbSrc, onDelete, onShare, sharing }) {
   return (
     <div
       role="radio"
@@ -61,18 +78,34 @@ function CardSetRow({ label, selected, onSelect, thumbSrc, onDelete }) {
           {label}
           {selected && <Check className="h-4 w-4 text-blue-600" />}
         </span>
-        {onDelete && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-            aria-label={`Delete the ${label} card set`}
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        )}
+        <span className="flex items-center gap-1">
+          {onShare && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onShare();
+              }}
+              disabled={sharing}
+              className="flex items-center gap-1 px-1.5 py-1 rounded text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition-colors"
+              aria-label={`Share the ${label} card set with my club`}
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              {sharing ? 'Sharing…' : 'Share with my club'}
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              aria-label={`Delete the ${label} card set`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+        </span>
       </div>
       <div className="grid grid-cols-4 gap-1.5">
         {CARD_COLORS.map((color) => (
@@ -97,6 +130,15 @@ function CardSetRow({ label, selected, onSelect, thumbSrc, onDelete }) {
 export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
   const { showToast } = useToast();
   const [settings, setSettings] = useState(() => getCardImageSettings());
+  // The club's set is not in the metadata, so which set shows is asked of the
+  // shared module rather than read off `settings`.
+  const [activeSetId, setActiveSetId] = useState(() => activeCardSetId());
+  const { club, clubName } = useClub();
+  // The kit carries the name when there is one; the club record always does.
+  const clubLabel = clubName || club?.club?.name || null;
+  const [sharingSetId, setSharingSetId] = useState(null);
+  // Re-render when the club's images arrive, so its thumbnails fill in.
+  const [, setClubGeneration] = useState(0);
   // The set being assembled in the uploader row, color -> {blob, url}. Kept
   // only in this modal until the organizer confirms it into a real set.
   const [draft, setDraft] = useState({});
@@ -111,10 +153,18 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
   useEffect(() => {
     let cancelled = false;
     initCardImages().then(() => {
-      if (!cancelled) setSettings(getCardImageSettings());
+      if (!cancelled) {
+        setSettings(getCardImageSettings());
+        setActiveSetId(activeCardSetId());
+      }
+    });
+    const unsubscribe = subscribeCardImages(() => {
+      setActiveSetId(activeCardSetId());
+      setClubGeneration((generation) => generation + 1);
     });
     return () => {
       cancelled = true;
+      unsubscribe();
       Object.values(draftRef.current).forEach((entry) => URL.revokeObjectURL(entry.url));
     };
   }, []);
@@ -123,11 +173,12 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
 
   const changed = () => {
     setSettings(getCardImageSettings());
+    setActiveSetId(activeCardSetId());
     onImagesChanged?.();
   };
 
   const handleSelect = (setId) => {
-    if (setId === settings.selectedSetId) return;
+    if (setId === activeSetId) return;
     if (selectCardSet(setId)) changed();
     else showToast(STORAGE_FULL_MESSAGE, 'error');
   };
@@ -168,6 +219,20 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
     }
   };
 
+  // No label: "Custom 1" is this device's slot name, and every other club device
+  // has its own "Custom 1". Unlabelled, the set reads "<club> cards" everywhere.
+  const handleShare = async (setId) => {
+    setSharingSetId(setId);
+    // The web session travels as a cookie, so there is no token to hand over.
+    const result = await publishCardSet(setId);
+    setSharingSetId(null);
+    if (result.ok) {
+      showToast(`Shared with ${clubLabel || 'your club'}. Every club device gets these cards.`, 'success');
+    } else {
+      showToast(SHARE_ERRORS[result.error] || 'Could not share these cards. Try again.', 'error');
+    }
+  };
+
   const pickDraftFile = (color) => {
     draftColorRef.current = color;
     fileInputRef.current?.click();
@@ -190,11 +255,21 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
         </p>
 
         <div className="space-y-3" role="radiogroup" aria-label="Card set">
+          {clubCardSetAvailable() && (
+            <CardSetRow
+              key={CLUB_CARD_SET_ID}
+              label={loadClubCards()?.label || `${clubLabel || 'Club'} cards`}
+              selected={activeSetId === CLUB_CARD_SET_ID}
+              onSelect={() => handleSelect(CLUB_CARD_SET_ID)}
+              thumbSrc={(color) => getClubCardImage(color) || getCardAssetUrl(CLASSIC_FILES[color])}
+            />
+          )}
+
           {DEFAULT_CARD_SETS.map((set) => (
             <CardSetRow
               key={set.id}
               label={set.label}
-              selected={settings.selectedSetId === set.id}
+              selected={activeSetId === set.id}
               onSelect={() => handleSelect(set.id)}
               thumbSrc={(color) => getCardAssetUrl(set.files[color])}
             />
@@ -204,12 +279,14 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
             <CardSetRow
               key={set.id}
               label={`Custom ${index + 1}`}
-              selected={settings.selectedSetId === set.id}
+              selected={activeSetId === set.id}
               onSelect={() => handleSelect(set.id)}
               // A color the set has no upload for shows — and times with —
               // the Classic card.
               thumbSrc={(color) => getCustomCardImage(set.id, color) || getCardAssetUrl(CLASSIC_FILES[color])}
               onDelete={() => handleDelete(set.id)}
+              onShare={club && canPublishCards() ? () => handleShare(set.id) : undefined}
+              sharing={sharingSetId === set.id}
             />
           ))}
 
@@ -270,9 +347,10 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
         />
 
         <p className="text-xs text-gray-500 mt-4">
-          Custom images are stored only in this browser. Please upload only images you have the
-          right to use — for example your club&apos;s own materials. This app is independent and
-          cannot grant permission for third-party logos or artwork.
+          Custom images are stored only in this browser.
+          {club?.entitled && canPublishCards() ? ' Share a set to put it on every club device.' : ''} Please
+          upload only images you have the right to use — for example your club&apos;s own materials.
+          This app is independent and cannot grant permission for third-party logos or artwork.
         </p>
       </div>
     </div>
