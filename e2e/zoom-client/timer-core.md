@@ -119,14 +119,17 @@ Evidence: PostHog `timer_started` from that account with no `audience_size`; deb
 Human because it needs a second signed-in Zoom account.
 
 ### TC-13 · auto · The Live tab does not time an agenda row that needs a role (#91)
-Do: the device's built-in roles are not hidden (Standard Speech and Ice Breaker are in the role
-dropdown). Agenda tab → Import Text → "Simple Format". Put these three lines on the clipboard
-with `pbcopy`, click the textarea, paste with ⌘V, press Import.
+Do: Agenda tab → Import Text → "Simple Format". Click the textarea and type these three lines
+(`cliclick t:` per line, `kp:return` between them), then press Import.
 ```
 Bob (Ice Breaker)
 Alex (Table Topics)
 Alice (Standard Speech)
 ```
+If the role dropdown hides Ice Breaker or Standard Speech (a club's role list), put two listed
+roles in their brackets instead, and for Bob not the first one in the list (that is the
+default role, and step 2 must show the role did not fall back to it). Keep "(Table Topics)" for
+Alex unless that is listed. Read "Standard Speech" and "Ice Breaker" below as those roles.
 Open the Live tab in Timer + Camera or Timer Only. Then:
 1. Click the speaker name field and pick "Alex" from the Agenda suggestions.
 2. Pick "Bob" the same way. Press Start, let it run about 5 s, press Finish (answer Zoom's
@@ -148,7 +151,13 @@ Evidence: screenshots of each toast with the name field and role dropdown (and t
 `completed: true`, Alex with `role: "Table Topics"`, no `rules`, `completed: false`. PostHog
 from this device: `speech_finished` for Bob with `role: "Ice Breaker"`, and no
 `timer_started` with `speaker_name: "Alex"`.
-Then: Display mode back to the one used before, and Clear All in the Agenda tab.
+Then: Display mode back to the one used before (closing the stage lands on Timer Only), and
+delete the three rows (Clear All if the agenda held nothing else).
+Run 2026-11-13 (5de8185, dev 5b28ba86, Zoom on macOS): passed. The device ran Claude Test
+Club's role list, so the lines were "Bob (1min Role)", "Alex (Table Topics)", "Alice (Tech
+Tip)" and the default role was ChairToast1. After FINISH the dropdown stayed on 1min Role.
+PostHog had `timer_started` / `speech_finished` for Bob only. The stage's speaker list needed a
+second click (the first focused the panel). Log: test-runs/2026-11-13-91-live-tab-needs-role/run.md.
 
 ## Not covered
 - Colour accuracy on every camera/background setting.
