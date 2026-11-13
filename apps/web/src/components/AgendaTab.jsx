@@ -1,7 +1,7 @@
 import { useState, memo } from 'react';
 import { useTimer } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { Plus, Upload, X, Edit2, Trash2, GripVertical, Check } from 'lucide-react';
+import { Plus, Upload, X, Edit2, Trash2, GripVertical, Check, AlertTriangle } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
 import {
   DndContext,
@@ -19,16 +19,17 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, agendaItemNeedsRole } from '@toastmaster-timer/shared';
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
 
 import { trackEvent } from '../utils/posthog';
 
-function SortableItem({ item, isActive, isCompleted, onEdit, onDelete, onClick }) {
+function SortableItem({ item, isActive, isCompleted, needsRole, roleOptions, onPickRole, onEdit, onDelete, onClick }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: item.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
+  const tone = needsRole ? 'bg-red-50 hover:bg-red-100 border-l-4 border-l-red-500' : isActive ? 'bg-blue-50' : 'bg-white hover:bg-gray-50';
   return (
-    <div ref={setNodeRef} style={style} onClick={onClick} className={`flex items-center gap-3 p-3 border-b border-gray-200 cursor-pointer transition-colors ${isActive ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'}`}>
+    <div ref={setNodeRef} style={style} onClick={onClick} data-needs-role={needsRole || undefined} className={`flex items-center gap-3 p-3 border-b border-gray-200 cursor-pointer transition-colors ${tone}`}>
       {isCompleted ? (
         <div className="flex-shrink-0 w-6 h-6 rounded-full bg-green-500 flex items-center justify-center"><Check className="h-4 w-4 text-white" /></div>
       ) : (
@@ -36,7 +37,17 @@ function SortableItem({ item, isActive, isCompleted, onEdit, onDelete, onClick }
       )}
       <div className="flex-1 min-w-0">
         <div className="font-medium text-gray-900">{item.name}</div>
-        <div className="text-sm text-gray-500">({item.role}{item.role === 'Short Roles' && item.originalShortRole && <span className="ml-1 text-gray-400">- {item.originalShortRole}</span>})</div>
+        {needsRole ? (
+          <>
+            <div className="text-sm text-red-700 flex items-start gap-1"><AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />{item.role ? `(${item.role}) is not one of your roles` : 'No role given'}</div>
+            <select aria-label={`Pick a role for ${item.name}`} value="" onClick={(e) => e.stopPropagation()} onChange={(e) => onPickRole(item, e.target.value)} className="mt-1 w-full max-w-xs px-2 py-1 text-sm border border-red-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-red-400">
+              <option value="" disabled>Pick a role…</option>
+              {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+            </select>
+          </>
+        ) : (
+          <div className="text-sm text-gray-500">({item.role}{item.role === 'Short Roles' && item.originalShortRole && <span className="ml-1 text-gray-400">- {item.originalShortRole}</span>})</div>
+        )}
       </div>
       <div className="flex items-center gap-2">
         <button aria-label={`Edit ${item.name}`} onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1 text-gray-400 hover:text-blue-600"><Edit2 className="h-4 w-4" /></button>
@@ -49,6 +60,11 @@ function SortableItem({ item, isActive, isCompleted, onEdit, onDelete, onClick }
 export default memo(function AgendaTab({ onSwitchToLive }) {
   const { agenda, activeSpeakerId, addToAgenda, removeFromAgenda, reorderAgenda, updateAgendaItem, loadSpeakerFromAgenda, importBulkSpeakers, importEasySpeakSpeakers, clearAllAgenda, roleRules, roleOptions } = useTimer();
   const { showToast } = useToast();
+  // Standard Speech unless it was removed in Edit Rules; then the first listed
+  // role, so the picker never shows one role while saving another.
+  const defaultRole = roleOptions.includes('Standard Speech') ? 'Standard Speech' : roleOptions[0] || 'Standard Speech';
+  const needsRole = (item) => agendaItemNeedsRole(item, roleOptions);
+  const needsRoleCount = agenda.filter(needsRole).length;
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [importTab, setImportTab] = useState('easyspeak');
@@ -56,7 +72,7 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
   const [easySpeakText, setEasySpeakText] = useState('');
   const [editItem, setEditItem] = useState(null);
   const [newSpeakerName, setNewSpeakerName] = useState('');
-  const [newSpeakerRole, setNewSpeakerRole] = useState('Standard Speech');
+  const [newSpeakerRole, setNewSpeakerRole] = useState(defaultRole);
   const [customRules, setCustomRules] = useState({ ...DEFAULT_CUSTOM_RULES });
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -77,8 +93,9 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
 
   const handleSimpleImport = () => {
     if (importText.trim()) {
-      const count = importBulkSpeakers(importText);
-      showToast(`Imported ${count} speaker(s)`, 'success');
+      const { count, needsRole: unmatched } = importBulkSpeakers(importText);
+      if (unmatched > 0) showToast(`Imported ${count} speaker(s). ${unmatched} need${unmatched === 1 ? 's' : ''} a role`, 'warning');
+      else showToast(`Imported ${count} speaker(s)`, 'success');
       setImportText('');
       setShowImportModal(false);
     }
@@ -98,7 +115,7 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
       if (newSpeakerRole === 'Custom') speakerData.rules = customRules;
       addToAgenda(speakerData);
       setNewSpeakerName('');
-      setNewSpeakerRole('Standard Speech');
+      setNewSpeakerRole(defaultRole);
       setCustomRules({ ...DEFAULT_CUSTOM_RULES });
       setShowAddModal(false);
     }
@@ -107,25 +124,31 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
   const handleEdit = (item) => {
     setEditItem(item);
     setNewSpeakerName(item.name);
-    setNewSpeakerRole(item.role);
+    // A role that isn't listed can't be shown by the select; start on "Pick a role…".
+    setNewSpeakerRole(needsRole(item) ? '' : item.role);
     if (item.role === 'Custom' && item.rules) setCustomRules({ ...DEFAULT_CUSTOM_RULES, ...item.rules });
     else setCustomRules({ ...DEFAULT_CUSTOM_RULES });
     setShowAddModal(true);
   };
 
   const handleUpdate = () => {
-    if (editItem && newSpeakerName.trim()) {
+    if (editItem && newSpeakerName.trim() && newSpeakerRole) {
       const speakerData = { name: newSpeakerName.trim(), role: newSpeakerRole };
       if (newSpeakerRole === 'Custom') speakerData.rules = customRules;
       updateAgendaItem(editItem.id, speakerData);
       setEditItem(null);
       setNewSpeakerName('');
-      setNewSpeakerRole('Standard Speech');
+      setNewSpeakerRole(defaultRole);
       setCustomRules({ ...DEFAULT_CUSTOM_RULES });
       setShowAddModal(false);
     }
   };
 
+  const handlePickRole = (item, role) => {
+    if (!role) return;
+    updateAgendaItem(item.id, { name: item.name, role });
+    trackEvent('agenda_role_picked', { is_custom: !(role in DEFAULT_ROLE_RULES) });
+  };
   const handleDelete = (id) => { setDeleteItemId(id); setShowDeleteConfirm(true); };
   const handleConfirmDelete = () => { if (deleteItemId) removeFromAgenda(deleteItemId); setShowDeleteConfirm(false); setDeleteItemId(null); };
   const handleClearAll = () => setShowClearAllConfirm(true);
@@ -146,6 +169,12 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
     setCustomRules(prev => ({ ...prev, [field]: value }));
   };
   const handleSpeakerClick = (item) => {
+    // Without a role there are no rules to time with; the Live tab would quietly
+    // fall back to the default role. Ask instead.
+    if (needsRole(item)) {
+      showToast(`Pick a role for ${item.name} first`, 'warning');
+      return;
+    }
     loadSpeakerFromAgenda(item.id);
     trackEvent('speaker_loaded_from_agenda', {});
     if (onSwitchToLive) onSwitchToLive();
@@ -157,7 +186,7 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
         <button onClick={() => { setImportTab('easyspeak'); setImportText(''); setEasySpeakText(''); setShowImportModal(true); }} className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2">
           <Upload className="h-4 w-4" /> Import Text
         </button>
-        <button onClick={() => { setEditItem(null); setNewSpeakerName(''); setNewSpeakerRole('Standard Speech'); setCustomRules({ ...DEFAULT_CUSTOM_RULES }); setShowAddModal(true); }} className="flex-1 bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2">
+        <button onClick={() => { setEditItem(null); setNewSpeakerName(''); setNewSpeakerRole(defaultRole); setCustomRules({ ...DEFAULT_CUSTOM_RULES }); setShowAddModal(true); }} className="flex-1 bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2">
           <Plus className="h-4 w-4" /> Add Item
         </button>
         {agenda.length > 0 && (
@@ -168,15 +197,23 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
       {agenda.length === 0 ? (
         <div className="text-center py-8 text-gray-500">No speakers in agenda. Add speakers or import from text.</div>
       ) : (
+        <>
+        {needsRoleCount > 0 && (
+          <div role="status" className="flex items-start gap-2 p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-800">
+            <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <span>{needsRoleCount === 1 ? '1 row needs a role' : `${needsRoleCount} rows need a role`}. Nothing was guessed: pick one of your roles on each highlighted row.</span>
+          </div>
+        )}
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={agenda.map((item) => item.id)} strategy={verticalListSortingStrategy}>
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               {agenda.map((item) => (
-                <SortableItem key={item.id} item={item} isActive={activeSpeakerId === item.id} isCompleted={item.completed} onEdit={handleEdit} onDelete={handleDelete} onClick={() => handleSpeakerClick(item)} />
+                <SortableItem key={item.id} item={item} isActive={activeSpeakerId === item.id} isCompleted={item.completed} needsRole={needsRole(item)} roleOptions={roleOptions} onPickRole={handlePickRole} onEdit={handleEdit} onDelete={handleDelete} onClick={() => handleSpeakerClick(item)} />
               ))}
             </div>
           </SortableContext>
         </DndContext>
+        </>
       )}
 
       {showImportModal && (
@@ -201,7 +238,7 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
               </div>
             ) : (
               <div>
-                <p className="text-sm text-gray-600 mb-3">One speaker per line with role in parentheses. Example: John Doe (Ice Breaker)</p>
+                <p className="text-sm text-gray-600 mb-3">One speaker per line with the role in parentheses, spelled as in your role list. Example: John Doe (Ice Breaker). A row whose role isn&apos;t in the list is highlighted so you can pick one.</p>
                 <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="John Doe (Ice Breaker)&#10;Sarah Smith (Standard Speech)" className="w-full h-64 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
                 <div className="flex gap-2 mt-4">
                   <button onClick={handleSimpleImport} className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg">Import</button>
@@ -218,7 +255,7 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
           <div className="bg-white rounded-lg p-6 w-full max-w-sm">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">{editItem ? 'Edit Speaker' : 'Add Speaker'}</h3>
-              <button onClick={() => { setShowAddModal(false); setEditItem(null); setNewSpeakerName(''); setNewSpeakerRole('Standard Speech'); setCustomRules({ ...DEFAULT_CUSTOM_RULES }); }} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
+              <button onClick={() => { setShowAddModal(false); setEditItem(null); setNewSpeakerName(''); setNewSpeakerRole(defaultRole); setCustomRules({ ...DEFAULT_CUSTOM_RULES }); }} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
             </div>
             <div className="space-y-4">
               <div>
@@ -228,9 +265,10 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                 <select value={newSpeakerRole} onChange={(e) => setNewSpeakerRole(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  {!newSpeakerRole && <option value="" disabled>Pick a role…</option>}
                   {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
                 </select>
-                {newSpeakerRole !== 'Custom' && <p className="text-xs text-gray-500 mt-1">Timing rules: {getRoleExplanation(newSpeakerRole)}</p>}
+                {newSpeakerRole && newSpeakerRole !== 'Custom' && <p className="text-xs text-gray-500 mt-1">Timing rules: {getRoleExplanation(newSpeakerRole)}</p>}
               </div>
               {newSpeakerRole === 'Custom' && (
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
@@ -249,8 +287,8 @@ export default memo(function AgendaTab({ onSwitchToLive }) {
               )}
             </div>
             <div className="flex gap-2 mt-6">
-              <button onClick={editItem ? handleUpdate : handleAdd} className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg">{editItem ? 'Update' : 'Add'}</button>
-              <button onClick={() => { setShowAddModal(false); setEditItem(null); setNewSpeakerName(''); setNewSpeakerRole('Standard Speech'); setCustomRules({ ...DEFAULT_CUSTOM_RULES }); }} className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg">Cancel</button>
+              <button onClick={editItem ? handleUpdate : handleAdd} disabled={!newSpeakerRole} className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-lg">{editItem ? 'Update' : 'Add'}</button>
+              <button onClick={() => { setShowAddModal(false); setEditItem(null); setNewSpeakerName(''); setNewSpeakerRole(defaultRole); setCustomRules({ ...DEFAULT_CUSTOM_RULES }); }} className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg">Cancel</button>
             </div>
           </div>
         </div>

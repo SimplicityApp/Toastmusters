@@ -13,8 +13,8 @@ automated:
 needs:
   - dev deployed
   - camera on, in a meeting
-verified_at: 2e965b6
-verified_on: 2026-11-11 (Zoom 7.2.5, macOS 26.7.2, dev a4c66603)
+verified_at: b029a29
+verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev a249d5d7)
 ---
 
 # Core timer in the Zoom client
@@ -125,7 +125,9 @@ Human because it needs a second signed-in Zoom account.
 - Sounds, opened from the speaker icon beside Card Images (always shown, locked unless
   the `sounds` flag is on and the account is Pro). See [timer-sounds](timer-sounds.md).
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
-  `TimerContext.jsx`). See [agenda-import](agenda-import.md).
+  `TimerContext.jsx`). See [agenda-import](agenda-import.md). Reviewed against #91
+  (2026-11-13): that PR changes only `importBulkSpeakers` here; no step above uses it. The
+  steps above reran green on it the same day.
 - A failed participant read at START (`timer_started` still sent, no `audience_size`). The
   Zoom client can't be made to fail it on demand; `LiveTab.test.jsx` covers it (#107 AC-5).
 - A club card set arriving, changing or going away while the app is open. `LiveTab.jsx`
