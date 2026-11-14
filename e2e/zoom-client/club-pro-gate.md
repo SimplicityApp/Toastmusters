@@ -1,7 +1,7 @@
 ---
 id: club-pro-gate
 title: Club features only while Pro is released
-status: draft
+status: current
 covers:
   - packages/shared/club.js
   - packages/shared/clubPresets.js
@@ -17,8 +17,8 @@ needs:
   - FLAGS_FORCE "0" on dev (`pro` off) for GP-01 and GP-02; "1" for GP-03
   - a club device whose club is active (Claude Test Club on the test Mac), with a club card
     set, club timings and the badge shown on cards
-verified_at: never
-verified_on: never
+verified_at: 32ebeb7
+verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev with FLAGS_FORCE "0" then "1")
 ---
 
 # Club features only while Pro is released

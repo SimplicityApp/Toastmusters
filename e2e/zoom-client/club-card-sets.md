@@ -1,7 +1,7 @@
 ---
 id: club-card-sets
 title: Club card sets (share card artwork with the club)
-status: current
+status: stale
 covers:
   - worker/club-cards.js
   - packages/shared/clubCards.js
