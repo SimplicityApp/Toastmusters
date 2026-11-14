@@ -70,11 +70,12 @@ export default function ProComingSoon() {
         aria-expanded={open}
         aria-controls={panelId}
         aria-label="Pro (coming soon)"
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-gray-500 hover:bg-gray-50 rounded-md transition-colors duration-150"
+        className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-400 hover:text-gray-500 hover:bg-gray-50 rounded-md transition-colors duration-150"
       >
-        <Sparkles className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+        {/* The lock takes the sparkle's place, so the button is exactly as wide
+            as the launched one and the footer still fits one line at 400px. */}
+        <Lock className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
         <span>Pro</span>
-        <Lock className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
       </button>
       {open && (
         <div

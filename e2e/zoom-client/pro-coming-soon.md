@@ -31,7 +31,7 @@ button that survives the launch.
 
 ### PC-01 · auto · A locked Pro button sits in the footer while `pro` is off
 Do: with FLAGS_FORCE "0" on dev, open the app from Apps and look at the footer.
-Expect: "Send Us Feedback", "Review" and a grey "Pro" with a sparkle and a small lock, all
+Expect: "Send Us Feedback", "Review" and a grey "Pro" with a lock in place of the sparkle, all
 on one line. No "Upgrade" anywhere in the footer.
 Evidence: screenshot of the footer.
 
