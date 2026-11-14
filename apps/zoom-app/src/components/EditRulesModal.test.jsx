@@ -13,6 +13,7 @@ import {
   loadClubPresets,
   resetClubForTests,
   resetEntitlementForTests,
+  setFlags,
 } from '@toastmaster-timer/shared';
 
 /**
@@ -85,6 +86,8 @@ beforeEach(() => {
   localStorage.clear();
   resetClubForTests();
   resetEntitlementForTests();
+  // Club features need Pro released (clubFeaturesOn).
+  setFlags({ pro: true });
   global.fetch = vi.fn();
 });
 

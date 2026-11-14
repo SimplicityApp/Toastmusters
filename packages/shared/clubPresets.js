@@ -8,6 +8,7 @@ import {
   saveHiddenBuiltinRoles,
 } from './storage.js';
 import {
+  clubFeaturesOn,
   loadClub,
   loadClubPresets,
   readPresetSource,
@@ -70,7 +71,7 @@ export function hasPersonalCustomization() {
  */
 export function clubPresetsAvailable() {
   const club = loadClub();
-  if (!club?.entitled) return false;
+  if (!clubFeaturesOn(club)) return false;
   const presets = loadClubPresets();
   return Boolean(presets && Object.keys(presets.rules ?? {}).length > 0);
 }
@@ -92,14 +93,14 @@ export function clubPresetsLive() {
 /** The club's name, when it has one worth putting in a banner. */
 export function activeClubName() {
   const club = loadClub();
-  if (!club?.entitled) return null;
+  if (!clubFeaturesOn(club)) return null;
   return club.club?.name || null;
 }
 
 /** Whether this device's signed-in user may publish to the club. */
 export function canPublishPresets() {
   const club = loadClub();
-  if (!club?.entitled) return false;
+  if (!clubFeaturesOn(club)) return false;
   return club.role === 'admin' || club.role === 'editor';
 }
 

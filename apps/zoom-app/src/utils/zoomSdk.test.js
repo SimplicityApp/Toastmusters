@@ -4044,6 +4044,8 @@ describe("the club's badge", () => {
     const loaded = await loadModule();
     const shared = await import('@toastmaster-timer/shared');
     shared.resetClubForTests();
+    // The badge is a club feature, drawn only once Pro is released.
+    shared.setFlags({ pro: true });
     return loaded;
   }
 
@@ -4668,7 +4670,9 @@ describe('one card push per color change', () => {
       saveOverlayMode('camera');
       localStorage.setItem('toastmaster_club', JSON.stringify(CLUB));
       const mod = await loadModule();
-      (await import('@toastmaster-timer/shared')).resetClubForTests();
+      const shared = await import('@toastmaster-timer/shared');
+      shared.resetClubForTests();
+      shared.setFlags({ pro: true });
       await mod.initializeZoomSdk();
 
       const label = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { setFlags } from '../flags.js';
 import {
   CLUB_OUTBOX_STORAGE_KEY,
   MEETING_SEQ_STORAGE_KEY,
@@ -75,6 +76,9 @@ const speech = (over = {}) => ({
 });
 
 beforeEach(() => {
+  // Club features need Pro released (clubFeaturesOn); the gate itself is
+  // tested in club.test.js.
+  setFlags({ pro: true });
   localStorage.clear();
   resetClubForTests();
   resetClubArchiveForTests();
