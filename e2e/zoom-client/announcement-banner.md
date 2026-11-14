@@ -1,7 +1,7 @@
 ---
 id: announcement-banner
 title: Announcement banner (currently the pre-launch notice)
-status: current
+status: stale
 covers:
   - packages/shared/announcements.js
   - packages/ui/AnnouncementBanner.jsx
