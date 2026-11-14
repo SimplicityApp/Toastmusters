@@ -8,7 +8,9 @@ covers:
   - packages/shared/cardImages.js
   - packages/shared/club.js
   - apps/zoom-app/src/components/CardImagesModal.jsx
+  - apps/zoom-app/src/components/CardSetsPanel.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.js
   - apps/zoom-app/src/main.jsx
 automated:
   - worker/club-cards.test.js
