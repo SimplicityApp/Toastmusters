@@ -887,8 +887,13 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
     return club;
   }
 
-  // The device was revoked, or the club is gone. Either way this credential is
-  // spent, so stop sending it — but leave the rest of the device alone.
+  // The device was revoked (403), the club is gone (404), or the token is one
+  // the server will never renew (401: forged, or older than the Worker's
+  // CLUB_TOKEN_REFRESH_GRACE_MS). An *expired* token is not a 401 here: the
+  // refresh takes one long past its 24 hours, which is the only kind a device
+  // that refreshes once a day ever sends. Either way this credential is spent,
+  // so stop sending it — but leave the rest of the device alone. Holding a 401
+  // token instead would keep the cached plan on with nothing left to lapse it.
   if (response.status === 401 || response.status === 403 || response.status === 404) {
     leaveClub();
     return null;

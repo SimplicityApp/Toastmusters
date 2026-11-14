@@ -1,9 +1,11 @@
 ---
 id: club-card-sets
 title: Club card sets (share card artwork with the club)
-status: current
+status: stale
 covers:
   - worker/club-cards.js
+  - worker/club.js
+  - worker/club-token.js
   - packages/shared/clubCards.js
   - packages/shared/cardImages.js
   - packages/shared/club.js
@@ -14,6 +16,9 @@ automated:
   - worker/club-cards.test.js
   - packages/shared/__tests__/clubCards.test.js
   - apps/zoom-app/src/components/CardImagesModal.test.jsx
+  - worker/club.test.js
+  - worker/club-token.test.js
+  - packages/shared/__tests__/club.test.js
 needs:
   - dev deployed
   - FLAGS_FORCE "1" on dev (the club doors are behind `pro`)
@@ -36,7 +41,9 @@ looks the same as a personal one, and that the image arrives on a second machine
 ## Purpose
 Catches a published set that never reaches another club device, a club card that shows on
 the stage but not on the virtual background, a device whose own chosen cards are silently
-replaced by the club's, and a lapsed or left club whose cards keep showing.
+replaced by the club's, a lapsed or left club whose cards keep showing, and a club device that
+drops out of the club (and its cards) the first time it opens more than a day after its last
+refresh.
 
 ## Steps
 
@@ -104,6 +111,22 @@ previous set until its next club refresh (see CC-07).
 Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the new hashes and
 `ver` went up by 1; `GET /api/club/cards/<old hash>` with a club token → 404 (pruned).
 
+### CC-10 · auto · A device a day or more past its last refresh stays in the club
+Do: open the app on a club device whose last club refresh is over 24 h old, so its club token
+(24 h) has expired. In Zoom (A): open the timer more than 24 h after A's last
+`GET /api/club` (`lastRefreshAt` in `toastmaster_club`). On B (web), without waiting a day: put
+one of B's own earlier club tokens (minted over 24 h ago, for example from an older run's
+`tail.jsonl`) back in `toastmaster_club.clubToken`, set `lastRefreshAt` to its `iat`, and
+reload `/timer/app`.
+Expect: the device stays in the club. The Pro banner and the club badge stay, the plan stays
+Pro, and the club's set is still in the picker (selected where it was). Before the fix this
+refresh answered 401 and the device left the club.
+Evidence: `GET /api/club` → 200 and no `POST /api/club/leave`. `toastmaster_club.clubToken` is
+replaced by a new token for the same `deviceId` whose payload has `iat` ≈ now and
+`exp` = `iat` + 24 h; `lastRefreshAt` ≈ now. The same expired token replayed with curl (`X-Club`)
+→ 200; with one character of the signature changed → 401. A token more than 180 days past its
+`exp` (`CLUB_TOKEN_REFRESH_GRACE_MS`) → 401, unit-tested only (worker/club.test.js).
+
 ## Not covered
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.
@@ -111,8 +134,16 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the card artwork or its push; no step here
   loads an agenda row. See [timer-core](timer-core.md) TC-13.
+- A revoked device, or one that left, refused by the refresh even with an expired token:
+  unit-tested (worker/club.test.js), not run here.
 
 Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6, A = Zoom desktop, B = web app in a browser
 profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards" (null label in
 KV). CC-06 only from B, a guest with no Zoom session: 401, not the member 403. CC-07 (console
 sign-in) and CC-08 (lapsing the club) not run. Log: test-runs/2026-11-13-pre-master-specs/run.md.
+
+Run 2026-11-14 02:53Z (branch fix/club-token-refresh-grace, dev version 766d77cf, B = web app in
+the built-in browser pane): CC-10 passed on B with B's own token, expired 81 min earlier and
+25.35 h after its last refresh. Not yet run on A in Zoom: A rejoined at 2026-11-14 02:28:59Z, so
+its token is over 24 h old only after 2026-11-15 02:29Z. Log:
+test-runs/2026-11-13-club-token-refresh-grace/run.md.

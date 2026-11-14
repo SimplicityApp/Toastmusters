@@ -5,6 +5,7 @@ import {
   clubTokenMatchesVersion,
   readClubHeader,
   CLUB_TOKEN_TTL_MS,
+  CLUB_TOKEN_REFRESH_GRACE_MS,
 } from './club-token.js';
 
 const KEY = 'test-session-signing-key';
@@ -88,6 +89,50 @@ describe('club tokens', () => {
     expect(mintClubToken(claims({ deviceId: null }), KEY, NOW)).toBeNull();
     expect(mintClubToken(claims(), undefined, NOW)).toBeNull();
     expect(mintClubToken(undefined, KEY, NOW)).toBeNull();
+  });
+
+  // The refresh's grace window: a signed token past its 24 hours can still be
+  // traded in, up to CLUB_TOKEN_REFRESH_GRACE_MS late. Nobody else asks for it.
+  it('accepts an expired token inside a grace window only when asked to', () => {
+    const token = mintClubToken(claims(), KEY, NOW);
+    const aWeekLate = NOW + CLUB_TOKEN_TTL_MS + 7 * CLUB_TOKEN_TTL_MS;
+    const grace = { graceMs: CLUB_TOKEN_REFRESH_GRACE_MS };
+
+    expect(verifyClubToken(token, KEY, aWeekLate)).toBeNull();
+    expect(verifyClubToken(token, KEY, aWeekLate, grace)).toMatchObject({
+      clubId: 'club-1',
+      deviceId: 'dev-1',
+      exp: NOW + CLUB_TOKEN_TTL_MS,
+    });
+  });
+
+  it('refuses a token past the grace window', () => {
+    const token = mintClubToken(claims(), KEY, NOW);
+    const grace = { graceMs: CLUB_TOKEN_REFRESH_GRACE_MS };
+    const lastGoodMoment = NOW + CLUB_TOKEN_TTL_MS + CLUB_TOKEN_REFRESH_GRACE_MS - 1;
+
+    expect(verifyClubToken(token, KEY, lastGoodMoment, grace)).not.toBeNull();
+    expect(verifyClubToken(token, KEY, lastGoodMoment + 1, grace)).toBeNull();
+  });
+
+  // The grace widens expiry and nothing else: a forged signature is still forged.
+  it('still refuses a forged or foreign-key token inside the grace window', () => {
+    const grace = { graceMs: CLUB_TOKEN_REFRESH_GRACE_MS };
+    const later = NOW + 2 * CLUB_TOKEN_TTL_MS;
+    const token = mintClubToken(claims(), KEY, NOW);
+    const flipped = `${token.slice(0, -1)}${token.at(-1) === 'A' ? 'B' : 'A'}`;
+
+    expect(verifyClubToken(flipped, KEY, later, grace)).toBeNull();
+    expect(verifyClubToken(mintClubToken(claims(), 'another-key', NOW), KEY, later, grace)).toBeNull();
+  });
+
+  it('treats a nonsense grace as none', () => {
+    const token = mintClubToken(claims(), KEY, NOW);
+    const later = NOW + CLUB_TOKEN_TTL_MS;
+
+    for (const graceMs of [-5, Number.NaN, Infinity, undefined, null]) {
+      expect(verifyClubToken(token, KEY, later, { graceMs })).toBeNull();
+    }
   });
 
   it('falls back to the default lifetime for a nonsense ttl', () => {

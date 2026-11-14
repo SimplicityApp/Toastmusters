@@ -307,6 +307,50 @@ describe('refreshClub', () => {
     expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
     expect(getEntitlement()).toEqual(FREE_ENTITLEMENT);
   });
+
+  // The weekly club: the token it sends is six days past its 24 hours, and the
+  // Worker renews it. The device stays in the club on the new token.
+  it('stays in the club a week later, on the token the server renewed', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ lastRefreshAt: NOW })));
+    initClubFromCache();
+    const nextMeeting = NOW + 7 * CLUB_REFRESH_INTERVAL_MS;
+    const fetchImpl = respondWith({ clubToken: 'renewed.sig', ...clubState() });
+
+    const club = await refreshClub({ fetchImpl, now: nextMeeting });
+
+    expect(fetchImpl.mock.calls[0][1].headers).toMatchObject({ 'X-Club': 'tok.sig' });
+    expect(club).toMatchObject({ clubToken: 'renewed.sig', lastRefreshAt: nextMeeting });
+    expect(JSON.parse(localStorage.getItem(CLUB_STORAGE_KEY))).toMatchObject({ clubToken: 'renewed.sig' });
+    expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true, source: 'club' });
+    // Nothing told the roster this device left.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  // A 401 is a token the Worker will never renew (forged, or past its refresh
+  // grace) and a 404 is a club that is gone. Holding either would leave Pro on
+  // with no refresh ever able to lapse it.
+  it('forgets a credential the server will never renew, and a club that is gone', async () => {
+    for (const [status, error] of [[401, 'Unauthorized'], [404, 'club_not_found']]) {
+      localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+      resetClubForTests();
+      initClubFromCache();
+
+      expect(await refreshClub({ fetchImpl: respondWith({ error }, { ok: false, status }), force: true })).toBeNull();
+      expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
+      expect(getEntitlement()).toEqual(FREE_ENTITLEMENT);
+    }
+  });
+
+  // A misconfigured Worker answers 503, and a 503 is the server's problem.
+  it('keeps the club when the refresh is not configured', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    initClubFromCache();
+
+    const club = await refreshClub({ fetchImpl: respondWith({ error: 'Club refresh is not configured' }, { ok: false, status: 503 }), force: true });
+
+    expect(club).toMatchObject({ clubToken: 'tok.sig' });
+    expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true });
+  });
 });
 
 const DAY = 24 * 60 * 60 * 1000;

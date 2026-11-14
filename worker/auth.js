@@ -129,15 +129,19 @@ export function readSession(request, env) {
  * is needed — the club token travels in a custom header a cross-site form
  * cannot set, and it is never attached by the browser on its own.
  *
+ * `graceMs` is for the refresh alone (see CLUB_TOKEN_REFRESH_GRACE_MS). Every
+ * other route reads the token strictly.
+ *
  * @param {Request} request
  * @param {Object} env - SESSION_SIGNING_KEY
+ * @param {{graceMs?: number, now?: number}} [options]
  * @returns {{clubId: string, deviceId: string, uid: string|null, ver: number,
  *   iat: number|null, exp: number}|null}
  */
-export function readClub(request, env) {
+export function readClub(request, env, { graceMs = 0, now = Date.now() } = {}) {
   const token = readClubHeader(request);
   if (!token) return null;
-  return verifyClubToken(token, env.SESSION_SIGNING_KEY);
+  return verifyClubToken(token, env.SESSION_SIGNING_KEY, now, { graceMs });
 }
 
 // ---------------------------------------------------------------------------
