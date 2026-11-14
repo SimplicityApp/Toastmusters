@@ -71,3 +71,7 @@ Evidence: `localStorage.toastmaster_announcements_dismissed` holds its id; PostH
   yet; unit and e2e tests cover them. Run AB-02 against the first entry that does.
 - What replaces the pre-launch notice at launch: the one-time Pro announcement, on its own
   branch (`feat/pro-launch-announcement`) with its own spec.
+- Design B's panel (`new_look` on, plan 13). App.jsx now picks between today's panel and
+  NewLookShell; until design B's own shell lands, NewLookShell is today's panel, so these
+  steps hold either way. Run them with `new_look` off (`FLAGS_FORCE "1,new_look=0"` or
+  `"0"`); design B's banner placement gets its own steps with its shell.
