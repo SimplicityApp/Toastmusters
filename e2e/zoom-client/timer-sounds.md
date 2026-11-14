@@ -1,7 +1,7 @@
 ---
 id: timer-sounds
 title: Timer sounds (card-change chime, break music)
-status: draft
+status: stale
 covers:
   - packages/shared/timerSounds.js
   - apps/zoom-app/src/components/TimerSounds.jsx

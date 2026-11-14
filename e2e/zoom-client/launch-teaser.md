@@ -1,7 +1,7 @@
 ---
 id: launch-teaser
 title: Pre-launch banner (a new look and Pro, coming soon)
-status: draft
+status: current
 covers:
   - apps/zoom-app/src/components/LaunchTeaserBanner.jsx
   - apps/zoom-app/src/App.jsx
@@ -11,8 +11,8 @@ automated:
 needs:
   - dev deployed
   - FLAGS_FORCE "0" on dev (`pro` off) for LT-01 to LT-03; "1" for LT-04
-verified_at: never
-verified_on: never
+verified_at: 60e1b6e
+verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev 87c1f866 and 400420a4)
 ---
 
 # Pre-launch banner (a new look and Pro, coming soon)
@@ -49,8 +49,9 @@ Evidence: `localStorage.toastmaster_launch_teaser_dismissed` is `"1"`; PostHog
 `launch_teaser_banner_dismissed`.
 
 ### LT-04 · auto · No banner once Pro is released
-Do: remove `toastmaster_launch_teaser_dismissed` from localStorage, set FLAGS_FORCE "1" on
-dev, and reopen the app.
+Do: run this before LT-03, whose dismissal also hides the banner; otherwise first remove
+`toastmaster_launch_teaser_dismissed` from localStorage (Zoom's webview inspector). Set
+FLAGS_FORCE "1" on dev and reopen the app.
 Expect: no banner. The tabs sit directly under Zoom's header, as before this change.
 Evidence: screenshot; `GET /api/me?flags=1` shows `"pro":true`.
 
