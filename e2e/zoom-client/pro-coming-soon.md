@@ -53,7 +53,9 @@ Evidence: screenshots; PostHog `pro_coming_soon_opened` with `trigger: "click"`.
 
 ### PC-04 · auto · The real Pro button is back once `pro` is on
 Do: set FLAGS_FORCE "1" on dev and reopen the app.
-Expect: no lock. A Pro device shows the amber "Pro" button; a free device shows "Upgrade".
+Expect: no lock. A Pro device shows the amber "Pro" button; a free device shows "Upgrade",
+with a small red dot on it until the Pro announcement has been looked at (see
+[pro-launch](pro-launch.md); reviewed 2026-11-14 when #144 merged dev, not rerun for it).
 Evidence: screenshot of the footer.
 
 ## Not covered

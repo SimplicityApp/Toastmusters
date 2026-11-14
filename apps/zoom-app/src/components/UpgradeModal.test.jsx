@@ -12,6 +12,8 @@ import {
   setFlags,
   initClubFromCache,
   getEntitlement,
+  loadPromptState,
+  PRO_LAUNCH_PROMPT,
 } from '@toastmaster-timer/shared';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
@@ -53,6 +55,22 @@ beforeEach(() => {
   resetFlagsForTests();
   resolveZoomIdentity.mockResolvedValue({ identified: true, uid: 'u1' });
   global.fetch = vi.fn();
+});
+
+describe('the Pro announcement', () => {
+  it.each(['footer', 'sounds', 'card_images', 'pro_launch'])(
+    'is retired when the dialog opens from %s',
+    (source) => {
+      expect(loadPromptState().prompts[PRO_LAUNCH_PROMPT].resolution).toBeNull();
+      renderModal({ source });
+      expect(loadPromptState().prompts[PRO_LAUNCH_PROMPT].resolution).toBe('answered');
+    }
+  );
+
+  it('is left alone while the dialog is closed', () => {
+    renderModal({ isOpen: false });
+    expect(loadPromptState().prompts[PRO_LAUNCH_PROMPT].resolution).toBeNull();
+  });
 });
 
 describe('club code entry', () => {
@@ -145,6 +163,19 @@ describe('the club-framed pitch', () => {
     const [path, init] = global.fetch.mock.calls.find(([p]) => p === '/api/billing/checkout');
     expect(path).toBe('/api/billing/checkout');
     expect(JSON.parse(init.body)).toEqual({ interval: 'monthly', clubName: 'Downtown Speakers' });
+  });
+
+  it.each([
+    ['lists Sounds once the sounds flag is on', true],
+    ['leaves Sounds out while the sounds flag is off', false],
+  ])('%s', async (_label, sounds) => {
+    setFlags({ pro: true, sounds });
+    renderModal();
+
+    expect(await screen.findByText(/One Pro account for your whole club/i)).toBeInTheDocument();
+    const line = screen.queryByText(/a chime when the card changes, and music during breaks/i);
+    if (sounds) expect(line).toBeInTheDocument();
+    else expect(line).not.toBeInTheDocument();
   });
 
   // A buyer stopped at a required field is a sale lost; the club is minted with

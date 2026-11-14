@@ -2,9 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   CLUB_PROMPT,
   REVIEW_PROMPT,
+  PRO_LAUNCH_PROMPT,
+  DEFAULT_PROMPTS,
+  PRO_LAUNCH_BADGE_DAYS,
   GLOBAL_COOLDOWN_DAYS,
   PROMPT_ORDER,
   PROMPT_RULES,
+  isProLaunchBadgeDue,
   forcePrompt,
   isPromptDebugMode,
   isPromptDue,
@@ -91,9 +95,9 @@ describe('global cooldown', () => {
     markPromptAnswered(CLUB_PROMPT);
 
     // Review is otherwise due, but the club ask just happened.
-    expect(selectDuePrompt(loadPromptState(), NOW + DAY_MS, PROMPT_ORDER, STRICT)).toBeNull();
+    expect(selectDuePrompt(loadPromptState(), NOW + DAY_MS, DEFAULT_PROMPTS, STRICT)).toBeNull();
     expect(
-      selectDuePrompt(loadPromptState(), NOW + GLOBAL_COOLDOWN_DAYS * DAY_MS, PROMPT_ORDER, STRICT)
+      selectDuePrompt(loadPromptState(), NOW + GLOBAL_COOLDOWN_DAYS * DAY_MS, DEFAULT_PROMPTS, STRICT)
     ).toBe(REVIEW_PROMPT);
   });
 });
@@ -182,8 +186,8 @@ describe('dev mode (VITE_ENABLE_DEBUG_PANEL=true)', () => {
     markPromptAnswered(CLUB_PROMPT);
 
     const soon = NOW + 60 * 1000;
-    expect(selectDuePrompt(loadPromptState(), soon, PROMPT_ORDER, STRICT)).toBeNull();
-    expect(selectDuePrompt(loadPromptState(), soon, PROMPT_ORDER, { ignoreTimeGates: true })).toBe(
+    expect(selectDuePrompt(loadPromptState(), soon, DEFAULT_PROMPTS, STRICT)).toBeNull();
+    expect(selectDuePrompt(loadPromptState(), soon, DEFAULT_PROMPTS, { ignoreTimeGates: true })).toBe(
       REVIEW_PROMPT
     );
   });
@@ -297,5 +301,93 @@ describe('forcePrompt (debug panel)', () => {
     forcePrompt(CLUB_PROMPT);
 
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Pro launch announcement', () => {
+  const ALL = PROMPT_ORDER;
+
+  it('is never picked unless the app enables it', () => {
+    finishSpeeches(PROMPT_RULES[REVIEW_PROMPT].firstAskAfterSpeeches);
+    const state = loadPromptState();
+
+    expect(isPromptDue(PRO_LAUNCH_PROMPT, state, NOW)).toBe(true);
+    expect(DEFAULT_PROMPTS).not.toContain(PRO_LAUNCH_PROMPT);
+    expect(selectDuePrompt(state, NOW)).toBe(CLUB_PROMPT);
+  });
+
+  it('is due after the first finished speech, and goes ahead of the others', () => {
+    expect(selectDuePrompt(loadPromptState(), NOW, ALL)).toBeNull();
+    finishSpeeches(1);
+    expect(selectDuePrompt(loadPromptState(), NOW, ALL)).toBe(PRO_LAUNCH_PROMPT);
+
+    finishSpeeches(PROMPT_RULES[REVIEW_PROMPT].firstAskAfterSpeeches);
+    expect(selectDuePrompt(loadPromptState(), NOW, ALL)).toBe(PRO_LAUNCH_PROMPT);
+  });
+
+  it('is shown once: a dismissal retires it, however much the timer is used after', () => {
+    finishSpeeches(1);
+    markPromptShown(PRO_LAUNCH_PROMPT, NOW);
+
+    finishSpeeches(100);
+    const muchLater = NOW + 365 * DAY_MS;
+    expect(isPromptDue(PRO_LAUNCH_PROMPT, loadPromptState(), muchLater, STRICT)).toBe(false);
+    expect(isPromptDue(PRO_LAUNCH_PROMPT, loadPromptState(), muchLater, { ignoreTimeGates: true })).toBe(false);
+  });
+
+  it('holds the club question back for the global cooldown after it shows', () => {
+    finishSpeeches(PROMPT_RULES[CLUB_PROMPT].firstAskAfterSpeeches);
+    markPromptShown(PRO_LAUNCH_PROMPT, NOW);
+
+    expect(selectDuePrompt(loadPromptState(), NOW + DAY_MS, ALL, STRICT)).toBeNull();
+    expect(
+      selectDuePrompt(loadPromptState(), NOW + GLOBAL_COOLDOWN_DAYS * DAY_MS, ALL, STRICT)
+    ).toBe(CLUB_PROMPT);
+  });
+
+  it('is not due once answered (any Upgrade dialog marks it)', () => {
+    finishSpeeches(1);
+    markPromptAnswered(PRO_LAUNCH_PROMPT);
+    expect(selectDuePrompt(loadPromptState(), NOW, ALL)).toBeNull();
+  });
+
+  it('keeps an old browser\'s stored prompts and adds the new record', () => {
+    savePromptState({
+      speechesFinished: 40,
+      lastPromptAt: NOW - 30 * DAY_MS,
+      prompts: { [CLUB_PROMPT]: { asks: 1, resolution: 'answered' } },
+    });
+    const state = loadPromptState();
+    expect(state.prompts[CLUB_PROMPT].resolution).toBe('answered');
+    expect(state.prompts[PRO_LAUNCH_PROMPT]).toEqual({
+      asks: 0,
+      lastAskAt: 0,
+      lastAskAtSpeeches: 0,
+      resolution: null,
+    });
+    expect(selectDuePrompt(state, NOW, ALL, STRICT)).toBe(PRO_LAUNCH_PROMPT);
+  });
+});
+
+describe('isProLaunchBadgeDue', () => {
+  it('shows before the announcement has had its chance', () => {
+    expect(isProLaunchBadgeDue(loadPromptState(), NOW)).toBe(true);
+  });
+
+  it('stays for the badge window after the announcement was dismissed, then goes', () => {
+    markPromptShown(PRO_LAUNCH_PROMPT, NOW);
+    const state = loadPromptState();
+    expect(isProLaunchBadgeDue(state, NOW + (PRO_LAUNCH_BADGE_DAYS - 1) * DAY_MS)).toBe(true);
+    expect(isProLaunchBadgeDue(state, NOW + PRO_LAUNCH_BADGE_DAYS * DAY_MS)).toBe(false);
+  });
+
+  it('goes as soon as the user has looked at Pro', () => {
+    markPromptAnswered(PRO_LAUNCH_PROMPT);
+    expect(isProLaunchBadgeDue(loadPromptState(), NOW)).toBe(false);
+  });
+
+  it('is false for a missing or malformed state', () => {
+    expect(isProLaunchBadgeDue(null, NOW)).toBe(false);
+    expect(isProLaunchBadgeDue({ prompts: {} }, NOW)).toBe(false);
   });
 });
