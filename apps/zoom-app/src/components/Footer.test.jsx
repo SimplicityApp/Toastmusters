@@ -3,6 +3,10 @@ import { act, render, screen } from '@testing-library/react';
 import Footer from './Footer';
 import { ToastProvider } from '../context/ToastContext';
 import {
+  PRO_LAUNCH_BADGE_DAYS,
+  PRO_LAUNCH_PROMPT,
+  markPromptAnswered,
+  markPromptShown,
   resetEntitlementForTests,
   resetFlagsForTests,
   setEntitlement,
@@ -30,6 +34,7 @@ const proButton = () => screen.queryByRole('button', { name: /manage your pro pl
 // The real stores, not a mocked hook: what is under test is the gate the
 // Footer composes from both of them.
 beforeEach(() => {
+  localStorage.clear();
   resetEntitlementForTests();
   resetFlagsForTests();
 });
@@ -108,5 +113,46 @@ describe('the Footer\'s Pro button', () => {
     renderFooter();
     expect(screen.getByRole('button', { name: /provide feedback/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /leave a review/i })).toBeInTheDocument();
+  });
+});
+
+describe('the "New" badge on the Upgrade button', () => {
+  const badge = () => screen.queryByText('New');
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it('marks the Upgrade button for a free user once Pro is released', () => {
+    setEntitlement({ plan: 'free' });
+    setFlags({ pro: true });
+    renderFooter();
+    expect(upgradeButton()).toContainElement(badge());
+  });
+
+  it('is not on a Pro user\'s button', () => {
+    setEntitlement(PRO);
+    setFlags({ pro: true });
+    renderFooter();
+    expect(badge()).toBeNull();
+  });
+
+  it('goes the moment the announcement is answered, without a remount', () => {
+    setEntitlement({ plan: 'free' });
+    setFlags({ pro: true });
+    renderFooter();
+    expect(badge()).toBeInTheDocument();
+
+    act(() => {
+      markPromptAnswered(PRO_LAUNCH_PROMPT);
+    });
+    expect(badge()).toBeNull();
+    expect(upgradeButton()).toBeInTheDocument();
+  });
+
+  it('is gone once the badge window after the announcement has passed', () => {
+    markPromptShown(PRO_LAUNCH_PROMPT, Date.now() - (PRO_LAUNCH_BADGE_DAYS + 1) * DAY_MS);
+    setEntitlement({ plan: 'free' });
+    setFlags({ pro: true });
+    renderFooter();
+    expect(upgradeButton()).toBeInTheDocument();
+    expect(badge()).toBeNull();
   });
 });

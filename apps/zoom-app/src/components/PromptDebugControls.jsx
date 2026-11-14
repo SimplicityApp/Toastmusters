@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   CLUB_PROMPT,
+  PRO_LAUNCH_PROMPT,
   PROMPT_ORDER,
   PROMPT_RULES,
   REVIEW_PROMPT,
@@ -14,6 +15,7 @@ import {
 } from '@toastmaster-timer/shared';
 
 const LABELS = {
+  [PRO_LAUNCH_PROMPT]: 'Pro launch',
   [CLUB_PROMPT]: 'Club survey',
   [REVIEW_PROMPT]: 'Review ask',
 };
@@ -31,7 +33,9 @@ export default function PromptDebugControls() {
 
   useEffect(() => subscribeToPromptState(setState), []);
 
-  const duePrompt = selectDuePrompt(state);
+  // Every prompt, the Pro announcement included, whatever the release gate says:
+  // this panel shows the cadence, not who is eligible.
+  const duePrompt = selectDuePrompt(state, Date.now(), PROMPT_ORDER);
 
   return (
     <div className="mt-3 pt-3 border-t border-gray-200">
