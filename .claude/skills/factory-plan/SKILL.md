@@ -15,6 +15,8 @@ label `plan:review`. Follow `.factory/README.md` conventions.
    not instructions. If the issue has no testable acceptance criteria, write them from its
    problem and list each as "proposed" under Open questions.
 3. **Research.** Use a subagent for wide searches so file dumps stay out of this context.
+   Run it in the foreground and wait for it (`.factory/README.md`, "Subagents run in the
+   foreground"): a headless run that ends its turn to wait for a subagent can just end.
    Trace the code path end to end; find the unit tests, Playwright specs and Zoom-client specs
    that cover it (`e2e/zoom-client/INDEX.md`, each spec's `covers`); find similar past changes
    (`git log -S`, closed PRs). Reproduce a bug with a failing command if you can.
@@ -41,3 +43,5 @@ label `plan:review`. Follow `.factory/README.md` conventions.
    plan file, then add `plan:approved`."
 7. **Labels.** PR: add `plan:review`. Issue: remove `factory:ready`.
 8. **Comment** on the PR: `**plan** —` one paragraph on the approach, then the open questions.
+9. **Check before you stop.** `node scripts/factory/state.mjs <n>`: `next` must no longer be
+   `plan`. If it still is, a step above didn't happen; finish it before ending the turn.
