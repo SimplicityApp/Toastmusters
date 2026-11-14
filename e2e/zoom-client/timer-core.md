@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: stale
+status: current
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -14,8 +14,8 @@ automated:
 needs:
   - dev deployed
   - camera on, in a meeting
-verified_at: b029a29
-verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev a249d5d7)
+verified_at: 905d8d1
+verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev 3ce801a6)
 ---
 
 # Core timer in the Zoom client
@@ -158,8 +158,9 @@ Club's role list, so the lines were "Bob (1min Role)", "Alex (Table Topics)", "A
 Tip)" and the default role was ChairToast1. After FINISH the dropdown stayed on 1min Role.
 PostHog had `timer_started` / `speech_finished` for Bob only. The stage's speaker list needed a
 second click (the first focused the panel). Log: test-runs/2026-11-13-91-live-tab-needs-role/run.md.
-The other steps last ran on b029a29, before this LiveTab change, so the spec stays `stale`
-until they rerun on it.
+Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6 with `FLAGS_FORCE` "1", Zoom on macOS): TC-01…TC-08,
+TC-10, TC-11 and TC-13 passed with the same substitutions; TC-09 and TC-12 not run (human).
+Log: test-runs/2026-11-13-pre-master-specs/run.md.
 
 ## Not covered
 - Colour accuracy on every camera/background setting.
@@ -171,7 +172,7 @@ until they rerun on it.
 - Agenda import, and the roles it assigns to imported lines (`importBulkSpeakers` in
   `TimerContext.jsx`). See [agenda-import](agenda-import.md). Reviewed against #91
   (2026-11-13): that PR changes only `importBulkSpeakers` here; no step above uses it.
-  TC-01…TC-08, TC-10 and TC-11 reran green on it (b029a29) the same day.
+  TC-01…TC-08, TC-10, TC-11 and TC-13 reran green on dev 905d8d1 the same day.
 - A failed participant read at START (`timer_started` still sent, no `audience_size`). The
   Zoom client can't be made to fail it on demand; `LiveTab.test.jsx` covers it (#107 AC-5).
 - A club card set arriving, changing or going away while the app is open. `LiveTab.jsx`
