@@ -35,7 +35,8 @@ and only a second participant proves that "Share sound" carries it.
 ## Purpose
 Catches a webview that blocks Web Audio (autoplay policy), so the chime is silent in Zoom
 while it works in a browser. Also catches music that keeps playing after a break ends, a
-free user who can switch sounds on, a Sounds button that hides instead of locking, and a chime that stops when the timer switches tabs.
+free user who can switch sounds on, a Sounds button that hides instead of locking, a lock
+that sells Pro before Pro can be bought, and a chime that stops when the timer switches tabs.
 
 ## Steps
 
@@ -53,18 +54,20 @@ Evidence: screenshot; `localStorage.toastmaster_sound_settings` is absent or has
 Do: on a Pro account, with `pro` on and `sounds` off (FLAGS_FORCE cleared on dev and the
 flags targeted at your uid in PostHog; FLAGS_FORCE "0" turns `pro` off too, which is TS-09),
 open the Live tab and click the speaker icon.
-Expect: the icon is shown, grey with a lock. The modal opens with "Sounds are coming
-soon." and no Upgrade link, and its controls cannot be used.
+Expect: the icon is shown, grey with a lock. The modal opens with "Hold tight! Sounds are
+coming soon." and no Upgrade link, and its controls cannot be used.
 Evidence: screenshot.
 
-### TS-09 · auto · A Pro plan is locked as free while the `pro` flag is off
-Do: on the Pro account from TS-08 (a subscription, a grant, or a club on this device), with
-FLAGS_FORCE "0" on dev, open the Live tab and click the speaker icon.
-Expect: the same lock as TS-01: "Sounds are a Pro feature. Upgrade to Pro to use them." on
-hover and "Sounds are a Pro feature." in the modal, never "coming soon", and no Upgrade
-link. The footer shows no Pro chip. The `pro` flag is the source of truth for Pro in the
-app, so the plan alone unlocks nothing while it is off.
-Evidence: screenshot; `GET /api/me?flags=1` shows `"plan":"pro"` and `"pro":false`.
+### TS-09 · auto · Sounds say "coming soon" to everyone while the `pro` flag is off
+Do: with FLAGS_FORCE "0" on dev, open the Live tab and click the speaker icon, on any
+account: free, or the Pro account from TS-08 (a subscription, a grant, or a club on this
+device).
+Expect: the icon is grey with a lock, and hovering it shows "Hold tight! Sounds are coming
+soon." The modal says the same, never "Sounds are a Pro feature.", has no Upgrade link, and
+its controls cannot be used. The footer shows no Pro chip. Pro cannot be bought while the
+`pro` flag is off, so nobody is told sounds are a Pro feature; the plan alone unlocks
+nothing. Production stays in this state (with `sounds` on) until Pro launches.
+Evidence: screenshot; `GET /api/me?flags=1` shows `"pro":false`.
 
 ### TS-02 · human · Test chimes are audible in the Zoom webview
 Do: on a Pro account, open Sounds and click Test: Green, Yellow, Red.
@@ -107,6 +110,9 @@ Evidence: the second participant confirms; note the result for each share path i
 log.
 
 ## Not covered
+- Production's exact pre-launch state, `sounds` on with `pro` off, for a free account.
+  FLAGS_FORCE sets both flags together, so TS-09 runs with both off; the lock text is the
+  same either way. `e2e/zoom.launch-teaser.spec.js` and the unit tests cover that pair.
 - Break music from audio files. Only the synthesized "Music box" track ships so far; licensed
   tracks under `apps/zoom-app/public/music/` will add file playback, which needs its own
   step.

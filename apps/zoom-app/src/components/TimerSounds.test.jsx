@@ -173,18 +173,34 @@ describe('the Sounds modal', () => {
     setEntitlement(PRO);
     render(<SoundsModal isOpen onClose={() => {}} />);
     expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
-    expect(screen.getByText(/sounds are coming soon/i)).toBeInTheDocument();
+    expect(screen.getByText('Hold tight! Sounds are coming soon.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /upgrade to pro/i })).toBeNull();
   });
 
-  it('locks a Pro plan as a Pro feature while pro itself is unreleased', () => {
+  it('tells a Pro plan sounds are coming while pro itself is unreleased', () => {
     setFlags({ sounds: false, pro: false });
     setEntitlement(PRO);
     render(<SoundsModal isOpen onClose={() => {}} />);
     expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
-    expect(screen.getByText(/sounds are a pro feature/i)).toBeInTheDocument();
-    expect(screen.queryByText(/coming soon/i)).toBeNull();
+    expect(screen.getByText('Hold tight! Sounds are coming soon.')).toBeInTheDocument();
+    expect(screen.queryByText(/sounds are a pro feature/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /upgrade to pro/i })).toBeNull();
+  });
+
+  // Production before the launch: `sounds` released, `pro` not. Nobody can buy
+  // Pro yet, so nobody is told it is a Pro feature.
+  it('tells a free user sounds are coming while sounds are on and pro is off', () => {
+    setFlags({ sounds: true, pro: false });
+    setEntitlement({ plan: 'free' });
+    render(<SoundsModal isOpen onClose={() => {}} />);
+    expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
+    expect(screen.getByText('Hold tight! Sounds are coming soon.')).toBeInTheDocument();
+    expect(screen.queryByText(/sounds are a pro feature/i)).toBeNull();
+    expect(screen.getByLabelText('Locked')).toBeInTheDocument();
+    expect(document.querySelector('[data-tooltip]')).toHaveAttribute(
+      'data-tooltip',
+      'Hold tight! Sounds are coming soon.',
+    );
   });
 
   it('shows no lock to a Pro user once sounds are released', () => {
