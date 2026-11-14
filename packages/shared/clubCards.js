@@ -1,4 +1,5 @@
-import { loadClub, loadClubCards, subscribeClub, rememberPublishedCards } from './club.js';
+import { clubFeaturesOn, loadClub, loadClubCards, subscribeClub, rememberPublishedCards } from './club.js';
+import { subscribeFlags } from './flags.js';
 import {
   CARD_COLORS,
   cardImageKey,
@@ -41,7 +42,7 @@ export async function hashCardBlob(blob) {
 /** Whether this device's signed-in user may publish a card set to the club. */
 export function canPublishCards() {
   const club = loadClub();
-  if (!club?.entitled) return false;
+  if (!clubFeaturesOn(club)) return false;
   return club.role === 'admin' || club.role === 'editor';
 }
 
@@ -84,7 +85,7 @@ export async function syncClubCardImages({ fetchImpl } = {}) {
 function clubCardsSignature() {
   const club = loadClub();
   const cards = loadClubCards();
-  return `${Boolean(club?.entitled)}|${CARD_COLORS.map((color) => cards?.images?.[color] ?? '').join(',')}`;
+  return `${clubFeaturesOn(club)}|${CARD_COLORS.map((color) => cards?.images?.[color] ?? '').join(',')}`;
 }
 
 /**
@@ -92,7 +93,8 @@ function clubCardsSignature() {
  *
  * Fetches what is missing now, and again whenever the club changes: a new
  * publish, a removal, a lapse or leaving. Each of those also tells the timer
- * to re-show its card, since the set it should show may have changed.
+ * to re-show its card, since the set it should show may have changed. So does
+ * the `pro` flag arriving, which decides whether club features are on at all.
  *
  * @param {{fetchImpl?: typeof fetch}} [options]
  * @returns {() => void} stop
@@ -100,13 +102,19 @@ function clubCardsSignature() {
 export function startClubCardSync({ fetchImpl } = {}) {
   let last = clubCardsSignature();
   syncClubCardImages({ fetchImpl }).catch(() => {});
-  return subscribeClub(() => {
+  const onChange = () => {
     const next = clubCardsSignature();
     if (next === last) return;
     last = next;
     notifyCardImages();
     syncClubCardImages({ fetchImpl }).catch(() => {});
-  });
+  };
+  const stopClub = subscribeClub(onChange);
+  const stopFlags = subscribeFlags(onChange);
+  return () => {
+    stopClub();
+    stopFlags();
+  };
 }
 
 function errorFor(status, body) {

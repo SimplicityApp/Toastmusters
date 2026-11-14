@@ -9,6 +9,7 @@ import {
   getCardImageSettings,
   activeCardSetId,
   clubCardSetAvailable,
+  clubFeaturesOn,
   getClubCardImage,
   selectCardSet,
   addCustomCardSet,
@@ -368,7 +369,7 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
         />
 
         <p className="text-xs text-gray-500 mt-4">
-          {club?.entitled ? (
+          {clubFeaturesOn(club) ? (
             <>
               Custom images are stored only in this browser.
               {canPublishCards() ? ' Share a set to put it on every club device. ' : ' '}

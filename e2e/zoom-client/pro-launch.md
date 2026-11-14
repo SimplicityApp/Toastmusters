@@ -1,7 +1,7 @@
 ---
 id: pro-launch
 title: Pro launch announcement
-status: current
+status: stale
 covers:
   - apps/zoom-app/src/components/ProLaunchModal.jsx
   - apps/zoom-app/src/components/PeriodicPrompts.jsx
@@ -77,6 +77,8 @@ PL-03 passed; PL-01 only its Pro half (no dot on "Pro"); PL-04 not run (needs a 
 Log: test-runs/2026-11-13-pro-launch/run.md.
 
 ## Not covered
+- The footer while `pro` is off: since the merge with dev (2026-11-14) it shows the locked
+  "Pro (coming soon)" button instead of nothing. See [pro-coming-soon](pro-coming-soon.md).
 - The purchase and club-code flows inside the Upgrade dialog (the pro-club area is not
   migrated to a spec yet; see `INDEX.md`).
 - The web timer: it has no Pro announcement. Its prompts are unchanged.

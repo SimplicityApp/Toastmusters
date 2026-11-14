@@ -6,6 +6,7 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./AnnouncementBanner": "./AnnouncementBanner.jsx",
     "./BrandedReportHeader": "./BrandedReportHeader.jsx",
     "./ClubBadge": "./ClubBadge.jsx",
     "./ClubGraceBanner": "./ClubGraceBanner.jsx",

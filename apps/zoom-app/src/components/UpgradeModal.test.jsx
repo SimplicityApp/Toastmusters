@@ -194,6 +194,7 @@ describe('the club-framed pitch', () => {
 
 describe('a club whose Pro has ended', () => {
   beforeEach(() => {
+    setFlags({ pro: true });
     localStorage.setItem(
       CLUB_STORAGE_KEY,
       JSON.stringify({

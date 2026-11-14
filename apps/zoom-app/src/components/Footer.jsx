@@ -15,6 +15,7 @@ import {
 import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
 import { useToast } from '../context/ToastContext';
+import ProComingSoon from './ProComingSoon';
 const FeedbackModal = lazy(() => import('./FeedbackModal'));
 const UpgradeModal = lazy(() => import('./UpgradeModal'));
 
@@ -112,6 +113,9 @@ export default memo(function Footer() {
             {showNewBadge && <span className="sr-only">New</span>}
           </button>
         )}
+        {/* Before Pro is released: the same place, locked, saying what is
+            coming. Nothing can be bought yet, so there is no upgrade here. */}
+        {flagsKnown && !proEnabled && <ProComingSoon />}
       </footer>
       {showUpgradeModal && (
         <Suspense fallback={null}>

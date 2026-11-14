@@ -64,7 +64,8 @@ launches Zoom, starts the test meeting (`ZOOM_TEST_PMI` from `meeting.local`, gi
 Zoom's Start Meeting shortcut) and waits for the meeting window. Then open Toastmasters Timer
 from Apps with the per-step loop below. Ask the user only when it exits 2 or a snap shows a
 Zoom sign-in screen or an app authorization prompt. Before the first click, say once in chat
-that you're taking the Mac and wait 60 seconds.
+that you're taking the Mac and wait 60 seconds. The run hands the Mac back by quitting Zoom
+at the end (§6).
 
 Then start, each with `run_in_background: true`:
 - `$S/tail.sh` — Worker log into the run folder (auto-reconnects).
@@ -140,8 +141,15 @@ edit, and restore from the backup when the step is done. At the end:
   mention that a stopped capture is intentional when its notification arrives.
 - Remind the user of anything still flipped (e.g. `ENTITLEMENT_ENFORCE: "1"` refuses sync for
   other dev testers) and ask before reverting/redeploying.
+- **Quit Zoom last:** `$S/zoom-down.sh` ends the test meeting and quits the client. A closed
+  Zoom is the user's signal that the run is over and the Mac is theirs again; left open, they
+  can't tell whether to wait. Then say so in chat in one line ("Zoom test finished — Zoom is
+  closed, the Mac is yours."). Do this however the run ended (pass, fail, blocked), except
+  when it paused because the user took the Mac: leave Zoom as it is then, since the run
+  resumes.
 
 ## 7. Reporting back
 
-Link `test-runs/<run>/run.md`. Lead with what failed and why, then findings, then what passed
+Open with one line saying the run is over and Zoom is closed. Link `test-runs/<run>/run.md`.
+Lead with what failed and why, then findings, then what passed
 in one line, then exactly what you need from the user next. Don't restate the whole log.

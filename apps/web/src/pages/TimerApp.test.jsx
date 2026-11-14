@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { CLUB_STORAGE_KEY, resetClubForTests } from '@toastmaster-timer/shared';
+import { CLUB_STORAGE_KEY, resetClubForTests, setFlags } from '@toastmaster-timer/shared';
 import TimerApp from './TimerApp';
 
 /**
@@ -50,6 +50,9 @@ const renderApp = () =>
 const minimize = async () => userEvent.click(await screen.findByTitle('Minimize panel'));
 
 describe('TimerApp — the full-screen card', () => {
+  // The badge is a club feature, shown only once Pro is released.
+  beforeEach(() => setFlags({ pro: true }));
+
   it('keeps the club badge on the card the meeting is looking at', async () => {
     joinClub();
     renderApp();
