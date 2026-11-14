@@ -19,8 +19,11 @@ argument-hint: <issue number>
 3. Remove `plan:review` from the PR.
 4. **Run each sub-station in its own subagent** (fresh context: agents lose the thread on
    long runs). Give each only the issue number and the plan path; they read the rest.
+   Run them one at a time in the foreground and wait for each (`.factory/README.md`,
+   "Subagents run in the foreground"); never end a turn to wait for one.
    a. `factory-oracle` — skip when `.factory/oracles/<n>.json` exists.
    b. `factory-implement`
    c. `factory-verify`
    Read each one's PR comment before starting the next. If one added `factory:stuck`, stop.
-5. Done when `factory-verify` has added `needs:zoom-test`.
+5. Done when `factory-verify` has added `needs:zoom-test`. Don't end the turn before that
+   unless a sub-station added `factory:stuck`.

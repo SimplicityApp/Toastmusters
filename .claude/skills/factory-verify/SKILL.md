@@ -13,8 +13,9 @@ argument-hint: <issue number>
 1. **Checks:** `npm test`, `npm run test:e2e`, `npm run test:specs`,
    `node scripts/factory/check-oracle.mjs`, `npm run build`. Fix failures in the code, never
    in an oracle test. Each fix round is a commit `fix(#<n>): …` and counts as one attempt.
-2. **Review** in a fresh subagent given only the plan, `git diff origin/dev...HEAD` and this
-   rubric. It reports findings; you fix them (each round counts as an attempt):
+2. **Review** in a fresh subagent, in the foreground (wait for it; `.factory/README.md`),
+   given only the plan, `git diff origin/dev...HEAD` and this rubric. It reports findings; you
+   fix them (each round counts as an attempt):
    - every AC has a test that fails without the change;
    - no test gaming: `.skip`/`.only`/`todo`, weakened or deleted assertions, updated
      snapshots, `expect(true)`, mocking the unit under test, test-only branches in app code;
