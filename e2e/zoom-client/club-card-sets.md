@@ -1,7 +1,7 @@
 ---
 id: club-card-sets
 title: Club card sets (share card artwork with the club)
-status: stale
+status: current
 covers:
   - worker/club-cards.js
   - packages/shared/clubCards.js
@@ -21,8 +21,8 @@ needs:
   - Zoom account A, an admin or editor of that club (club-member record)
   - a second computer or browser profile, B, with no cards of its own
   - ENTITLEMENT_ENFORCE "1" on dev for CC-08 only (ask first; revert after)
-verified_at: 23091dc
-verified_on: 2026-11-12
+verified_at: 905d8d1
+verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev 3ce801a6)
 ---
 
 # Club card sets (share card artwork with the club)
@@ -77,7 +77,8 @@ Evidence: `toastmaster_card_source` is `club`, then `own`.
 ### CC-06 · auto · Members cannot publish
 Do: on a device signed in as a club member (not editor or admin), open Card Images.
 Expect: no **Share with my club** button on any custom set.
-Evidence: a forced `PUT /api/club/cards` from that device returns 403.
+Evidence: a forced `PUT /api/club/cards` from that device returns 403. From a guest club device
+with no Zoom session (the web app as B), the same request returns 401 before the role check.
 
 ### CC-07 · human · An admin removes the set from the console
 Do: on the web, open `/club/admin` as the club admin. Under Card set, press **Remove card set**.
@@ -109,4 +110,9 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 - Card sets are one per club for now (open question 2 in the plan).
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the card artwork or its push; no step here
-  loads an agenda row. See [timer-core](timer-core.md) TC-13. Not rerun for it.
+  loads an agenda row. See [timer-core](timer-core.md) TC-13.
+
+Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6, A = Zoom desktop, B = web app in a browser
+profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards" (null label in
+KV). CC-06 only from B, a guest with no Zoom session: 401, not the member 403. CC-07 (console
+sign-in) and CC-08 (lapsing the club) not run. Log: test-runs/2026-11-13-pre-master-specs/run.md.
