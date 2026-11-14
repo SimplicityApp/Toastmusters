@@ -1,7 +1,7 @@
 ---
 id: pro-launch
 title: Pro launch announcement
-status: draft
+status: current
 covers:
   - apps/zoom-app/src/components/ProLaunchModal.jsx
   - apps/zoom-app/src/components/PeriodicPrompts.jsx
@@ -17,8 +17,8 @@ needs:
   - FLAGS_FORCE "1" on dev (the announcement is behind `pro`)
   - camera on, in a meeting
   - PL-04 only, a Zoom account on the Free plan with no club on the device
-verified_at: never
-verified_on: never
+verified_at: eeaa840
+verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev c8774483)
 ---
 
 # Pro launch announcement
@@ -70,6 +70,10 @@ window back; the debug panel reads "Pro launch: 1/1 asks".
 Evidence: screenshots; PostHog `periodic_prompt_shown` and `periodic_prompt_dismissed` with
 `prompt: "pro_launch"`, once each.
 Human because it needs a second, Free Zoom account signed in on the test computer.
+
+Run 2026-11-13 (eeaa840, Zoom on macOS, device Pro through its own subscription): PL-02 and
+PL-03 passed; PL-01 only its Pro half (no dot on "Pro"); PL-04 not run (needs a Free account).
+Log: test-runs/2026-11-13-pro-launch/run.md.
 
 ## Not covered
 - The purchase and club-code flows inside the Upgrade dialog (the pro-club area is not
