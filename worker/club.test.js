@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from './index.js';
 import { handleClubActivate, handleClubLeave, handleClubState, verifiedClubId, deviceLabel } from './club.js';
 import { createClubFromPending, rotateClubCode, normalizeCode, formatCode, clubPrefix, mintCode } from './club-admin.js';
 import { mintSessionToken } from './session-token.js';
-import { verifyClubToken } from './club-token.js';
+import { handleClubMeetings } from './club-meetings.js';
+import { verifyClubToken, CLUB_TOKEN_TTL_MS, CLUB_TOKEN_REFRESH_GRACE_MS } from './club-token.js';
 import { clubKey } from './entitlements.js';
 
 /**
@@ -361,6 +362,104 @@ describe('GET /api/club', () => {
       env
     );
     expect(res.status).toBe(405);
+  });
+
+  // A device refreshes at most once a day, so the token it sends is nearly
+  // always past its 24 hours. A club that meets weekly sends one a week old.
+  describe('with a token past its 24 hours', () => {
+    const JOINED_AT = Date.UTC(2026, 10, 6, 0, 30);
+    const NEXT_MEETING = JOINED_AT + 7 * DAY;
+
+    beforeEach(() => {
+      vi.setSystemTime(JOINED_AT);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('renews it a week later and keeps the device in the club', async () => {
+      const { clubId, clubToken, claims } = await activated();
+      vi.setSystemTime(NEXT_MEETING);
+      expect(verifyClubToken(clubToken, SIGNING_KEY)).toBeNull();
+
+      const res = await handleClubState(stateReq(clubToken), env);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      expect(body).toMatchObject({ club: { id: clubId }, entitled: true });
+      expect(verifyClubToken(body.clubToken, SIGNING_KEY)).toEqual({
+        clubId,
+        deviceId: claims.deviceId,
+        uid: null,
+        ver: 1,
+        iat: NEXT_MEETING,
+        exp: NEXT_MEETING + CLUB_TOKEN_TTL_MS,
+      });
+    });
+
+    it('renews it up to the end of the grace window, and not a moment after', async () => {
+      const { clubToken } = await activated();
+      const expiredAt = JOINED_AT + CLUB_TOKEN_TTL_MS;
+
+      vi.setSystemTime(expiredAt + CLUB_TOKEN_REFRESH_GRACE_MS - 1);
+      expect((await handleClubState(stateReq(clubToken), env)).status).toBe(200);
+
+      vi.setSystemTime(expiredAt + CLUB_TOKEN_REFRESH_GRACE_MS);
+      expect((await handleClubState(stateReq(clubToken), env)).status).toBe(401);
+    });
+
+    // The grace is safe only because this route reads both records before it
+    // mints anything. Revocation and deletion must still win.
+    it('still refuses a revoked device and a deleted club', async () => {
+      const { clubId, clubToken, claims } = await activated();
+      const deviceKey = `club-device:${clubId}:${claims.deviceId}`;
+      vi.setSystemTime(NEXT_MEETING);
+
+      await kv.put(deviceKey, JSON.stringify({ ...(await kv.get(deviceKey, 'json')), revokedAt: JOINED_AT + DAY }));
+      const revoked = await handleClubState(stateReq(clubToken), env);
+      expect(revoked.status).toBe(403);
+      expect(await revoked.json()).toEqual({ error: 'club_access_revoked' });
+
+      await kv.delete(clubKey(clubId));
+      expect((await handleClubState(stateReq(clubToken), env)).status).toBe(404);
+    });
+
+    it('still refuses a device that left', async () => {
+      const { clubId, clubToken, claims } = await activated();
+      await kv.delete(`club-device:${clubId}:${claims.deviceId}`);
+      vi.setSystemTime(NEXT_MEETING);
+
+      expect((await handleClubState(stateReq(clubToken), env)).status).toBe(403);
+    });
+
+    // Only the refresh takes an expired token. Every other club route reads it
+    // strictly, so what a revoked device keeps stays bounded by 24 hours.
+    it('is refused by every other route', async () => {
+      const { clubToken } = await activated();
+      vi.setSystemTime(NEXT_MEETING);
+
+      expect((await handleClubLeave(leaveReq(clubToken), env)).status).toBe(401);
+      const upload = await handleClubMeetings(
+        new Request('https://x/api/club/meetings/20261113/speeches', {
+          method: 'POST',
+          headers: { 'x-club': clubToken, 'content-type': 'application/json' },
+          body: JSON.stringify({ speechId: 's1', name: 'Ana', role: 'Standard Speech', duration: '5:50', color: 'green' }),
+        }),
+        'meetings/20261113/speeches',
+        env
+      );
+      expect(upload.status).toBe(401);
+    });
+  });
+
+  // Without the key every token reads as forged, and the client leaves on a
+  // 401. A misconfigured deploy must not empty every club.
+  it('answers 503 rather than 401 when the signing key is missing', async () => {
+    const { clubToken } = await activated();
+
+    const res = await handleClubState(stateReq(clubToken), { ...env, SESSION_SIGNING_KEY: undefined });
+    expect(res.status).toBe(503);
   });
 });
 

@@ -21,6 +21,25 @@ import crypto from 'node:crypto';
  */
 
 const CLUB_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long past its `exp` a token can still be traded in at GET /api/club.
+ *
+ * The 24-hour TTL above bounds what a token buys on its own: every read that
+ * does not consult KV. The refresh is different. It reads the device record and
+ * the club record before it mints anything, so a revoked device (403), a device
+ * that left (403) and a deleted club (404) are refused there whatever the
+ * token's age. A strict 24 hours on that one route added no protection and cost
+ * a club its devices: a device refreshes at most once a day, so the token it
+ * sends is nearly always already expired. A club that meets weekly lost every
+ * device every week.
+ *
+ * 180 days rather than 90 because a club's timing laptop can sit in a drawer
+ * through a summer recess, and many clubs break from June to September. Past
+ * this the device has to type the code again.
+ */
+const CLUB_TOKEN_REFRESH_GRACE_MS = 180 * 24 * 60 * 60 * 1000;
+
 const SEPARATOR = '.';
 
 function base64url(buf) {
@@ -70,14 +89,21 @@ export function mintClubToken({ clubId, deviceId, uid = null, ver = 1 } = {}, se
  * send on every request. Revocation is enforced separately, on the paths that
  * were already going to write (see worker/club.js).
  *
+ * `graceMs` accepts a token that expired up to that long ago. Only the refresh
+ * passes it (CLUB_TOKEN_REFRESH_GRACE_MS), because only the refresh checks the
+ * device and club records before it trusts the claims. Every other caller keeps
+ * the strict default of zero.
+ *
  * @param {string|null|undefined} token
  * @param {string|undefined} secret - SESSION_SIGNING_KEY
  * @param {number} [now] - epoch ms, injectable for tests
+ * @param {{graceMs?: number}} [options]
  * @returns {{clubId: string, deviceId: string, uid: string|null, ver: number,
  *   iat: number|null, exp: number}|null} null whenever the token cannot be trusted
  */
-export function verifyClubToken(token, secret, now = Date.now()) {
+export function verifyClubToken(token, secret, now = Date.now(), { graceMs = 0 } = {}) {
   if (!token || typeof token !== 'string' || !secret) return null;
+  const grace = Number.isFinite(graceMs) && graceMs > 0 ? graceMs : 0;
 
   const separatorAt = token.indexOf(SEPARATOR);
   if (separatorAt <= 0 || separatorAt === token.length - 1) return null;
@@ -105,7 +131,7 @@ export function verifyClubToken(token, secret, now = Date.now()) {
 
   if (!payload || typeof payload.clubId !== 'string' || !payload.clubId) return null;
   if (typeof payload.deviceId !== 'string' || !payload.deviceId) return null;
-  if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
+  if (typeof payload.exp !== 'number' || payload.exp + grace <= now) return null;
 
   return {
     clubId: payload.clubId,
@@ -142,4 +168,4 @@ export function readClubHeader(request) {
   return value || null;
 }
 
-export { CLUB_TOKEN_TTL_MS };
+export { CLUB_TOKEN_TTL_MS, CLUB_TOKEN_REFRESH_GRACE_MS };

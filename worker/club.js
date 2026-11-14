@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { readSession, readClub, proReleased } from './auth.js';
 import { json, methodNotAllowed, notConfigured, notFound, unauthorized } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
-import { mintClubToken } from './club-token.js';
+import { mintClubToken, CLUB_TOKEN_REFRESH_GRACE_MS } from './club-token.js';
 import { normalizeCode, formatCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
 import { createClubForSubscriber } from './club-create.js';
 import { readClubName } from './billing.js';
@@ -459,11 +459,23 @@ export async function handleClubLeave(request, env) {
  * that lapsed overnight is off on the next app start. A session is read when
  * present so the answer is the *combined* one: a buyer who also typed their own
  * club's code must not be told they are free.
+ *
+ * The one route that takes an expired token, up to CLUB_TOKEN_REFRESH_GRACE_MS
+ * past its `exp`. A device refreshes at most once a day, so the token it sends
+ * is nearly always past its 24 hours, and the client reads a 401 here as "this
+ * credential is spent" and leaves the club. Taking the expired token is safe
+ * because nothing is minted until the club record and the device record have
+ * both been read: revocation still answers 403 and a deleted club still 404.
+ * A revoked device's residual reads stay bounded by the 24-hour TTL, because
+ * the token it holds can no longer be renewed.
  */
 export async function handleClubState(request, env) {
   if (request.method !== 'GET') return methodNotAllowed();
+  // Ahead of the token check: without the key every token reads as forged, and
+  // a 401 here makes every device in every club leave it.
+  if (!env.SESSION_SIGNING_KEY) return notConfigured('Club refresh');
 
-  const claims = readClub(request, env);
+  const claims = readClub(request, env, { graceMs: CLUB_TOKEN_REFRESH_GRACE_MS });
   if (!claims) return unauthorized();
 
   const store = entitlementStore(env);
