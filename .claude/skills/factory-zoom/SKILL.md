@@ -26,7 +26,8 @@ re-verified, then `factory-report`. Needs this Mac: `cliclick`, the Zoom client,
    `npm run cf:deploy:dev` again so dev is back to the branch's committed values. Set each
    spec's `verified_at` (sha tested), `verified_on`, `status: current` (or `stale` on a
    failure), update `INDEX.md`, `npm run test:specs`, commit
-   `test(zoom-client): verify <specs> on <sha> (#<n>)`, push.
+   `test(zoom-client): verify <specs> on <sha> (#<n>)`, push. Quit Zoom last
+   (`zoom-down.sh`), so the user can see the Mac is free.
 7. **Unlock and route.** Remove `zoom:testing` and `needs:zoom-test`.
    - All ✅/⏭ → run `factory-report`.
    - Any ❌ → comment `**zoom** —` with the failing step IDs, what was seen, and the evidence,
