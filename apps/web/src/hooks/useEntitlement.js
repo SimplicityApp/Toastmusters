@@ -1,12 +1,22 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getEntitlement, isEntitlementKnown, subscribeEntitlement } from '@toastmaster-timer/shared'
 import { resolveWebIdentity } from '../utils/webIdentity'
+import { useFlag } from './useFlag'
 
-/** The current plan, live. Mirrors the Zoom app's hook of the same name. */
+/**
+ * The current plan, live. Mirrors the Zoom app's hook of the same name: `isPro`
+ * needs the `pro` release flag as well as the plan, so while pro is dark nobody
+ * is Pro in the UI, and `known` waits for both answers.
+ */
 export function useEntitlement() {
   const entitlement = useSyncExternalStore(subscribeEntitlement, getEntitlement, getEntitlement)
-  const known = useSyncExternalStore(subscribeEntitlement, isEntitlementKnown, isEntitlementKnown)
-  return { entitlement, known, isPro: entitlement.plan === 'pro' }
+  const entitlementKnown = useSyncExternalStore(subscribeEntitlement, isEntitlementKnown, isEntitlementKnown)
+  const { enabled: proReleased, known: flagsKnown } = useFlag('pro')
+  return {
+    entitlement,
+    known: entitlementKnown && flagsKnown,
+    isPro: proReleased && entitlement.plan === 'pro',
+  }
 }
 
 /**

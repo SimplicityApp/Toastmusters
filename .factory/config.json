@@ -1,0 +1,24 @@
+{
+  "baseBranch": "dev",
+  "wipLimit": 2,
+  "maxFixAttempts": 3,
+  "actors": ["ShuhaoZQGG"],
+  "riskHigh": [
+    "worker/auth.js",
+    "worker/billing.js",
+    "worker/club-token.js",
+    "worker/entitlements.js",
+    "worker/flags.js",
+    "worker/session.js",
+    "worker/session-token.js",
+    "worker/stripe.js",
+    "worker/stripe-webhook.js",
+    "worker/zoom-verify.js",
+    "worker/zoom-webhook.js",
+    "packages/shared/entitlement.js",
+    "packages/shared/flags.js",
+    "api/",
+    "wrangler.jsonc",
+    ".github/"
+  ]
+}

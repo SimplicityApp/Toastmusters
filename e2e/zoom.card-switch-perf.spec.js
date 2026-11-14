@@ -61,12 +61,12 @@ test.describe('Zoom App — Card Switch Performance @performance', () => {
   }
 
   test('Custom set: overlay decode pipeline per card', async ({ page }) => {
-    await page.goto('/zoom/');
-    await expect(page.getByTestId('timer-display')).toBeVisible();
-
     // Seed a realistic custom set straight into the stores the app reads
-    // (1280x720 JPEGs in IndexedDB, v3 metadata in localStorage), then reload
-    // so the app's own init loads it.
+    // (1280x720 JPEGs in IndexedDB, v3 metadata in localStorage), then open
+    // the app so its own init loads it. Seed from a static page on the same
+    // origin, before the app runs: its start-up sweep deletes stored images
+    // that no set lists yet, so seeding under a running app races it.
+    await page.goto('/zoom/robots.txt');
     await page.evaluate(async ({ SETTINGS_KEY }) => {
       const makeBlob = (hex, label) =>
         new Promise((resolve) => {
@@ -114,7 +114,7 @@ test.describe('Zoom App — Card Switch Performance @performance', () => {
         })
       );
     }, { SETTINGS_KEY });
-    await page.reload();
+    await page.goto('/zoom/');
     await expect(page.getByTestId('timer-display')).toBeVisible();
 
     const results = await page.evaluate(

@@ -8,11 +8,12 @@
 //           reasons. Verdicts are cached in .git/zoom-spec-reviews.json by (spec, code sha).
 //           If claude is missing or fails, drift blocks as without --review.
 // --strict  with --stale, exit 1 when any spec is stale.
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { frontMatter, specFiles } from './lib/zoom-specs.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dir = join(root, 'e2e/zoom-client');
@@ -66,23 +67,7 @@ const lastCommit = (paths) => {
   } catch { return null; }
 };
 
-function frontMatter(text) {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!m) return null;
-  const out = {};
-  let key = null;
-  for (const line of m[1].split('\n')) {
-    const item = line.match(/^\s+- (.+)$/);
-    if (item && key) { out[key].push(item[1].trim()); continue; }
-    const kv = line.match(/^([a-z_]+):\s*(.*)$/);
-    if (!kv) continue;
-    key = kv[1];
-    out[key] = kv[2] === '' ? [] : kv[2] === '[]' ? [] : kv[2].trim();
-  }
-  return out;
-}
-
-const files = readdirSync(dir).filter((f) => f.endsWith('.md') && !['README.md', 'INDEX.md', '_template.md'].includes(f));
+const files = specFiles(root);
 const index = readFileSync(join(dir, 'INDEX.md'), 'utf8');
 
 for (const f of files) {

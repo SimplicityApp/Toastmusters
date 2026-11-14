@@ -58,12 +58,16 @@ test.describe('Web App — Card Switch Performance @performance', () => {
   }
 
   test('Custom set: cold and warm decode per card', async ({ page }) => {
-    await page.goto('/timer/app');
-
     // Seed a realistic custom set straight into the stores the app reads:
     // 1280x720 JPEGs (the size uploads are re-encoded to) in IndexedDB, and
     // the v3 metadata in localStorage. Noise keeps JPEG from compressing the
     // flat color away, so file sizes resemble real club artwork.
+    //
+    // Seed from a static page on the same origin, before the app runs. The
+    // timer page is lazy-loaded, so it can still be starting after goto
+    // resolves, and its start-up sweep deletes stored images that no set
+    // lists yet — seeding under it lost that race on slow CI runners.
+    await page.goto('/robots.txt');
     await page.evaluate(async ({ SETTINGS_KEY }) => {
       const makeBlob = (hex, label) =>
         new Promise((resolve) => {
@@ -111,7 +115,7 @@ test.describe('Web App — Card Switch Performance @performance', () => {
         })
       );
     }, { SETTINGS_KEY });
-    await page.reload();
+    await page.goto('/timer/app');
 
     // The app must actually be running on the custom set.
     await expect

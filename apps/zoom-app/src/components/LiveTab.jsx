@@ -1,18 +1,19 @@
 import { useState, useEffect, useRef, useMemo, memo, lazy, Suspense } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { Play, Square, RotateCcw, Eraser, Video, Image } from 'lucide-react';
+import { Play, Square, RotateCcw, Eraser, Video, Image, Volume2, Lock } from 'lucide-react';
 import SpeakerInput from './SpeakerInput';
 import TimerDisplay from './TimerDisplay';
 import TimerStage from './TimerStage';
 import OverlayModeMenu, { MODE_LABELS } from './OverlayModeMenu';
 const EditRulesModal = lazy(() => import('./EditRulesModal'));
 const CardImagesModal = lazy(() => import('./CardImagesModal'));
-const OwnBackgroundModal = lazy(() => import('./OwnBackgroundModal'));
+const SoundsModal = lazy(() => import('./SoundsModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
-import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, BREAK_ROLE, BREAK_QUICK_PICKS, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages } from '@toastmaster-timer/shared';
-import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE } from '../utils/zoomSdk';
+import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, BREAK_ROLE, BREAK_QUICK_PICKS, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages, subscribeCardImages, agendaItemNeedsRole } from '@toastmaster-timer/shared';
+import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, getZoomParticipants, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE, notifyCardImagesChanged, preloadBackgroundImages } from '../utils/zoomSdk';
 import { useClub } from '../hooks/useClub';
+import { SOUNDS_LOCK_MESSAGES, useSoundsAccess } from '../hooks/useSounds';
 import { formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle } from '@toastmaster-timer/shared';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { trackEvent } from '../utils/posthog';
@@ -62,6 +63,13 @@ export default memo(function LiveTab() {
   // START then finds no rules for it ("Please set timing rules first").
   const defaultRole = roleOptions.includes('Standard Speech') ? 'Standard Speech' : roleOptions[0] || 'Standard Speech';
 
+  // An agenda row whose role is not one the organizer can pick (#91). The
+  // Agenda tab highlights it and asks for the role; nothing here may load it,
+  // because loading it would time the speaker under a role nobody chose.
+  const needsRole = (item) => agendaItemNeedsRole(item, roleOptions);
+  const askForRole = (item) =>
+    showToast(`Pick a role for ${item.name || 'this speaker'} on the Agenda tab first`, 'warning');
+
   const [speakerName, setSpeakerName] = useState(currentSpeaker?.name || '');
   const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || defaultRole);
   const [customRules, setCustomRules] = useState({ ...DEFAULT_CUSTOM_RULES });
@@ -72,7 +80,8 @@ export default memo(function LiveTab() {
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const [showEditRulesModal, setShowEditRulesModal] = useState(false);
   const [showCardImagesModal, setShowCardImagesModal] = useState(false);
-  const [showOwnBackgroundModal, setShowOwnBackgroundModal] = useState(false);
+  const [showSoundsModal, setShowSoundsModal] = useState(false);
+  const { lockReason: soundsLockReason } = useSoundsAccess();
   // Bumped whenever a custom card image is uploaded or reset, so the overlay
   // effect below re-pushes whatever is currently showing with the new artwork.
   const [cardImagesGeneration, setCardImagesGeneration] = useState(0);
@@ -87,6 +96,14 @@ export default memo(function LiveTab() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  // The club's card set arrives, changes or goes away while the app is open.
+  // Drop the decoded frames and re-push, as the picker does after a change.
+  useEffect(() => subscribeCardImages(() => {
+    notifyCardImagesChanged();
+    preloadBackgroundImages();
+    setCardImagesGeneration((generation) => generation + 1);
+  }), []);
 
   const [videoState, setVideoStateLocal] = useState(null); // null = unknown, true = on, false = off
   // A clear is in flight. Disables both the eraser and RESET, because in Timer +
@@ -206,11 +223,26 @@ export default memo(function LiveTab() {
   // The selected role left the list (removed in Edit Rules, or by a club
   // publish): move to the default rather than leave START with no rules. Never
   // under a speech in progress, which carries its own rules on the speaker.
+  //
+  // Except for an agenda row that now needs a role: moving it to the default
+  // would time that speaker under a role nobody picked, which is the guess #91
+  // removed. Let go of the row instead, and say where its role is picked. The
+  // pickers and FINISH refuse such a row before it loads; this catches a row
+  // whose role goes away while it is up.
   useEffect(() => {
     if (speechActive || roleOptions.length === 0 || roleOptions.includes(selectedRole)) return;
+    const activeItem = activeSpeakerId ? agenda.find((item) => item.id === activeSpeakerId) : null;
+    if (activeItem && needsRole(activeItem)) {
+      clearActiveSpeaker();
+      setSpeakerName('');
+      setSelectedRole(defaultRole);
+      setCurrentSpeaker({ name: '', role: defaultRole });
+      askForRole(activeItem);
+      return;
+    }
     setSelectedRole(defaultRole);
     setCurrentSpeaker({ name: speakerName || '', role: defaultRole });
-  }, [speechActive, roleOptions, selectedRole, defaultRole, speakerName, setCurrentSpeaker]);
+  }, [speechActive, roleOptions, selectedRole, defaultRole, speakerName, setCurrentSpeaker, activeSpeakerId, agenda, clearActiveSpeaker, showToast]);
 
   // Whether a color belongs on the organizer's tile right now. The video modes
   // run only while a speech is being timed: nothing before START, nothing once it
@@ -470,6 +502,10 @@ export default memo(function LiveTab() {
   };
 
   const handleSelectSuggestion = (item) => {
+    if (needsRole(item)) {
+      askForRole(item);
+      return;
+    }
     setSpeakerName(item.name);
     setSelectedRole(item.role);
     // Picking someone off the agenda has to make them the *active* agenda
@@ -502,6 +538,16 @@ export default memo(function LiveTab() {
       role: selectedRole,
       overlay_mode: overlayMode,
     }));
+  };
+
+  /** The stage picker's agenda list. A row that needs a role stays where it is. */
+  const handleSelectAgendaSpeaker = (id) => {
+    const item = agenda.find((entry) => entry.id === id);
+    if (item && needsRole(item)) {
+      askForRole(item);
+      return;
+    }
+    loadSpeakerFromAgenda(id);
   };
 
   /** Fix a name on the agenda without losing the speaker's place in it. */
@@ -628,16 +674,23 @@ export default memo(function LiveTab() {
 
     startTimer();
 
-    // Track timer started event
-    (window.requestIdleCallback || setTimeout)(() => trackEvent('timer_started', {
-      speaker_name: speakerName || 'Unnamed',
-      role: selectedRole,
-      timing_rules: {
-        green: rules.green,
-        yellow: rules.yellow,
-        red: rules.red
-      }
-    }));
+    // Track timer started event. audience_size is the meeting's head count
+    // read at START (people join after the app opens); it is left out when
+    // Zoom withholds the list (non-host), there's no SDK, or the read fails.
+    (window.requestIdleCallback || setTimeout)(() => {
+      getZoomParticipants()
+        .catch(() => ({ participants: [], restricted: true }))
+        .then(({ participants, restricted }) => trackEvent('timer_started', {
+          speaker_name: speakerName || 'Unnamed',
+          role: selectedRole,
+          timing_rules: {
+            green: rules.green,
+            yellow: rules.yellow,
+            red: rules.red
+          },
+          ...(!restricted && participants.length > 0 && { audience_size: participants.length }),
+        }));
+    });
   };
 
   const handleContinue = () => {
@@ -739,17 +792,23 @@ export default memo(function LiveTab() {
     if (currentAgendaId && !wasBreak) {
       const currentIndex = agenda.findIndex(item => item.id === currentAgendaId);
       const nextSpeaker = agenda.slice(currentIndex + 1).find(item => !item.completed);
-      if (nextSpeaker) {
+      // Next up has no role the organizer picked (#91): leave them unloaded
+      // rather than time them under whatever role is showing, and say why the
+      // running order stopped. Not skipped either: the order is the club's.
+      if (nextSpeaker && needsRole(nextSpeaker)) {
+        askForRole(nextSpeaker);
+      } else if (nextSpeaker) {
         loadSpeakerFromAgenda(nextSpeaker.id);
         setSpeakerName(nextSpeaker.name || '');
         setSelectedRole(nextSpeaker.role);
         return;
       }
     }
-    // Nobody queued up next — off the agenda entirely, or that was the last one
-    // on it. Clear the field rather than leaving the speaker who just finished
-    // sitting there, which reads as though nothing happened. On the stage this is
-    // all the organizer sees, so a stale name is the whole display being wrong.
+    // Nobody loaded next — off the agenda entirely, the last one on it, or a
+    // next speaker still waiting for a role. Clear the field rather than leaving
+    // the speaker who just finished sitting there, which reads as though nothing
+    // happened. On the stage this is all the organizer sees, so a stale name is
+    // the whole display being wrong.
     setSpeakerName('');
   };
 
@@ -942,7 +1001,7 @@ export default memo(function LiveTab() {
           onSpeakerNameChange={handleSpeakerChange}
           agendaItems={agenda}
           activeSpeakerId={activeSpeakerId}
-          onSelectSpeaker={loadSpeakerFromAgenda}
+          onSelectSpeaker={handleSelectAgendaSpeaker}
           onAddSpeaker={handleAddSpeaker}
           onRenameSpeaker={handleRenameSpeaker}
           clubKit={clubKit}
@@ -978,7 +1037,6 @@ export default memo(function LiveTab() {
           revealFaceWhenIdle={revealFaceWhenIdle}
           onToggleRevealFaceWhenIdle={handleToggleRevealFaceWhenIdle}
           onCustomizeCards={() => setShowCardImagesModal(true)}
-          onCustomizeOwnBackground={() => setShowOwnBackgroundModal(true)}
         />
       </div>
 
@@ -1265,6 +1323,21 @@ export default memo(function LiveTab() {
           >
             <Image className="h-4 w-4" />
           </button>
+          {/* Shown even when locked, so free users can see what Pro adds. The
+              modal still opens; its controls are what is locked. */}
+          <button
+            onClick={() => setShowSoundsModal(true)}
+            className={`relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
+              soundsLockReason ? 'text-gray-300 hover:text-gray-400' : 'text-gray-500 hover:text-gray-700'
+            }`}
+            data-tooltip={soundsLockReason ? SOUNDS_LOCK_MESSAGES[soundsLockReason] : 'Sounds'}
+            aria-label={soundsLockReason ? `Sounds (locked): ${SOUNDS_LOCK_MESSAGES[soundsLockReason]}` : 'Sounds'}
+          >
+            <Volume2 className="h-4 w-4" />
+            {soundsLockReason && (
+              <Lock className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 text-gray-500" aria-hidden="true" />
+            )}
+          </button>
         </div>
       )}
 
@@ -1385,9 +1458,9 @@ export default memo(function LiveTab() {
         </Suspense>
       )}
 
-      {showOwnBackgroundModal && (
+      {showSoundsModal && (
         <Suspense fallback={null}>
-          <OwnBackgroundModal onClose={() => setShowOwnBackgroundModal(false)} />
+          <SoundsModal isOpen={showSoundsModal} onClose={() => setShowSoundsModal(false)} />
         </Suspense>
       )}
     </div>

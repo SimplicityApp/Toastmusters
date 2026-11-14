@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef, useMemo, memo, lazy, Suspense } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { Play, Square, RotateCcw, Image } from 'lucide-react';
+import { Play, Square, RotateCcw, Image, Volume2, Lock } from 'lucide-react';
 import SpeakerInput from './SpeakerInput';
 import TimerDisplay from './TimerDisplay';
 const EditRulesModal = lazy(() => import('./EditRulesModal'));
 const CardImagesModal = lazy(() => import('./CardImagesModal'));
+const SoundsModal = lazy(() => import('./SoundsModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
-import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, initCardImages } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, initCardImages, subscribeCardImages, agendaItemNeedsRole } from '@toastmaster-timer/shared';
 import { setPageBackgroundFromStatus } from '../utils/pageBackground';
 import { parseSpeakerFromSearch, stripSpeakerParams } from '../utils/speakerDeepLink';
 import { getCardImageUrl, preloadCardImages } from '../utils/cardArtwork';
 import { trackEvent } from '../utils/posthog';
 import { useClub } from '../hooks/useClub';
+import { SOUNDS_LOCK_MESSAGES, useSoundsAccess } from '../hooks/useSounds';
 import { clubBadgePlacement } from '@toastmaster-timer/shared';
 
 const PREVIEW_COLORS = [
@@ -31,6 +33,7 @@ export default memo(function LiveTab({ onTimerStart }) {
     resetTimer,
     setCurrentSpeaker,
     updateSpeakerName,
+    clearActiveSpeaker,
     finishCurrentSpeech,
     roleRules,
     roleOptions,
@@ -49,12 +52,21 @@ export default memo(function LiveTab({ onTimerStart }) {
   // START then finds no rules for it ("Please set timing rules first").
   const defaultRole = roleOptions.includes('Standard Speech') ? 'Standard Speech' : roleOptions[0] || 'Standard Speech';
 
+  // An agenda row whose role is not one the user can pick (#91). The Agenda
+  // tab highlights it and asks for the role; nothing here may load it, because
+  // loading it would time the speaker under a role nobody chose.
+  const needsRole = (item) => agendaItemNeedsRole(item, roleOptions);
+  const askForRole = (item) =>
+    showToast(`Pick a role for ${item.name || 'this speaker'} on the Agenda tab first`, 'warning');
+
   const [speakerName, setSpeakerName] = useState(currentSpeaker?.name || '');
   const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || defaultRole);
   const [customRules, setCustomRules] = useState({ ...DEFAULT_CUSTOM_RULES });
   const [timeInputMode, setTimeInputMode] = useState(loadTimeInputMode);
   const [showEditRulesModal, setShowEditRulesModal] = useState(false);
   const [showCardImagesModal, setShowCardImagesModal] = useState(false);
+  const [showSoundsModal, setShowSoundsModal] = useState(false);
+  const { lockReason: soundsLockReason } = useSoundsAccess();
   // Bumped on upload/reset so the tile and page background re-read the images.
   const [, setCardImagesGeneration] = useState(0);
   const [previewColor, setPreviewColor] = useState(null);
@@ -76,6 +88,13 @@ export default memo(function LiveTab({ onTimerStart }) {
     });
     return () => { cancelled = true; };
   }, []);
+
+  // The club's card set arrives, changes or goes away while the page is open.
+  useEffect(() => subscribeCardImages(() => {
+    setCardImagesGeneration((generation) => generation + 1);
+    setPageBackgroundFromStatus(shownStatusRef.current);
+    preloadCardImages();
+  }), []);
 
   // On mount, seed the speaker. A "Time this" deep link (?role=...&name=...)
   // wins when nothing is loaded yet and the timer is idle; otherwise the
@@ -116,12 +135,27 @@ export default memo(function LiveTab({ onTimerStart }) {
   // The selected role left the list (removed in Edit Rules, or by a club
   // publish): move to the default rather than leave START with no rules. Never
   // under a speech in progress, which carries its own rules on the speaker.
+  //
+  // Except for an agenda row that now needs a role: moving it to the default
+  // would time that speaker under a role nobody picked, which is the guess #91
+  // removed. Let go of the row instead, and say where its role is picked. The
+  // suggestions and FINISH refuse such a row before it loads; this catches a
+  // row whose role goes away while it is up.
   const speechActive = isRunning || elapsedTime > 0;
   useEffect(() => {
     if (speechActive || roleOptions.length === 0 || roleOptions.includes(selectedRole)) return;
+    const activeItem = activeSpeakerId ? agenda.find((item) => item.id === activeSpeakerId) : null;
+    if (activeItem && needsRole(activeItem)) {
+      clearActiveSpeaker();
+      setSpeakerName('');
+      setSelectedRole(defaultRole);
+      setCurrentSpeaker({ name: '', role: defaultRole });
+      askForRole(activeItem);
+      return;
+    }
     setSelectedRole(defaultRole);
     setCurrentSpeaker({ name: speakerName || '', role: defaultRole });
-  }, [speechActive, roleOptions, selectedRole, defaultRole, speakerName, setCurrentSpeaker]);
+  }, [speechActive, roleOptions, selectedRole, defaultRole, speakerName, setCurrentSpeaker, activeSpeakerId, agenda, clearActiveSpeaker, showToast]);
 
   useEffect(() => {
     if (selectedRole === 'Custom' && roleRules['Custom']) {
@@ -140,6 +174,10 @@ export default memo(function LiveTab({ onTimerStart }) {
   };
 
   const handleSelectSuggestion = (item) => {
+    if (needsRole(item)) {
+      askForRole(item);
+      return;
+    }
     setSpeakerName(item.name);
     setSelectedRole(item.role);
     const rules = item.role === 'Custom' ? customRules : undefined;
@@ -220,7 +258,12 @@ export default memo(function LiveTab({ onTimerStart }) {
     if (currentAgendaId) {
       const currentIndex = agenda.findIndex(item => item.id === currentAgendaId);
       const nextSpeaker = agenda.slice(currentIndex + 1).find(item => !item.completed);
-      if (nextSpeaker) {
+      // Next up has no role the user picked (#91): leave them unloaded rather
+      // than time them under whatever role is showing, and say why the running
+      // order stopped. Not skipped either: the order is the club's.
+      if (nextSpeaker && needsRole(nextSpeaker)) {
+        askForRole(nextSpeaker);
+      } else if (nextSpeaker) {
         loadSpeakerFromAgenda(nextSpeaker.id);
         setSpeakerName(nextSpeaker.name || '');
         setSelectedRole(nextSpeaker.role);
@@ -291,6 +334,21 @@ export default memo(function LiveTab({ onTimerStart }) {
           >
             <Image className="h-4 w-4" />
           </button>
+          {/* Shown even when locked, so free users can see what Pro adds. The
+              modal still opens; its controls are what is locked. */}
+          <button
+            onClick={() => setShowSoundsModal(true)}
+            className={`relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
+              soundsLockReason ? 'text-gray-300 hover:text-gray-400' : 'text-gray-500 hover:text-gray-700'
+            }`}
+            title={soundsLockReason ? SOUNDS_LOCK_MESSAGES[soundsLockReason] : 'Sounds'}
+            aria-label={soundsLockReason ? `Sounds (locked): ${SOUNDS_LOCK_MESSAGES[soundsLockReason]}` : 'Sounds'}
+          >
+            <Volume2 className="h-4 w-4" />
+            {soundsLockReason && (
+              <Lock className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 text-gray-500" aria-hidden="true" />
+            )}
+          </button>
         </div>
       )}
 
@@ -355,6 +413,12 @@ export default memo(function LiveTab({ onTimerStart }) {
               preloadCardImages();
             }}
           />
+        </Suspense>
+      )}
+
+      {showSoundsModal && (
+        <Suspense fallback={null}>
+          <SoundsModal isOpen={showSoundsModal} onClose={() => setShowSoundsModal(false)} />
         </Suspense>
       )}
     </div>

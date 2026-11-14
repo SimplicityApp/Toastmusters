@@ -26,7 +26,8 @@
 // and the code's flagEnabled/useFlag references drift apart in either direction.
 export const FLAG_FALLBACKS = Object.freeze({
   // Everything Pro: Stripe checkout and the portal, the Upgrade path, web
-  // sign-in, and the doors into a club (joining, creating, administering).
+  // sign-in, the doors into a club (joining, creating, administering), and
+  // whether either app treats a Pro plan as Pro (useEntitlement's isPro).
   // removeBy: 2026-12-31
   pro: false,
   // The Zoom app asking Zoom for an authorization code (zoomSdk.authorize) so
@@ -34,6 +35,10 @@ export const FLAG_FALLBACKS = Object.freeze({
   // The browser doors save it unflagged.
   // removeBy: 2027-03-31
   contact_capture: false,
+  // Timer sounds (Pro): the card-change chime and break music, in both apps
+  // (packages/shared/timerSounds.js).
+  // removeBy: 2027-03-31
+  sounds: false,
 });
 
 // The ingestion host, called directly rather than through the browser's

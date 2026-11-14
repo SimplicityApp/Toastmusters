@@ -14,6 +14,7 @@ import {
   writeAdminIndex,
 } from './club-admin.js';
 import { buildKit, DEFAULT_PRIMARY_COLOR } from './club.js';
+import { buildCards, readClubCards } from './club-cards.js';
 import { readAdminSession } from './club-magic.js';
 
 /**
@@ -262,6 +263,7 @@ export async function handleClubRoster(request, env) {
       ver: club.ver ?? 1,
     },
     kit: buildKit(clubId, club),
+    cards: buildCards(await readClubCards(env, clubId)),
     actor,
     role: 'admin',
     plan: access.plan,

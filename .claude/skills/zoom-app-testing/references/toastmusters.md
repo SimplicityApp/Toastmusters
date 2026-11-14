@@ -19,8 +19,8 @@ Deploy dev: `npm run cf:deploy:dev` (build + `wrangler deploy --env dev`).
 ## Entitlement gate
 `env.dev.vars.ENTITLEMENT_ENFORCE`: `"0"` = server treats everyone as entitled (dev default;
 the UI still shows plans). `"1"` = production behaviour; needed to test 402/403 refusals and
-club lapse. Flip only with the user's OK, and revert + redeploy at the end — while `"1"`, other
-dev testers without Pro are refused sync.
+club lapse. Flipping it for a spec's `needs` is pre-approved (CLAUDE.md "Standing approvals");
+revert + redeploy at the end — while `"1"`, other dev testers without Pro are refused sync.
 
 ## Club tooling
 - `node scripts/club-cli.mjs pending|create|show|rotate --env dev …` (`create` also takes

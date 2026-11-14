@@ -14,9 +14,10 @@ Goal: the user sits down as few times as possible, and each of your blocks runs 
    edits, CLI writes). Ask again only for anything not on it.
 
 ## Worked example — Club Pro plan (06), gate "1"
-- **A0 (me, 3 min):** deploy, start tail, baseline background-file count.
+- **A0 (me, 3 min):** deploy, start tail, `zoom-up.sh` (Zoom + meeting with camera),
+  baseline background-file count.
 - **H0 (you, 20 min):** permissions; re-authorize the dev app on A; sign in to the web
-  session; start the meeting with camera; *checkout with a club name* (or, for an existing
+  session; *checkout with a club name* (or, for an existing
   subscriber, nothing — A1 starts with "Set up my club").
 - **A1 (me, ~90 min):** create/verify club, activation (lower-case code), rate limit,
   presets publish → second device, badge on video in all colours, archive + restart +

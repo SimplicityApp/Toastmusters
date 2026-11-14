@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ToastProvider } from '../context/ToastContext';
-import { TimerProvider } from '../context/TimerContext';
+import { TimerProvider, useTimer } from '../context/TimerContext';
 import LiveTab from './LiveTab';
 import { BREAK_ROLE, DEFAULT_ROLE_RULES, deriveBreakRules } from '@toastmaster-timer/shared';
-import { applyOverlay, clearVideoPipelines, isOverlayActive } from '../utils/zoomSdk';
+import { applyOverlay, clearVideoPipelines, isOverlayActive, getZoomParticipants, isVideoOverlayMode, getOverlayMode } from '../utils/zoomSdk';
+import { trackEvent } from '../utils/posthog';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom. Faithful to the real return shapes, since the tab
@@ -228,5 +229,267 @@ describe('the starting role when Standard Speech is removed', () => {
 
     expect(screen.queryByText('Please set timing rules first')).not.toBeInTheDocument();
     expect(applyOverlay).toHaveBeenCalled();
+  });
+});
+
+// Reach: how many people a START served, not how many times it was pressed.
+// Only a count leaves the device, and only when Zoom gave us the whole list.
+describe('timer_started and the meeting audience (#107)', () => {
+  const NO_PARTICIPANTS = { participants: [], role: 'host', restricted: false };
+  const people = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `Person ${i}` }));
+  const startButton = () => screen.getByRole('button', { name: /start/i });
+  const STANDARD = DEFAULT_ROLE_RULES['Standard Speech'];
+
+  afterEach(() => {
+    // Back to the module mock's default so other suites see an empty list.
+    getZoomParticipants.mockReset();
+    getZoomParticipants.mockResolvedValue(NO_PARTICIPANTS);
+  });
+
+  /** Let the idle callback and any participant read behind it run to completion. */
+  async function flushIdleWork() {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    await act(async () => {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+  }
+
+  /**
+   * Open the app with `atOpen` in the meeting, let the mount-time reads
+   * (the speaker suggestions) finish, then forget them: every assertion on
+   * getZoomParticipants below is about the read START makes.
+   */
+  async function openApp(atOpen = NO_PARTICIPANTS) {
+    getZoomParticipants.mockResolvedValue(atOpen);
+    renderLive();
+    await flushIdleWork();
+    getZoomParticipants.mockClear();
+  }
+
+  const timerStartedCalls = () => trackEvent.mock.calls.filter(([name]) => name === 'timer_started');
+
+  /** The one timer_started event's properties; fails if it was not sent exactly once. */
+  function timerStartedProps() {
+    const calls = timerStartedCalls();
+    expect(calls).toHaveLength(1);
+    return calls[0][1];
+  }
+
+  it('AC-1: carries audience_size for a host with the full list, alongside the usual properties', async () => {
+    const meeting = { participants: people(3), role: 'host', restricted: false };
+    await openApp(meeting);
+    getZoomParticipants.mockResolvedValue(meeting);
+    pickFromAgenda('Alice');
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    expect(timerStartedProps()).toEqual({
+      speaker_name: 'Alice',
+      role: 'Standard Speech',
+      timing_rules: { green: STANDARD.green, yellow: STANDARD.yellow, red: STANDARD.red },
+      audience_size: 3,
+    });
+  });
+
+  it('AC-2: counts the people in the meeting at START, not when the app opened', async () => {
+    await openApp({ participants: people(1), role: 'host', restricted: false });
+    // Three more people join after the app opened.
+    getZoomParticipants.mockResolvedValue({ participants: people(4), role: 'host', restricted: false });
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    expect(getZoomParticipants).toHaveBeenCalled();
+    expect(timerStartedProps()).toMatchObject({ audience_size: 4 });
+  });
+
+  it('AC-3: leaves audience_size out when the organizer is neither host nor co-host', async () => {
+    const meeting = { participants: people(1), role: 'attendee', restricted: true };
+    await openApp(meeting);
+    getZoomParticipants.mockResolvedValue(meeting);
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    // The read at START was made, so leaving the count out is the result of
+    // `restricted`, not of never asking.
+    expect(getZoomParticipants).toHaveBeenCalled();
+    const props = timerStartedProps();
+    expect(props).not.toHaveProperty('audience_size');
+    expect(props).toMatchObject({ role: 'Standard Speech' });
+  });
+
+  it('AC-4: leaves audience_size out when there is no Zoom SDK (empty participant list)', async () => {
+    const noSdk = { participants: [], role: '', restricted: false };
+    await openApp(noSdk);
+    getZoomParticipants.mockResolvedValue(noSdk);
+
+    fireEvent.click(startButton());
+    await flushIdleWork();
+
+    expect(getZoomParticipants).toHaveBeenCalled();
+    const props = timerStartedProps();
+    expect(props).not.toHaveProperty('audience_size');
+    expect(props).toMatchObject({ role: 'Standard Speech' });
+  });
+
+  it('AC-5: starts at once and still sends timer_started, without audience_size, when the participant read fails', async () => {
+    await openApp({ participants: people(2), role: 'host', restricted: false });
+    getZoomParticipants.mockRejectedValue(new Error('SDK init failed'));
+
+    fireEvent.click(startButton());
+    // START never waits on Zoom: the timer is running before any idle work.
+    expect(screen.getByRole('button', { name: 'FINISH' })).toBeInTheDocument();
+
+    await flushIdleWork();
+
+    expect(getZoomParticipants).toHaveBeenCalled();
+    const props = timerStartedProps();
+    expect(props).not.toHaveProperty('audience_size');
+    expect(props).toMatchObject({ role: 'Standard Speech' });
+  });
+});
+
+// #91: an imported row whose bracket named none of the user's roles keeps that
+// text as its role and has no rules. The Agenda tab asks for the role; the Live
+// tab's own ways onto the agenda must not load the row either, or the speaker
+// is timed under a role nobody chose.
+describe('an agenda row that needs a role (#91)', () => {
+  const CHAIR = { green: 60, yellow: 90, red: 120, graceAfterRed: 30 };
+  const BOB = { id: 'b1', name: 'Bob', role: 'Ice Breaker', rules: DEFAULT_ROLE_RULES['Ice Breaker'], completed: false };
+  // As Simple Format import leaves "Alex (Table Topics)": no such role, no rules.
+  const ALEX = { id: 'x1', name: 'Alex', role: 'Table Topics', completed: false };
+  const ALICE = { id: 'a1', name: 'Alice', role: 'Standard Speech', rules: DEFAULT_ROLE_RULES['Standard Speech'], completed: false };
+  const ASK_ALEX = 'Pick a role for Alex on the Agenda tab first';
+
+  const rolePicker = () => screen.getAllByRole('combobox')[0];
+
+  /** Renders the tab with a handle on the timer context, for what only it can do. */
+  function renderWithTimer() {
+    const handle = {};
+    function Grab() {
+      Object.assign(handle, useTimer());
+      return null;
+    }
+    render(
+      <ToastProvider>
+        <TimerProvider>
+          <Grab />
+          <LiveTab />
+        </TimerProvider>
+      </ToastProvider>
+    );
+    return handle;
+  }
+
+  beforeEach(() => {
+    localStorage.setItem('toastmaster_agenda', JSON.stringify([BOB, ALEX, ALICE]));
+  });
+
+  afterEach(() => {
+    // Back to the module mock's defaults (card mode) for the other suites.
+    isVideoOverlayMode.mockReturnValue(true);
+    getOverlayMode.mockReturnValue('card');
+  });
+
+  it('a speaker suggestion that needs a role does not load', () => {
+    renderLive();
+
+    pickFromAgenda('Alex');
+
+    expect(screen.getByText(ASK_ALEX)).toBeInTheDocument();
+    expect(nameField()).toHaveValue('');
+    // Not timed under the default role either: nothing about the speaker moved.
+    expect(rolePicker()).toHaveValue('Standard Speech');
+    expect(trackEvent).not.toHaveBeenCalledWith('speaker_role_changed', expect.anything());
+
+    // A row with a role still loads from the same list.
+    pickFromAgenda('Bob');
+    expect(nameField()).toHaveValue('Bob');
+    expect(rolePicker()).toHaveValue('Ice Breaker');
+  });
+
+  it('the stage picker leaves a row that needs a role where it is', () => {
+    isVideoOverlayMode.mockReturnValue(false);
+    getOverlayMode.mockReturnValue('stage');
+    renderLive();
+    const stageName = () => screen.getByRole('textbox', { name: 'Speaker name' });
+    const openPicker = () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Choose a speaker from the agenda or the meeting' }));
+
+    openPicker();
+    fireEvent.click(screen.getByRole('option', { name: /Alex/ }));
+
+    expect(screen.getByText(ASK_ALEX)).toBeInTheDocument();
+    expect(stageName()).toHaveValue('');
+    expect(rolePicker()).toHaveValue('Standard Speech');
+
+    openPicker();
+    fireEvent.click(screen.getByRole('option', { name: /Bob/ }));
+    expect(stageName()).toHaveValue('Bob');
+    expect(rolePicker()).toHaveValue('Ice Breaker');
+  });
+
+  it('FINISH does not load a next speaker who needs a role, nor fall back to the default role', () => {
+    renderLive();
+    pickFromAgenda('Bob');
+
+    runTimerFor(2000);
+
+    expect(screen.getByText(ASK_ALEX)).toBeInTheDocument();
+    expect(nameField()).toHaveValue('');
+    // Still Bob's role: neither Alex's text nor Standard Speech.
+    expect(rolePicker()).toHaveValue('Ice Breaker');
+
+    // The running order stops at Alex instead of skipping to Alice, and Alex's
+    // slot is not used up by whatever is timed next.
+    runTimerFor(2000);
+    expect(nameField()).toHaveValue('');
+    fireEvent.focus(nameField());
+    expect(screen.getByText('Alex')).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+  });
+
+  it('a hand-picked role that leaves the list still moves to the default role (e876ca8)', () => {
+    localStorage.setItem('toastmaster_role_rules', JSON.stringify({ ChairToast1: CHAIR }));
+    localStorage.setItem('toastmaster_role_order', JSON.stringify(['ChairToast1']));
+    const timer = renderWithTimer();
+
+    fireEvent.change(rolePicker(), { target: { value: 'ChairToast1' } });
+    expect(rolePicker()).toHaveValue('ChairToast1');
+
+    act(() => timer.removeRoleRules('ChairToast1'));
+
+    expect(rolePicker()).toHaveValue('Standard Speech');
+    expect(screen.queryByText(/on the Agenda tab first/)).not.toBeInTheDocument();
+  });
+
+  it('lets go of a loaded agenda row whose role leaves the list, instead of re-roling it', () => {
+    localStorage.setItem('toastmaster_role_rules', JSON.stringify({ ChairToast1: CHAIR }));
+    localStorage.setItem('toastmaster_role_order', JSON.stringify(['ChairToast1']));
+    localStorage.setItem('toastmaster_agenda', JSON.stringify([
+      { id: 'c1', name: 'Carol', role: 'ChairToast1', rules: CHAIR, completed: false },
+      BOB,
+    ]));
+    const timer = renderWithTimer();
+    pickFromAgenda('Carol');
+    expect(rolePicker()).toHaveValue('ChairToast1');
+
+    act(() => timer.removeRoleRules('ChairToast1'));
+
+    expect(screen.getByText('Pick a role for Carol on the Agenda tab first')).toBeInTheDocument();
+    expect(nameField()).toHaveValue('');
+    expect(timer.activeSpeakerId).toBeNull();
+    // The row keeps its role for the Agenda tab to flag; nothing re-roled it.
+    expect(timer.agenda.find((item) => item.id === 'c1')).toMatchObject({ role: 'ChairToast1', completed: false });
+
+    // A speech timed now is not Carol's: finishing it neither completes her
+    // row nor advances past it to Bob.
+    runTimerFor(2000);
+    expect(nameField()).toHaveValue('');
+    expect(timer.agenda.find((item) => item.id === 'c1').completed).toBe(false);
   });
 });

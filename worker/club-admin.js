@@ -141,6 +141,7 @@ export const clubByEmailKey = (email) => `club-by-email:${normalizeEmail(email)}
 export const clubDeviceKey = (clubId, deviceId) => `club-device:${clubId}:${deviceId}`;
 export const clubMemberKey = (clubId, uid) => `club-member:${clubId}:zoom:${uid}`;
 export const clubPresetsKey = (clubId) => `club-presets:${clubId}`;
+export const clubCardsKey = (clubId) => `club-cards:${clubId}`;
 
 /**
  * The club a signed-in person administers, found from their uid alone.

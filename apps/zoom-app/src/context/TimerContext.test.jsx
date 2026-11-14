@@ -88,12 +88,12 @@ describe('importBulkSpeakers', () => {
     act(() => {
       result.current.addRoleRules('A', aRules);
     });
-    let count;
+    let summary;
     act(() => {
-      count = result.current.importBulkSpeakers('Person (A)');
+      summary = result.current.importBulkSpeakers('Person (A)');
     });
 
-    expect(count).toBe(1);
+    expect(summary).toEqual({ count: 1, needsRole: 0 });
     expect(result.current.agenda).toHaveLength(1);
     expect(result.current.agenda[0]).toMatchObject({ name: 'Person', role: 'A', rules: aRules });
   });
@@ -127,24 +127,75 @@ describe('importBulkSpeakers', () => {
       import_type: 'bulk',
       items_count: 2,
       custom_role_count: 1,
+      needs_role_count: 0,
     });
   });
 
-  it('does not count Take a Break as a custom role', () => {
+  it('imports (Take a Break) as a break with break rules, not a custom role', () => {
     // Zoom injects BREAK_ROLE into roleRules, so it sits in roleOptions, but it
-    // is not a user role: break lines reach it through today's detection only.
+    // is not a user role.
     const { result } = renderHook(() => useTimer(), { wrapper });
 
     act(() => {
-      result.current.importBulkSpeakers('Ana (Coffee Break)');
+      result.current.importBulkSpeakers('Ana (Take a Break)');
     });
 
-    expect(result.current.agenda[0]).toMatchObject({ name: 'Ana', role: BREAK_ROLE });
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Ana', role: BREAK_ROLE, rules: deriveBreakRules(600) });
     expect(trackEvent).toHaveBeenCalledWith('agenda_imported', {
       import_type: 'bulk',
       items_count: 1,
       custom_role_count: 0,
+      needs_role_count: 0,
     });
+  });
+
+  it('imports (Table Topics Speech) with its own 1/1.5/2 min rules (#91 AC-1)', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    act(() => {
+      result.current.importBulkSpeakers('David Kim (Table Topics Speech)');
+    });
+
+    expect(result.current.agenda[0]).toMatchObject({
+      name: 'David Kim',
+      role: 'Table Topics Speech',
+      rules: { green: 60, yellow: 90, red: 120, graceAfterRed: 30 },
+    });
+  });
+
+  it('keeps an unmatched role as written, with no rules, and counts it (#91 AC-2)', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+    let summary;
+
+    act(() => {
+      summary = result.current.importBulkSpeakers('Alex (Table Topics)\nAna (Coffee Break)\nBob\nSam (Ice Breaker)');
+    });
+
+    expect(summary).toEqual({ count: 4, needsRole: 3 });
+    const [alex, ana, bob, sam] = result.current.agenda;
+    expect(alex).toEqual(expect.objectContaining({ name: 'Alex', role: 'Table Topics' }));
+    expect(alex).not.toHaveProperty('rules');
+    expect(ana).toMatchObject({ name: 'Ana', role: 'Coffee Break' });
+    expect(ana).not.toHaveProperty('rules');
+    expect(bob).toMatchObject({ name: 'Bob', role: '' });
+    expect(sam).toMatchObject({ name: 'Sam', role: 'Ice Breaker', rules: { green: 240, yellow: 300, red: 360 } });
+    expect(trackEvent).toHaveBeenCalledWith('agenda_imported', expect.objectContaining({ needs_role_count: 3 }));
+  });
+
+  it('does not match a built-in role the user removed (#91 AC-3)', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    act(() => {
+      result.current.removeRoleRules('Ice Breaker');
+    });
+    let summary;
+    act(() => {
+      summary = result.current.importBulkSpeakers('Sam (Ice Breaker)');
+    });
+
+    expect(summary).toEqual({ count: 1, needsRole: 1 });
+    expect(result.current.agenda[0]).toMatchObject({ name: 'Sam', role: 'Ice Breaker' });
+    expect(result.current.agenda[0]).not.toHaveProperty('rules');
   });
 });
 

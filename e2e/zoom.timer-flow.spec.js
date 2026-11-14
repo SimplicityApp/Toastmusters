@@ -37,14 +37,15 @@ const SIMPLE_FORMAT_TEXT = [
   'Lee (Moment of Reflection)',
 ].join('\n');
 
-// [row name, role shown] for each imported line, in order
+// [row name, role line] for each imported line, in order. Only an exact role
+// name is taken; every other line is left for the user to pick (#91).
 const EXPECTED_ROWS = [
-  ['Cam-Ly - Opening', 'Opening'],
-  ['Dominique - General Evaluation', 'Closing Remarks'],
-  ['Yu', 'Closing Remarks'],
-  ['Sam - Introduce Speakers', 'Hand over'],
-  ['Bob', 'Ice Breaker'],
-  ['Lee', 'Short Roles'],
+  ['Cam-Ly - Opening', '(Opening)'],
+  ['Dominique - General Evaluation', '(Closing) is not one of your roles'],
+  ['Yu', '(Closing Remarks - 2 min) is not one of your roles'],
+  ['Sam - Introduce Speakers', '(Hand over)'],
+  ['Bob', '(Ice Breaker)'],
+  ['Lee', '(Moment of Reflection) is not one of your roles'],
 ];
 
 // Add roles through the Live tab's "Edit timing rules" modal and save
@@ -168,18 +169,135 @@ test.describe('Zoom App — Functional Checks', () => {
     await page.getByPlaceholder('John Doe (Ice Breaker)').fill(SIMPLE_FORMAT_TEXT);
     await page.getByRole('button', { name: 'Import', exact: true }).click();
 
-    await expect(page.getByText('Imported 6 speaker(s)')).toBeVisible();
+    await expect(page.getByText('Imported 6 speaker(s). 3 need a role')).toBeVisible();
 
-    // Each row lands on the role from its last "(...)" group, matched to the custom roles
+    // A row gets the role its last "(...)" group names exactly; the rest are highlighted
     const rows = page.locator('.cursor-pointer').filter({ has: page.getByRole('button', { name: /^Edit / }) });
     await expect(rows).toHaveCount(EXPECTED_ROWS.length);
     await expect(rows.locator('.font-medium')).toHaveText(EXPECTED_ROWS.map(([name]) => name));
-    await expect(rows.locator('.text-sm')).toHaveText(EXPECTED_ROWS.map(([, role]) => `(${role})`));
+    await expect(rows.locator('.font-medium + div')).toHaveText(EXPECTED_ROWS.map(([, line]) => line));
+    await expect(page.locator('[data-needs-role]')).toHaveCount(3);
+    await expect(page.getByText('3 rows need a role.')).toBeVisible();
+
+    // A highlighted row does not open in the Live tab
+    await page.getByText('Lee', { exact: true }).click();
+    await expect(page.getByText('Pick a role for Lee first')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Import Text/i })).toBeVisible();
+
+    // Pick from the saved roles; the highlight and the banner go
+    await page.getByLabel('Pick a role for Dominique - General Evaluation').selectOption('Closing Remarks');
+    await page.getByLabel('Pick a role for Yu').selectOption('Closing Remarks');
+    await page.getByLabel('Pick a role for Lee').selectOption('Short Roles');
+    await expect(page.locator('[data-needs-role]')).toHaveCount(0);
+    await expect(page.getByText(/rows? needs? a role\./)).toHaveCount(0);
+    await expect(rows.locator('.font-medium + div')).toHaveText([
+      '(Opening)', '(Closing Remarks)', '(Closing Remarks)', '(Hand over)', '(Ice Breaker)', '(Short Roles)',
+    ]);
 
     // Loading an imported custom-role speaker uses that role's own timings
     await page.getByText('Cam-Ly - Opening', { exact: true }).click();
     await expect(page.locator('select')).toHaveValue('Opening');
     await expect(page.getByText('Timing rules: Green: 15 seconds, Yellow: 30 seconds, Red: 45 seconds')).toBeVisible();
+  });
+
+  test('Simple Format import: a keyword in the name never sets the role (#90, #91)', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    await page.getByRole('button', { name: /AGENDA/i }).click();
+    await page.getByRole('button', { name: /Import Text/i }).click();
+    await page.getByRole('button', { name: 'Simple Format' }).click();
+    await page
+      .getByPlaceholder('John Doe (Ice Breaker)')
+      .fill('Tim Timer (Standard Speech)\nDominique - General Evaluation (Table Topics)');
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await expect(page.getByText('Imported 2 speaker(s). 1 needs a role')).toBeVisible();
+
+    const rows = page.locator('.cursor-pointer').filter({ has: page.getByRole('button', { name: /^Edit / }) });
+    await expect(rows).toHaveCount(2);
+    await expect(rows.locator('.font-medium')).toHaveText(['Tim Timer', 'Dominique - General Evaluation']);
+    await expect(rows.locator('.font-medium + div')).toHaveText([
+      '(Standard Speech)',
+      '(Table Topics) is not one of your roles',
+    ]);
+  });
+
+  test('Simple Format import: (Table Topics Speech) times 1/1.5/2 min, (Table Topics) needs a pick (#91)', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    await page.getByRole('button', { name: /AGENDA/i }).click();
+    await page.getByRole('button', { name: /Import Text/i }).click();
+    await page.getByRole('button', { name: 'Simple Format' }).click();
+    await page.getByPlaceholder('John Doe (Ice Breaker)').fill('David Kim (Table Topics Speech)\nAlex (Table Topics)');
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await expect(page.getByText('Imported 2 speaker(s). 1 needs a role')).toBeVisible();
+    await page.getByLabel('Pick a role for Alex').selectOption('Table Topics Speech');
+    await expect(page.locator('[data-needs-role]')).toHaveCount(0);
+
+    // The imported row drives the Live tab with Table Topics Speech's own rules, and START runs
+    await page.getByText('David Kim', { exact: true }).click();
+    await expect(page.locator('select')).toHaveValue('Table Topics Speech');
+    await expect(page.getByText('Timing rules: Green: 1 minute, Yellow: 1 min 30 sec, Red: 2 minutes')).toBeVisible();
+    await page.getByRole('button', { name: /START/i }).click();
+    await expect(page.getByRole('button', { name: /STOP/i })).toBeVisible();
+    await expect(page.getByText('Please set timing rules first')).toHaveCount(0);
+  });
+
+  test('the Live tab does not time a row that needs a role: suggestions, FINISH, stage picker (#91)', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    await page.getByRole('button', { name: /AGENDA/i }).click();
+    await page.getByRole('button', { name: /Import Text/i }).click();
+    await page.getByRole('button', { name: 'Simple Format' }).click();
+    await page.getByPlaceholder('John Doe (Ice Breaker)').fill('Bob (Ice Breaker)\nAlex (Table Topics)\nAlice (Standard Speech)');
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+    await expect(page.getByText('Imported 3 speaker(s). 1 needs a role')).toBeVisible();
+    await page.getByRole('button', { name: /LIVE/i }).click();
+
+    const nameInput = page.getByPlaceholder('Type speaker name...');
+    const rolePicker = page.locator('select');
+    const askForAlex = page.getByText('Pick a role for Alex on the Agenda tab first');
+    // The same warning comes back on each path; close it so the next check sees a new one.
+    const closeAsk = () => askForAlex.locator('..').getByRole('button', { name: 'Close' }).click();
+
+    // Panel suggestions: Alex is refused and nothing moves; Bob loads
+    await nameInput.click();
+    await page.getByText('Alex', { exact: true }).click();
+    await expect(askForAlex).toBeVisible();
+    await expect(nameInput).toHaveValue('');
+    await expect(rolePicker).toHaveValue('Standard Speech');
+    await closeAsk();
+
+    await nameInput.click();
+    await page.getByText('Bob', { exact: true }).click();
+    await expect(nameInput).toHaveValue('Bob');
+    await expect(rolePicker).toHaveValue('Ice Breaker');
+
+    // FINISH stops at Alex: no auto-load, no default role, field cleared
+    await page.getByRole('button', { name: /START/i }).click();
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: /FINISH/i }).click();
+    await expect(askForAlex).toBeVisible();
+    await expect(nameInput).toHaveValue('');
+    await expect(rolePicker).toHaveValue('Ice Breaker');
+    await closeAsk();
+
+    // Full-Screen Timer's agenda picker: Alex is refused, Alice loads
+    await page.getByRole('button', { name: /^Display mode:/ }).click();
+    await page.getByRole('menuitemradio', { name: /Full-Screen Timer/ }).click();
+    const stageName = page.getByTestId('timer-stage').getByRole('textbox', { name: 'Speaker name', exact: true });
+    const openStagePicker = () =>
+      page.getByRole('button', { name: 'Choose a speaker from the agenda or the meeting' }).click();
+
+    await openStagePicker();
+    await page.getByRole('option', { name: /Alex/ }).click();
+    await expect(askForAlex).toBeVisible();
+    await expect(stageName).toHaveValue('');
+
+    await openStagePicker();
+    await page.getByRole('option', { name: /Alice/ }).click();
+    await expect(stageName).toHaveValue('Alice');
   });
 
   test('no console errors about missing context providers', async ({ page }) => {

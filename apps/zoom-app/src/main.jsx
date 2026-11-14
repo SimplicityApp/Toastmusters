@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeZoomSdk, preloadBackgroundImages, setOverlayTimingReporter } from './utils/zoomSdk'
-import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, setFlags, initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter } from '@toastmaster-timer/shared'
+import { initCardImages, initProfileSync, syncCardAssets, setEntitlement, subscribeEntitlement, FREE_ENTITLEMENT, setFlags, initClubFromCache, refreshClub, warmClubLogo, drainOutbox, setArchiveReporter, startClubCardSync } from '@toastmaster-timer/shared'
 import { initPostHog, identifyUser, setUserProperties, registerSessionProperties, trackEvent } from './utils/posthog'
 import { resolveZoomIdentity, getSessionToken } from './utils/zoomIdentity'
 import posthog from 'posthog-js'
@@ -53,6 +53,10 @@ try {
 refreshClub({ getToken: getSessionToken }).catch((error) => {
   console.warn('Failed to refresh the club:', error);
 });
+
+// The club's card set: fetched where this device lacks it, now and whenever
+// the club changes. Never awaited; a card that has not arrived shows Classic.
+startClubCardSync();
 
 // An upload that does not go out is invisible from here — the device keeps its
 // own copy and the timer sees nothing wrong — so it has to report itself.
