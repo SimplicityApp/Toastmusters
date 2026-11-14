@@ -133,6 +133,23 @@ describe('the Pro launch announcement', () => {
     expect(trackEvent).toHaveBeenCalledWith('periodic_prompt_answered', { prompt: PRO_LAUNCH_PROMPT });
   });
 
+  it.each([
+    ['lists Sounds once the sounds flag is on', true],
+    ['leaves Sounds out while the sounds flag is off', false],
+  ])('%s', async (_label, sounds) => {
+    setEntitlement({ plan: 'free' });
+    setFlags({ pro: true, sounds });
+    render(<PeriodicPrompts />);
+
+    finishSpeeches(1);
+    afterDelay();
+    await waitFor(() => expect(announcement()).toBeInTheDocument());
+
+    const line = screen.queryByText(/a chime when the card changes, and music during breaks/i);
+    if (sounds) expect(line).toBeInTheDocument();
+    else expect(line).not.toBeInTheDocument();
+  });
+
   it('can be forced from the debug panel whatever the gates say', async () => {
     render(<PeriodicPrompts />);
 

@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 // The one-time "Pro is here" announcement. It appears after a speech ends, only
 // while the `pro` flag is on and only to a device that is not Pro already.
 
-function session(page, { plan = 'free', pro = true } = {}) {
+function session(page, { plan = 'free', pro = true, sounds = false } = {}) {
   return page.route('**/api/zoom/session', (route) =>
     route.fulfill({
       json: {
@@ -13,7 +13,7 @@ function session(page, { plan = 'free', pro = true } = {}) {
           plan === 'pro'
             ? { plan: 'pro', status: 'active', entitled: true, source: 'subscription' }
             : { plan: 'free', status: null, entitled: false, source: null },
-        flags: { pro },
+        flags: { pro, sounds },
       },
     })
   );
@@ -54,14 +54,17 @@ test('a free user sees it once, after FINISH, and the footer marks Upgrade as ne
 });
 
 test('"See what\'s in Pro" opens the Upgrade dialog and retires the badge', async ({ page }) => {
-  await session(page);
+  await session(page, { sounds: true });
   await page.goto('/zoom/');
   await timeOneSpeech(page);
   await expect(announcement(page)).toBeVisible({ timeout: 6000 });
+  // Sounds are pitched once released, in the announcement and behind it.
+  await expect(announcement(page)).toContainText('A chime when the card changes, and music during breaks');
 
   await announcement(page).getByRole('button', { name: /see what's in pro/i }).click();
   await expect(announcement(page)).toBeHidden();
   await expect(page.getByText("Every meeting saved to your club's archive")).toBeVisible();
+  await expect(page.getByText('A chime when the card changes, and music during breaks')).toBeVisible();
 
   await page.getByRole('button', { name: 'Close' }).first().click();
   await expect(upgradeButton(page)).toBeVisible();

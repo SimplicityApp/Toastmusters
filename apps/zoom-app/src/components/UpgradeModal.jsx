@@ -18,6 +18,7 @@ import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
 import { getSessionToken, resolveZoomIdentity } from '../utils/zoomIdentity';
 import { useEntitlement } from '../hooks/useEntitlement';
+import { useFlag } from '../hooks/useFlag';
 
 /**
  * Buying Pro from inside Zoom, and joining a club that already bought it.
@@ -93,6 +94,9 @@ async function openPortal() {
 
 export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUpgraded }) {
   const { entitlement, isPro } = useEntitlement();
+  // Sounds join the pitch only once released; while `sounds` is off they are
+  // locked as "coming soon" even for Pro.
+  const { enabled: soundsReleased } = useFlag('sounds');
   const club = useClub();
   const [identity, setIdentity] = useState(null);
   const [phase, setPhase] = useState('choose'); // choose | opening | waiting | done | error
@@ -487,6 +491,9 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
           <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Your club&apos;s brand kit on every timer card and report</li>
           <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Shared timing presets — set once, every timer gets them</li>
           <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Every meeting saved to your club&apos;s archive</li>
+          {soundsReleased && (
+            <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> A chime when the card changes, and music during breaks</li>
+          )}
           <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> Your settings backed up and synced across devices</li>
           <li className="flex gap-2"><Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> The timer itself stays free, always</li>
         </ul>

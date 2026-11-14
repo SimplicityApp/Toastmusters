@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { X, Sparkles } from 'lucide-react';
+import { useFlag } from '../hooks/useFlag';
 import { trackEvent } from '../utils/posthog';
 
 const UpgradeModal = lazy(() => import('./UpgradeModal'));
@@ -16,6 +17,9 @@ const UpgradeModal = lazy(() => import('./UpgradeModal'));
  */
 export default function ProLaunchModal({ isOpen, onAnswered, onDismiss }) {
   const [showUpgrade, setShowUpgrade] = useState(false);
+  // Sounds are only pitched once they are released: while `sounds` is off a
+  // Pro user would find them locked as "coming soon".
+  const { enabled: soundsReleased } = useFlag('sounds');
 
   if (!isOpen) return null;
 
@@ -63,6 +67,7 @@ export default function ProLaunchModal({ isOpen, onAnswered, onDismiss }) {
           <li>Your club&apos;s brand kit on every timer card and report</li>
           <li>Shared timing presets, set once for every timer</li>
           <li>Every meeting saved to your club&apos;s archive</li>
+          {soundsReleased && <li>A chime when the card changes, and music during breaks</li>}
         </ul>
         <p className="text-sm text-gray-600 mb-5">
           The timer itself stays free. Not the one who decides? Tell your club officers.

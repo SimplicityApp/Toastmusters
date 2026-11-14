@@ -44,7 +44,8 @@ Evidence: screenshot of the footer; for a Pro device, which plan the panel shows
 Do: debug panel → Periodic Prompts → "Pro launch" → Show. Then "See what's in Pro", and close
 the Upgrade dialog.
 Expect: the window "New: Pro for your club" fits the panel with no horizontal scroll: three
-bullet lines, "The timer itself stays free. Not the one who decides? Tell your club officers.",
+bullet lines, four with "A chime when the card changes, and music during breaks" while the
+`sounds` flag is on (it is, under FLAGS_FORCE "1"), "The timer itself stays free. Not the one who decides? Tell your club officers.",
 and the buttons "Not now" and "See what's in Pro". "See what's in Pro" replaces it with the
 Upgrade dialog (its benefit list starts "Your club's brand kit on every timer card and report"
 on a free device; a Pro device sees its own plan). After closing, the debug panel reads

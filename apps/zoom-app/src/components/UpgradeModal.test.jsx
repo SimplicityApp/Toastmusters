@@ -165,6 +165,19 @@ describe('the club-framed pitch', () => {
     expect(JSON.parse(init.body)).toEqual({ interval: 'monthly', clubName: 'Downtown Speakers' });
   });
 
+  it.each([
+    ['lists Sounds once the sounds flag is on', true],
+    ['leaves Sounds out while the sounds flag is off', false],
+  ])('%s', async (_label, sounds) => {
+    setFlags({ pro: true, sounds });
+    renderModal();
+
+    expect(await screen.findByText(/One Pro account for your whole club/i)).toBeInTheDocument();
+    const line = screen.queryByText(/a chime when the card changes, and music during breaks/i);
+    if (sounds) expect(line).toBeInTheDocument();
+    else expect(line).not.toBeInTheDocument();
+  });
+
   // A buyer stopped at a required field is a sale lost; the club is minted with
   // a placeholder instead.
   it('checks out with the field left empty and sends no key at all', async () => {
