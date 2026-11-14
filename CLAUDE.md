@@ -60,7 +60,9 @@ Do these without asking when they are part of finishing a change:
   factory labels.
 
 Before the first click in the Zoom client, say once in chat that you're taking the Mac and
-wait 60 seconds (no wait if the user said they're away). If `click.sh` refuses because Zoom
+wait 60 seconds (no wait if the user said they're away). When the run ends, quit Zoom
+(`zoom-down.sh`) and say the Mac is free again: a closed Zoom is how the user knows the run
+is over. If `click.sh` refuses because Zoom
 isn't frontmost, the user is on the Mac: stop and wait for them.
 
 Still ask before: merging, anything on `master` or production, deleting data, sending
