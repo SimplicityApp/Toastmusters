@@ -8,7 +8,7 @@ import TimerSounds from './components/TimerSounds';
 import ContactCapture from './components/ContactCapture';
 import ZoomConnectionNotice from './components/ZoomConnectionNotice';
 import ClubStatusBanner from './components/ClubStatusBanner';
-import LaunchTeaserBanner from './components/LaunchTeaserBanner';
+import AnnouncementBanner from './components/AnnouncementBanner';
 import './App.css';
 
 const LiveTab = lazy(() => import('./components/LiveTab'));
@@ -27,7 +27,7 @@ function App() {
               gets before it loses Pro has to be seen by whoever is timing, who
               is rarely whoever pays. */}
           <ClubStatusBanner />
-          <LaunchTeaserBanner />
+          <AnnouncementBanner />
           <NavTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
           <Suspense fallback={

@@ -112,7 +112,7 @@ log.
 ## Not covered
 - Production's exact pre-launch state, `sounds` on with `pro` off, for a free account.
   FLAGS_FORCE sets both flags together, so TS-09 runs with both off; the lock text is the
-  same either way. `e2e/zoom.launch-teaser.spec.js` and the unit tests cover that pair.
+  same either way. `e2e/zoom.announcement-banner.spec.js` and the unit tests cover that pair.
 - Break music from audio files. Only the synthesized "Music box" track ships so far; licensed
   tracks under `apps/zoom-app/public/music/` will add file playback, which needs its own
   step.
