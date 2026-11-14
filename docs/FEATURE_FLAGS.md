@@ -164,11 +164,19 @@ declared in both blocks, because `vars` are not inherited.
 |---|---|
 | `"1"` | Every declared flag on. No PostHog request. |
 | `"0"` | Every declared flag off. No PostHog request. |
+| `"<key>=1"` / `"<key>=0"` | That one flag on / off; every other flag asked of PostHog as usual. |
+| `"1,new_look=0"` | A base and per-key entries, comma-separated, read left to right: here every flag on except `new_look`. No PostHog request. |
 | `""` or unset | Ask PostHog (or the fallbacks, if `POSTHOG_API_KEY` is missing). |
+
+An unknown key or a malformed entry forces nothing. Per-key entries let a test run
+pick the mix production has, for example `"1,pro=0"` (Pro still dark, everything
+else on), or keep the shipped panel while `new_look` is on elsewhere
+(`"1,new_look=0"`). `worker/flags.test.js` fails if production's value forces any
+flag on.
 
 | Where | Value | Why |
 |---|---|---|
-| Production (top-level `vars`) | `""` | Always asks PostHog. `worker/flags.test.js` fails if this is ever `"1"`, which would light up every dark feature at once. |
+| Production (top-level `vars`) | `""` | Always asks PostHog. `worker/flags.test.js` fails if this ever forces a flag on (`"1"`, or any `<key>=1`), which would light dark features up for everyone. |
 | Dev (`env.dev.vars`) | `"1"` | Dev works with everything on and spends none of the free quota. Set `"0"` to see the dark path, or `""` to test the real PostHog round trip. Restore `"1"` and redeploy afterwards. |
 | Local (`npm run cf:dev`) | set in `.dev.vars` | `wrangler dev` runs **without** `--env dev`, so it reads the production block (`""`). With no `POSTHOG_API_KEY` in `.dev.vars` every flag is at its fallback, so every gated feature is hidden. Put `FLAGS_FORCE=1` in `.dev.vars` to see them, or `FLAGS_FORCE=0` to check the dark path. `.dev.vars` overrides `vars`. |
 
