@@ -8,6 +8,7 @@ import {
   clubHeaders,
   clubLifecycle,
   clubGraceReminder,
+  GRACE_REMINDER_WINDOW_DAYS,
   dismissGraceReminder,
   graceReminderDismissedToday,
   lapsedClubName,
@@ -337,6 +338,46 @@ describe('grace and lapse', () => {
     );
 
     expect(clubLifecycle(NOW)).toMatchObject({ state: 'grace', daysLeft: 3, endsAt: NOW + 3 * DAY });
+  });
+
+  // A yearly plan set not to renew sits in grace for most of a year. Saying so
+  // 316 days out is noise; the reminder waits for the last 60.
+  it('reminds a club that will not renew only in its last 60 days', () => {
+    const endingIn = (days) => {
+      resetClubForTests();
+      localStorage.setItem(
+        CLUB_STORAGE_KEY,
+        JSON.stringify(cached({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: NOW + days * DAY }))
+      );
+      return clubGraceReminder(NOW);
+    };
+
+    expect(GRACE_REMINDER_WINDOW_DAYS).toBe(60);
+    expect(endingIn(316)).toBeNull();
+    expect(endingIn(61)).toBeNull();
+    expect(endingIn(60)).toBeNull();
+    expect(endingIn(59.5)).toMatchObject({ state: 'grace', reason: 'not_renewing', daysLeft: 60 });
+    expect(endingIn(3)).toMatchObject({ reason: 'not_renewing', daysLeft: 3 });
+    // The lifecycle itself still says grace: only the reminder waits.
+    endingIn(316);
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'grace', reason: 'not_renewing' });
+  });
+
+  it('says nothing about a cancelled club with no end date to count down to', () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ status: 'canceled', currentPeriodEnd: null })));
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'grace', reason: 'not_renewing', endsAt: null });
+    expect(clubGraceReminder(NOW)).toBeNull();
+  });
+
+  // Still set to renew, but the card failed: Pro ends a week after, so it is
+  // said at once, with or without a date.
+  it('warns about a failed payment straight away', () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ status: 'past_due', currentPeriodEnd: NOW })));
+    expect(clubGraceReminder(NOW)).toMatchObject({ reason: 'payment_failed', daysLeft: 7 });
+
+    resetClubForTests();
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ status: 'past_due', currentPeriodEnd: null })));
+    expect(clubGraceReminder(NOW)).toMatchObject({ reason: 'payment_failed', daysLeft: null });
   });
 
   it('says nothing at all about a healthy club, or about no club', () => {

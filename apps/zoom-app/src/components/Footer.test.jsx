@@ -102,6 +102,36 @@ describe('the Footer\'s Pro button', () => {
     expect(upgradeButton()).toBeInTheDocument();
   });
 
+  // Before the launch the button stays in its place, locked, and says what is
+  // coming instead of selling a plan nobody can buy yet.
+  it('shows a locked Pro button while pro is off, for every plan', () => {
+    setEntitlement({ plan: 'free' });
+    setFlags({ pro: false });
+    const free = renderFooter();
+    expect(screen.getByRole('button', { name: 'Pro (coming soon)' })).toBeInTheDocument();
+    free.unmount();
+
+    setEntitlement(PRO);
+    renderFooter();
+    expect(screen.getByRole('button', { name: 'Pro (coming soon)' })).toBeInTheDocument();
+    expect(proButton()).toBeNull();
+  });
+
+  it('shows no locked Pro button before the flags land, or once pro is on', () => {
+    setEntitlement({ plan: 'free' });
+    const view = renderFooter();
+    expect(screen.queryByRole('button', { name: 'Pro (coming soon)' })).toBeNull();
+
+    act(() => setFlags({ pro: true }));
+    view.rerender(
+      <ToastProvider>
+        <Footer />
+      </ToastProvider>
+    );
+    expect(screen.queryByRole('button', { name: 'Pro (coming soon)' })).toBeNull();
+    expect(upgradeButton()).toBeInTheDocument();
+  });
+
   it('leaves the other footer buttons alone whatever the flag says', () => {
     setEntitlement({ plan: 'free' });
     setFlags({ pro: false });
