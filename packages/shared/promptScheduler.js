@@ -14,6 +14,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const CLUB_PROMPT = 'club';
 export const REVIEW_PROMPT = 'review';
+// The one-time "Pro is here" announcement. Opt-in: an app enables it only while
+// the `pro` flag is on and the device is not already Pro (see DEFAULT_PROMPTS).
+export const PRO_LAUNCH_PROMPT = 'pro_launch';
 
 /**
  * Cadence per prompt. The thresholds are deliberately conservative: a prompt
@@ -38,10 +41,28 @@ export const PROMPT_RULES = {
     daysBetweenAsks: 30,
     maxAsks: 3,
   },
+  // An announcement, not a question: shown once, after the first speech the
+  // device finishes while it is eligible, and never again.
+  [PRO_LAUNCH_PROMPT]: {
+    firstAskAfterSpeeches: 1,
+    speechesBetweenAsks: 0,
+    daysBetweenAsks: 0,
+    maxAsks: 1,
+  },
 };
 
-// The club question takes one line to answer, so it goes first when both are due.
-export const PROMPT_ORDER = [CLUB_PROMPT, REVIEW_PROMPT];
+// The Pro announcement is time-bound news, so it goes first when it is enabled.
+// Among the rest, the club question takes one line to answer, so it goes before
+// the review ask.
+export const PROMPT_ORDER = [PRO_LAUNCH_PROMPT, CLUB_PROMPT, REVIEW_PROMPT];
+
+// What selectDuePrompt considers when the caller names no list: the prompts
+// that need no release gate. The Pro announcement is never in here; an app
+// adds it while Pro is released.
+export const DEFAULT_PROMPTS = [CLUB_PROMPT, REVIEW_PROMPT];
+
+// How long the footer keeps its "New" badge after the announcement was shown.
+export const PRO_LAUNCH_BADGE_DAYS = 28;
 
 // Two prompts never land closer together than this, whichever prompts they are.
 export const GLOBAL_COOLDOWN_DAYS = 3;
@@ -279,11 +300,11 @@ export function isPromptDue(key, state, now = Date.now(), options = {}) {
  * Pick the prompt to show, or null if none is due.
  * @param {Object} state - Prompt state
  * @param {number} [now] - Current epoch ms
- * @param {string[]} [enabled] - Prompts this app supports
+ * @param {string[]} [enabled] - Prompts this app supports (DEFAULT_PROMPTS if omitted)
  * @param {Object} [options] - Forwarded to isPromptDue
  * @returns {string|null} Prompt key
  */
-export function selectDuePrompt(state, now = Date.now(), enabled = PROMPT_ORDER, options = {}) {
+export function selectDuePrompt(state, now = Date.now(), enabled = DEFAULT_PROMPTS, options = {}) {
   return (
     PROMPT_ORDER.find((key) => enabled.includes(key) && isPromptDue(key, state, now, options)) ||
     null
@@ -337,4 +358,24 @@ export function markPromptAnswered(key) {
  */
 export function markPromptDeclined(key) {
   return resolve(key, RESOLUTION_DECLINED);
+}
+
+/**
+ * Whether the footer's Upgrade button should carry a "New" badge: the quiet
+ * half of the Pro announcement, for someone who closed the modal or has not
+ * finished a speech since Pro was released. It goes once the user has looked at
+ * Pro (any Upgrade dialog marks the announcement answered) or
+ * PRO_LAUNCH_BADGE_DAYS after the announcement was shown.
+ *
+ * Release and plan gates are the caller's: this only reads the history.
+ *
+ * @param {Object} state - Prompt state
+ * @param {number} [now] - Current epoch ms
+ * @returns {boolean}
+ */
+export function isProLaunchBadgeDue(state, now = Date.now()) {
+  const record = state?.prompts?.[PRO_LAUNCH_PROMPT];
+  if (!record || record.resolution) return false;
+  if (record.asks === 0) return true;
+  return now - record.lastAskAt < PRO_LAUNCH_BADGE_DAYS * DAY_MS;
 }

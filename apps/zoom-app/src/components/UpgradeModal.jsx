@@ -10,6 +10,8 @@ import {
   leaveClub,
   subscribeClub,
   lapsedClubName,
+  markPromptAnswered,
+  PRO_LAUNCH_PROMPT,
 } from '@toastmaster-timer/shared';
 import ClubSetupCard from '@toastmaster-timer/ui/ClubSetupCard';
 import { trackEvent } from '../utils/posthog';
@@ -113,6 +115,10 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     // plan_source separates buyers from timers who activated a club code, which
     // is what the upgrade-funnel read needs to mean anything.
     trackEvent('upgrade_prompt_shown', { source, plan: entitlement.plan, plan_source: entitlement.source });
+    // Whichever door they came through (footer, Sounds, Card Images, the
+    // announcement itself), this user has now seen Pro: retire the one-time
+    // announcement and the footer's "New" badge.
+    markPromptAnswered(PRO_LAUNCH_PROMPT);
     // The renewal funnel's other end: a device that came looking after the
     // club's Pro stopped, which is the moment a renewal is most likely.
     const lapsed = lapsedClubName();

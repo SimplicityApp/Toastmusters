@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, memo } from 'react';
+import { useEffect, useState, lazy, Suspense, memo } from 'react';
 import { MessageSquare, Star, Sparkles } from 'lucide-react';
 import { useEntitlement } from '../hooks/useEntitlement';
 import { useFlag } from '../hooks/useFlag';
@@ -7,7 +7,10 @@ import {
   REVIEW_PROMPT,
   REVIEW_SURVEY_ID,
   ZOOM_MARKETPLACE_REVIEW_URL,
+  isProLaunchBadgeDue,
+  loadPromptState,
   markPromptAnswered,
+  subscribeToPromptState,
 } from '@toastmaster-timer/shared';
 import { trackEvent } from '../utils/posthog';
 import { openExternalUrl } from '../utils/zoomSdk';
@@ -21,6 +24,11 @@ export default memo(function Footer() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const { isPro, known } = useEntitlement();
   const { enabled: proEnabled, known: flagsKnown } = useFlag('pro');
+  // Prompt history, for the "New" badge: it goes the moment any Upgrade dialog
+  // marks the Pro announcement answered.
+  const [promptState, setPromptState] = useState(loadPromptState);
+  useEffect(() => subscribeToPromptState(setPromptState), []);
+  const showNewBadge = !isPro && isProLaunchBadgeDue(promptState);
 
   const handleFeedbackClick = () => {
     (window.requestIdleCallback || setTimeout)(() => {
@@ -87,8 +95,21 @@ export default memo(function Footer() {
             }`}
             aria-label={isPro ? 'Manage your Pro plan' : 'Upgrade to Pro'}
           >
-            <Sparkles className="w-4 h-4 flex-shrink-0" />
+            {/* A dot, not a "New" pill: a pill pushes "Send Us Feedback" onto
+                two lines in the narrow Zoom panel. The word stays for screen
+                readers. */}
+            <span className="relative flex-shrink-0">
+              <Sparkles className="w-4 h-4" />
+              {showNewBadge && (
+                <span
+                  aria-hidden="true"
+                  data-testid="pro-new-dot"
+                  className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"
+                />
+              )}
+            </span>
             <span>{isPro ? 'Pro' : 'Upgrade'}</span>
+            {showNewBadge && <span className="sr-only">New</span>}
           </button>
         )}
       </footer>
