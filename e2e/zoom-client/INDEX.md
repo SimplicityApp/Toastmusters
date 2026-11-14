@@ -11,8 +11,11 @@ Read this first. Update it in the same PR as any spec change.
 | [connection-notice](connection-notice.md) | draft | never | guest-mode banner and "Approve Toastmusters Timer in Zoom" modal at open; raised mid-session when Zoom drops the grant, modal held until the timer stops (#85) |
 | [reauth-landing](reauth-landing.md) | stale | never | install landing: `tt_approved` mark, `?welcome=new` / `?welcome=back`, "You're reconnected" and Open in Zoom; a marked browser's bare `/` redirects to `/reconnect` (`/?home` and the `zoom.` host do not); where Zoom lands a guest after approving (#96) |
 | [contact-capture](contact-capture.md) | draft | never | Zoom email/name capture: authorize, "Stay in touch" card, browser and web sign-in doors, purge on uninstall (#83) |
-| [timer-sounds](timer-sounds.md) | draft | never | Pro sounds: card-change chime (1/2/3 notes), break music during Take a Break, locked for free plans, audible through Share sound (#105) |
+| [timer-sounds](timer-sounds.md) | stale | never | Pro sounds: card-change chime (1/2/3 notes), break music during Take a Break, locked for free plans ("Hold tight! Sounds are coming soon." while `pro` is off), audible through Share sound (#105). TS-09 ran green on 60e1b6e (2026-11-14); TS-01 needs a free device (the test device is on club Pro), TS-08 needs per-uid PostHog flags; audio steps never run |
+| [announcement-banner](announcement-banner.md) | current | cb49176, 2026-11-14 | one-line announcement above the tabs, picked from `ANNOUNCEMENTS` (packages/shared/announcements.js); today the pre-launch notice ("Coming soon: a fresh new look… and Pro features") while `pro` is off; a close is kept per device per announcement |
 | [club-card-sets](club-card-sets.md) | current | 905d8d1, 2026-11-13 | an admin or editor shares a custom card set with the club; another club device downloads it and shows it on real video; own choice kept; members can't publish; console removal; lapse; republish prunes the old image (plan 10 Phase 1). CC-07 and CC-08 not run on 905d8d1, and CC-06's member 403 never yet (a guest got 401) |
+| [club-renewal-reminder](club-renewal-reminder.md) | current | 51534f9, 2026-11-14 | amber "<club>'s Pro ends in N days" line: only in the last 60 days of a club that will not renew; a failed payment at once. CR-01 in Zoom; CR-02/CR-03 on the web app as a second club device (the Zoom client can't be made to refresh its club) |
+| [pro-coming-soon](pro-coming-soon.md) | current | 4d95d3d, 2026-11-14 | footer Pro button while `pro` is off: grey with a lock; hover or click lists what is coming (sounds, club card sets, voting, and more); the real Pro / Upgrade button once `pro` is on |
 | pro-club | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` P1–P7, plus the internal Club Pro plan (`06-zoom-client-test-plan-club-pro.md`); reference run `test-runs/2026-09-28-club-pro/run.md` |
 | webhooks-lifecycle | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 4, 5, 6 |
 
@@ -21,5 +24,5 @@ yet. Migrate one at a time, running each once so `verified_at` is real.
 
 ## Run order for a full pass
 Dependencies between specs, so the skill can batch human steps: `auth-identity` →
-`connection-notice` → `reauth-landing` → `contact-capture` → `timer-core` → `timer-sounds` → `agenda-import` → `pro-club` → `club-card-sets` → `webhooks-lifecycle` (deauth
+`connection-notice` → `reauth-landing` → `contact-capture` → `announcement-banner` → `pro-coming-soon` → `timer-core` → `timer-sounds` → `agenda-import` → `pro-club` → `club-card-sets` → `club-renewal-reminder` → `webhooks-lifecycle` (deauth
 last, it removes the app).

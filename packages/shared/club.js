@@ -383,10 +383,15 @@ export const CLUB_LAPSED = 'lapsed';
  * seven days past the period end, a scheduled cancellation keeps it until the
  * paid period runs out.
  *
+ * In grace, `reason` says which: 'payment_failed' (still set to renew, but the
+ * last charge did not go through) or 'not_renewing' (cancelled, or set not to
+ * renew, so it ends when the paid period does).
+ *
  * @param {number} [now]
  * @returns {{state: 'active'|'grace'|'lapsed', clubId: string|null,
  *   clubName: string|null, endsAt: number|null, daysLeft: number|null,
- *   isAdmin: boolean}|null} null when this device has never joined a club
+ *   isAdmin: boolean, reason?: 'payment_failed'|'not_renewing'}|null} null when
+ *   this device has never joined a club
  */
 export function clubLifecycle(now = Date.now()) {
   const club = loadClub();
@@ -416,6 +421,7 @@ export function clubLifecycle(now = Date.now()) {
   return {
     ...base,
     state: CLUB_GRACE,
+    reason: failing ? 'payment_failed' : 'not_renewing',
     endsAt,
     daysLeft: endsAt === null ? null : Math.max(0, Math.ceil((endsAt - now) / DAY_MS)),
   };
@@ -456,7 +462,19 @@ export function dismissGraceReminder(now = Date.now()) {
 }
 
 /**
+ * How close to its end a club that will not renew starts being reminded. A
+ * yearly plan set not to renew is in "grace" for most of the year; a reminder
+ * that early would be noise, and there is nothing urgent to do yet.
+ */
+export const GRACE_REMINDER_WINDOW_DAYS = 60;
+
+/**
  * The renewal reminder this device should be showing, or null.
+ *
+ * A club that will not renew is reminded only in its last
+ * GRACE_REMINDER_WINDOW_DAYS days, and only when its end date is known. A failed
+ * payment is reminded at once: Pro ends a week after it, and the fix (a new
+ * card) is quick.
  *
  * Grace only, deliberately. A lapsed club has nothing left to warn about — the
  * warning already ran for a week — and a banner that returned every day to a
@@ -470,6 +488,10 @@ export function dismissGraceReminder(now = Date.now()) {
 export function clubGraceReminder(now = Date.now()) {
   const life = clubLifecycle(now);
   if (!life || life.state !== CLUB_GRACE) return null;
+  if (life.reason === 'not_renewing') {
+    if (life.endsAt === null) return null;
+    if (life.endsAt - now >= GRACE_REMINDER_WINDOW_DAYS * DAY_MS) return null;
+  }
   return graceReminderDismissedToday(now) ? null : life;
 }
 
