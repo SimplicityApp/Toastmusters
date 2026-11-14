@@ -11,7 +11,8 @@ import {
 } from '@toastmaster-timer/shared';
 import TimerSounds from './TimerSounds';
 import SoundsModal from './SoundsModal';
-import { soundEngine } from '../hooks/useSounds';
+import SoundsPanel from './SoundsPanel';
+import { SOUNDS_LOCK_MESSAGES, soundEngine } from '../hooks/useSounds';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom.
@@ -234,5 +235,27 @@ describe('the Sounds modal', () => {
     act(() => fireEvent.click(screen.getByRole('button', { name: /close/i })));
     expect(soundEngine.stopMusic).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+// The dialog's body on its own, as design B's Sounds sheet shows it.
+describe('the Sounds panel', () => {
+  it('shows the same lock without the dialog around it', () => {
+    setFlags({ sounds: true, pro: false });
+    setEntitlement({ plan: 'free' });
+    render(<SoundsPanel />);
+    expect(screen.getByText(SOUNDS_LOCK_MESSAGES.unreleased)).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /chime when the card changes/i })).toBeDisabled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('stops a music preview when it goes away', () => {
+    setFlags({ sounds: true, pro: true });
+    setEntitlement(PRO);
+    const view = render(<SoundsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: /preview music/i }));
+    soundEngine.stopMusic.mockClear();
+    view.unmount();
+    expect(soundEngine.stopMusic).toHaveBeenCalled();
   });
 });
