@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { setFlags } from '../flags.js';
 import {
   drawClubBadge,
   clubBadgeRect,
@@ -66,6 +67,9 @@ const KIT = { name: 'Downtown Speakers', primaryColor: '#772432', showOnCards: t
 const PLACE = { x: 0.8, y: 0.12, scale: 0.12, visible: true };
 
 beforeEach(() => {
+  // Club features need Pro released (clubFeaturesOn); the gate itself is
+  // tested in club.test.js.
+  setFlags({ pro: true });
   localStorage.clear();
   resetClubForTests();
 });

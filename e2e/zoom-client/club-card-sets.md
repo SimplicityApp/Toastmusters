@@ -16,7 +16,8 @@ automated:
   - apps/zoom-app/src/components/CardImagesModal.test.jsx
 needs:
   - dev deployed
-  - FLAGS_FORCE "1" on dev (the club doors are behind `pro`)
+  - FLAGS_FORCE "1" on dev (the club doors are behind `pro`, and since 2026-11-14 every club
+    feature is too: with `pro` off the club set is not listed; see club-pro-gate)
   - a dev club with a code, made with `node scripts/club-cli.mjs create --env dev`
   - Zoom account A, an admin or editor of that club (club-member record)
   - a second computer or browser profile, B, with no cards of its own
@@ -108,6 +109,9 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.
 - Card sets are one per club for now (open question 2 in the plan).
+- The club set while `pro` is off (`clubFeaturesOn` in `club.js`, used by `cardImages.js`,
+  `clubCards.js` and `CardImagesModal.jsx`): it is not listed and the device shows its own
+  cards. See [club-pro-gate](club-pro-gate.md).
 - The renewal reminder's 60-day window (`clubGraceReminder` in `club.js`, PR #147). Reviewed
   2026-11-14: it changes when the amber renewal line shows, not card sets; see
   [club-renewal-reminder](club-renewal-reminder.md). Not rerun for it.

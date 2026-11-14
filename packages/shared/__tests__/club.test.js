@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { resetFlagsForTests, setFlags } from '../flags.js';
+import { clubPresetsAvailable } from '../clubPresets.js';
 import {
   CLUB_STORAGE_KEY,
   CLUB_PRESETS_STORAGE_KEY,
@@ -12,6 +14,8 @@ import {
   dismissGraceReminder,
   graceReminderDismissedToday,
   lapsedClubName,
+  clubFeaturesOn,
+  clubKit,
   PAST_DUE_GRACE_MS,
   CLUB_GRACE_DISMISSED_STORAGE_KEY,
   initClubFromCache,
@@ -55,6 +59,9 @@ const respondWith = (body, { ok = true, status = 200 } = {}) =>
   vi.fn(async () => ({ ok, status, json: async () => body }));
 
 beforeEach(() => {
+  // Club features need Pro released (clubFeaturesOn); the gate itself is
+  // tested in club.test.js.
+  setFlags({ pro: true });
   localStorage.clear();
   resetClubForTests();
   resetEntitlementForTests();
@@ -457,6 +464,62 @@ describe('grace and lapse', () => {
     expect(clubLifecycle(NOW)).toMatchObject({ state: 'active' });
     expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true, source: 'club' });
     expect(lapsedClubName()).toBeNull();
+  });
+});
+
+describe('club features and the pro flag', () => {
+  // One gate for every club surface: an active club, and Pro released.
+  const KIT = { name: 'Downtown Speakers', showOnCards: true, showOnReports: true };
+
+  const joinActive = (over = {}) => {
+    resetClubForTests();
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ kit: KIT, ...over })));
+    localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, '{"rules":{"Evaluator":{"green":120}}}');
+  };
+
+  it('are on for an active club once pro is released', () => {
+    joinActive();
+    expect(clubFeaturesOn()).toBe(true);
+    expect(clubKit()).toMatchObject({ name: 'Downtown Speakers' });
+    expect(clubPresetsAvailable()).toBe(true);
+  });
+
+  it('are off while pro is off, with nothing deleted', () => {
+    joinActive({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: NOW + 3 * DAY });
+    setFlags({ pro: false });
+
+    expect(clubFeaturesOn()).toBe(false);
+    expect(clubKit()).toBeNull();
+    expect(clubPresetsAvailable()).toBe(false);
+    expect(clubGraceReminder(NOW)).toBeNull();
+    // The device stays in its club, and its lifecycle is still the server's.
+    expect(loadClub()).toMatchObject({ entitled: true });
+    expect(clubLifecycle(NOW)).toMatchObject({ state: 'grace' });
+
+    setFlags({ pro: true });
+    expect(clubFeaturesOn()).toBe(true);
+    expect(clubKit()).not.toBeNull();
+    expect(clubGraceReminder(NOW)).not.toBeNull();
+  });
+
+  it('stay off until the flags have arrived, so nothing flashes at load', () => {
+    joinActive();
+    resetFlagsForTests();
+    expect(clubFeaturesOn()).toBe(false);
+    expect(clubKit()).toBeNull();
+  });
+
+  it('say nothing about a lapsed club while pro is off', () => {
+    joinActive({ plan: 'free', entitled: false, status: 'canceled', source: 'none' });
+    expect(lapsedClubName()).toBe('Downtown Speakers');
+    setFlags({ pro: false });
+    expect(lapsedClubName()).toBeNull();
+  });
+
+  it('stay off for a lapsed club whatever the flag says', () => {
+    joinActive({ plan: 'free', entitled: false, status: 'canceled', source: 'none' });
+    expect(clubFeaturesOn()).toBe(false);
+    expect(clubKit()).toBeNull();
   });
 });
 

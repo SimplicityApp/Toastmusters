@@ -1,4 +1,4 @@
-import { loadClub, clubHeaders, clubKit, getClubLogoImage } from './club.js';
+import { clubFeaturesOn, loadClub, clubHeaders, clubKit, getClubLogoImage } from './club.js';
 import { renderReportPng, reportImageFilename, isOvertime } from './reportImage.js';
 
 /**
@@ -280,7 +280,7 @@ function newSpeechId() {
  */
 export function recordSpeech(speech, { getToken, fetchImpl, now = Date.now() } = {}) {
   const club = loadClub();
-  if (!club?.clubToken || !club.entitled || !speech) return null;
+  if (!club?.clubToken || !clubFeaturesOn(club) || !speech) return null;
 
   const entry = {
     speechId: typeof speech.speechId === 'string' && speech.speechId ? speech.speechId : newSpeechId(),

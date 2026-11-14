@@ -73,12 +73,24 @@ function joinClub({ role = null, cards = { label: null, images: { blue: 'a'.repe
  * by default on a device that never chose cards of its own.
  */
 describe('the club card set', () => {
+  // Club features need Pro released (clubFeaturesOn).
+  beforeEach(() => setFlags({ pro: true }));
+
   it('is listed, and selected, on a device with no cards of its own', async () => {
     joinClub();
     await renderModal();
     const row = screen.getByRole('radio', { name: /Downtown Speakers cards/ });
     expect(row).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('radio', { name: /Classic/ })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  // Club features are off until Pro is released; the device's own cards show.
+  it('is not listed while pro is off', async () => {
+    setFlags({ pro: false });
+    joinClub();
+    await renderModal();
+    expect(screen.queryByRole('radio', { name: /Downtown Speakers cards/ })).toBeNull();
+    expect(screen.getByRole('radio', { name: /Classic/ })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('is not listed when the club has not published one', async () => {

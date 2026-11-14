@@ -11,6 +11,7 @@ automated:
   - apps/zoom-app/src/components/ClubStatusBanner.test.jsx
 needs:
   - dev deployed
+  - FLAGS_FORCE "1" on dev (`pro` on) for CR-01 to CR-03; "0" for CR-04
   - a club device (Claude Test Club on the test Mac)
   - for CR-02 and CR-03, the club record's `currentPeriodEnd` / `status` edited in dev KV
     (save a backup first, restore after; ask the user once, as a list), and a club device
@@ -55,6 +56,13 @@ to false and `currentPeriodEnd` to 2 days ago, then make the device refresh and 
 Expect: the amber line shows straight away ("Pro ends in N days" counting down a week from
 the period end, or "payment did not go through" without a date). Restore the record
 afterwards.
+Evidence: screenshot.
+
+### CR-04 · auto · No reminder at all while `pro` is off
+Do: with FLAGS_FORCE "0" on dev, open the app on a club device whose club is inside the
+60-day window or has a failed payment (the CR-02 or CR-03 state).
+Expect: no amber renewal line. Club features are off until Pro is released (see
+[club-pro-gate](club-pro-gate.md)).
 Evidence: screenshot.
 
 ## Not covered

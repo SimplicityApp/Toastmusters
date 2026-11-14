@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { loadClub, subscribeClub, clubKit, subscribeOutbox, outboxCount } from '@toastmaster-timer/shared';
+import { loadClub, subscribeClub, clubKit, subscribeOutbox, outboxCount, getFlags, subscribeFlags } from '@toastmaster-timer/shared';
 
 /**
  * The club this device joined, live.
@@ -13,6 +13,9 @@ import { loadClub, subscribeClub, clubKit, subscribeOutbox, outboxCount } from '
  */
 export function useClub() {
   const club = useSyncExternalStore(subscribeClub, loadClub, loadClub);
+  // Subscribed only to re-render: whether club features are on also depends on
+  // the pro flag (clubFeaturesOn), which arrives after the cached club.
+  useSyncExternalStore(subscribeFlags, getFlags, getFlags);
   // Derived rather than stored: a lapsed club still has a cached record — the
   // device keeps knowing which club to check — but it has no kit to render.
   const kit = club ? clubKit() : null;

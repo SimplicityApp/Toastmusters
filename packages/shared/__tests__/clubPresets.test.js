@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { setFlags } from '../flags.js';
 import {
   CLUB_STORAGE_KEY,
   CLUB_PRESETS_STORAGE_KEY,
@@ -84,6 +85,9 @@ const respondWith = (body, { ok = true, status = 200 } = {}) =>
   vi.fn(async () => ({ ok, status, json: async () => body }));
 
 beforeEach(() => {
+  // Club features need Pro released (clubFeaturesOn); the gate itself is
+  // tested in club.test.js.
+  setFlags({ pro: true });
   localStorage.clear();
   resetClubForTests();
   resetEntitlementForTests();

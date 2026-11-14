@@ -25,7 +25,9 @@ export default function ClubStatusBanner() {
   const { enabled: proEnabled, known: flagsKnown } = useFlag('pro')
   const canOpenPortal = flagsKnown && proEnabled
 
-  const reminder = useMemo(() => clubGraceReminder(), [club, dismissals])
+  // The pro flag is part of the answer (club features are off while it is), so
+  // it is a dependency too.
+  const reminder = useMemo(() => clubGraceReminder(), [club, dismissals, proEnabled, flagsKnown])
 
   useEffect(() => {
     if (!reminder) return

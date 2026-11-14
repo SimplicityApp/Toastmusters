@@ -39,6 +39,8 @@ beforeEach(() => {
   localStorage.clear();
   resetClubForTests();
   resetFlagsForTests();
+  // Club features need Pro released; the cases below that turn it off say so.
+  setFlags({ pro: true });
 });
 
 describe('ClubStatusBanner', () => {
@@ -86,12 +88,11 @@ describe('ClubStatusBanner', () => {
     expect(screen.getByRole('button', { name: /manage billing/i })).toBeInTheDocument();
   });
 
-  // The portal answers 404 while pro is off, so the button would do
-  // nothing. The warning itself still reaches the admin.
+  // Club features, the reminder among them, are off until Pro is released.
   it.each([
-    ['the flags are still unknown', () => {}],
+    ['the flags are still unknown', () => resetFlagsForTests()],
     ['pro is off', () => setFlags({ pro: false })],
-  ])('warns an admin but offers no billing while %s', (_, seed) => {
+  ])('shows nothing at all while %s', (_, seed) => {
     seed();
     localStorage.setItem(
       CLUB_STORAGE_KEY,
@@ -99,7 +100,7 @@ describe('ClubStatusBanner', () => {
     );
     render(<ClubStatusBanner />);
 
-    expect(screen.getByTestId('club-grace-banner')).toHaveTextContent('Renew to keep your presets');
+    expect(screen.queryByTestId('club-grace-banner')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /manage billing/i })).not.toBeInTheDocument();
   });
 

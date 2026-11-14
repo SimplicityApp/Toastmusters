@@ -6,7 +6,7 @@ import { useState } from 'react';
 import BrandedReportHeader from '@toastmaster-timer/ui/BrandedReportHeader';
 import ReportHistoryList from '@toastmaster-timer/ui/ReportHistoryList';
 import ShareStep from '@toastmaster-timer/ui/ShareStep';
-import { fetchHistory, fetchMeeting, endMeetingAndShare, copyReportImage } from '@toastmaster-timer/shared';
+import { clubFeaturesOn, fetchHistory, fetchMeeting, endMeetingAndShare, copyReportImage } from '@toastmaster-timer/shared';
 import ConfirmModal from './ConfirmModal';
 import { useClub, useOutboxPending } from '../hooks/useClub';
 import { trackEvent } from '../utils/posthog';
@@ -37,8 +37,9 @@ export default memo(function ReportTab() {
   const [share, setShare] = useState(null);
 
   // A lapsed club keeps its cached record (the device still knows which club to
-  // re-check) but stops archiving, so the strip and History go with it.
-  const archiving = Boolean(club?.entitled);
+  // re-check) but stops archiving, so the strip and History go with it. So
+  // does a club while Pro is not released (clubFeaturesOn).
+  const archiving = clubFeaturesOn(club);
   const archiveName = clubName || club?.club?.name || 'your club';
 
   const endMeeting = async () => {
