@@ -1,7 +1,7 @@
 ---
 id: announcement-banner
 title: Announcement banner (currently the pre-launch notice)
-status: draft
+status: current
 covers:
   - packages/shared/announcements.js
   - packages/ui/AnnouncementBanner.jsx
@@ -14,8 +14,8 @@ automated:
 needs:
   - dev deployed
   - FLAGS_FORCE "1" on dev (`pro` on) for AB-01; "0" (`pro` off) for AB-02 to AB-04
-verified_at: never
-verified_on: never
+verified_at: cb49176
+verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev b5efb7d2 and fcf1ed01)
 ---
 
 # Announcement banner (currently the pre-launch notice)
