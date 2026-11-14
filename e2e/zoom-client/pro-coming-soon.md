@@ -1,7 +1,7 @@
 ---
 id: pro-coming-soon
 title: Footer Pro button before the launch (locked, "Pro is coming soon")
-status: draft
+status: current
 covers:
   - apps/zoom-app/src/components/ProComingSoon.jsx
   - apps/zoom-app/src/components/Footer.jsx
@@ -12,8 +12,8 @@ automated:
 needs:
   - dev deployed
   - FLAGS_FORCE "0" on dev (`pro` off) for PC-01 to PC-03; "1" for PC-04
-verified_at: never
-verified_on: never
+verified_at: 4d95d3d
+verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev 3e3f2561 and 2fcb1b39)
 ---
 
 # Footer Pro button before the launch (locked, "Pro is coming soon")

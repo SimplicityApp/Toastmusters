@@ -1,7 +1,7 @@
 ---
 id: club-renewal-reminder
 title: Club renewal reminder (last 60 days of a club that will not renew)
-status: draft
+status: stale
 covers:
   - packages/shared/club.js
   - packages/ui/ClubGraceBanner.jsx
