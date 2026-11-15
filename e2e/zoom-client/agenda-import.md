@@ -6,6 +6,7 @@ covers:
   - packages/shared/simpleFormatParser.js
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/AgendaTab.jsx
+  - apps/zoom-app/src/hooks/useAgendaEditor.js
 automated:
   - packages/shared/__tests__/simpleFormatParser.test.js
   - apps/zoom-app/src/context/TimerContext.test.jsx

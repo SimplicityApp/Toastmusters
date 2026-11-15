@@ -8,6 +8,7 @@ covers:
   - packages/shared/clubArchive.js
   - apps/zoom-app/src/hooks/useClub.js
   - apps/zoom-app/src/components/ReportTab.jsx
+  - apps/zoom-app/src/hooks/useReportView.js
 automated:
   - packages/shared/__tests__/club.test.js
   - apps/zoom-app/src/components/CardImagesModal.test.jsx

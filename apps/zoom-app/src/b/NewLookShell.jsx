@@ -8,9 +8,9 @@ import ContactCapture from '../components/ContactCapture';
 import TopBar from './TopBar';
 
 const TimerTab = lazy(() => import('./TimerTab'));
-const AgendaTab = lazy(() => import('../components/AgendaTab'));
-const ReportTab = lazy(() => import('../components/ReportTab'));
-const EditRulesModal = lazy(() => import('../components/EditRulesModal'));
+const AgendaTabB = lazy(() => import('./AgendaTabB'));
+const ReportTabB = lazy(() => import('./ReportTabB'));
+const RulesSheet = lazy(() => import('./RulesSheet'));
 
 function TabFallback() {
   return (
@@ -25,8 +25,6 @@ function TabFallback() {
  * switch with the Pro chip and the ⋯ menu, then the tab. No footer: what it
  * held moved into the chip and the menu, which is what keeps the Timer tab's
  * Start button high in a 400px panel.
- *
- * The Agenda and Report tabs are today's until Phase 2 redraws them.
  */
 export default function NewLookShell() {
   const [activeTab, setActiveTab] = useState('live');
@@ -62,14 +60,16 @@ export default function NewLookShell() {
               onOpenRules={() => setShowRules(true)}
             />
           )}
-          {activeTab === 'agenda' && <AgendaTab onSwitchToLive={() => setActiveTab('live')} />}
-          {activeTab === 'report' && <ReportTab />}
+          {activeTab === 'agenda' && <AgendaTabB onSwitchToLive={() => setActiveTab('live')} />}
+          {activeTab === 'report' && <ReportTabB onGoToTimer={() => setActiveTab('live')} />}
         </div>
       </Suspense>
 
+      {/* Mounted only while open, as the old dialog was, so each open starts
+          from the rules as they are now. */}
       {showRules && (
         <Suspense fallback={null}>
-          <EditRulesModal isOpen={showRules} onClose={() => setShowRules(false)} />
+          <RulesSheet open={showRules} onClose={() => setShowRules(false)} />
         </Suspense>
       )}
       <PeriodicPrompts />
