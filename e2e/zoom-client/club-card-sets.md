@@ -149,8 +149,9 @@ profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards
 KV). CC-06 only from B, a guest with no Zoom session: 401, not the member 403. CC-07 (console
 sign-in) and CC-08 (lapsing the club) not run. Log: test-runs/2026-11-13-pre-master-specs/run.md.
 
-Run 2026-11-14 02:53Z (branch fix/club-token-refresh-grace, dev version 766d77cf, B = web app in
-the built-in browser pane): CC-10 passed on B with B's own token, expired 81 min earlier and
-25.35 h after its last refresh. Not yet run on A in Zoom: A rejoined at 2026-11-14 02:28:59Z, so
-its token is over 24 h old only after 2026-11-15 02:29Z. Log:
-test-runs/2026-11-13-club-token-refresh-grace/run.md.
+Run 2026-11-14/15 (branch fix/club-token-refresh-grace; B = web app in the built-in browser
+pane on dev 766d77cf, A = Zoom desktop on dev 5b9a1545 = 3262d37, FLAGS_FORCE "1"): CC-10 passed
+on both. B: its own token, expired 81 min earlier, 25.35 h after its last refresh. A: opened 25 h
+after its last refresh with a token expired 1 min 49 s earlier; GET /api/club 200, no leave, badge
+and club card set kept, and the next requests carried the re-minted token. Only CC-10 ran, so
+`verified_at` stays at the last full run. Log: test-runs/2026-11-13-club-token-refresh-grace/run.md.
