@@ -25,6 +25,13 @@ export const ZOOM_MARKETPLACE_LISTING_URL = ZOOM_MARKETPLACE_REVIEW_URL;
 export const TIMER_APP_URL = 'https://www.toastmusters.com/timer/app';
 
 /**
+ * The short how-to videos (apps/web/public/tutorials.html). The Zoom app's
+ * ⋯ menu opens it with zoomSdk.openUrl, on the same allow-listed domain as
+ * TIMER_APP_URL.
+ */
+export const TUTORIALS_URL = 'https://www.toastmusters.com/tutorials';
+
+/**
  * Every tool in the Toastmusters suite, each a path on www.toastmusters.com. Footers and nav
  * render from this list so a new tool is one entry here. URLs have no
  * trailing slash.
