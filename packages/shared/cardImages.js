@@ -23,7 +23,7 @@
 // rest of the session, so migration is invisible.
 
 import { notifyLocalWrite } from './storageEvents.js';
-import { loadClub, loadClubCards, readCardSource, writeCardSource } from './club.js';
+import { clubFeaturesOn, loadClubCards, readCardSource, writeCardSource } from './club.js';
 const SETTINGS_KEY = 'toastmaster_custom_card_images';
 const SETTINGS_VERSION = 3;
 
@@ -488,12 +488,13 @@ export function getCustomCardImage(setId, color) {
 // ---------------------------------------------------------------------------
 
 /**
- * Whether this device has a club set it could show: a club that is still
- * entitled, with a set published. A lapsed club keeps its cached record, so
- * this is what makes lapse fall back to the device's own cards for free.
+ * Whether this device has a club set it could show: club features on (an
+ * active club, with Pro released), with a set published. A lapsed club keeps
+ * its cached record, so this is what makes lapse — or `pro` being off — fall
+ * back to the device's own cards for free.
  */
 export function clubCardSetAvailable() {
-  return Boolean(loadClub()?.entitled && loadClubCards());
+  return clubFeaturesOn() && Boolean(loadClubCards());
 }
 
 /**

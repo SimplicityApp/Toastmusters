@@ -1,3 +1,4 @@
+export { default as AnnouncementBanner } from './AnnouncementBanner.jsx';
 export { default as BrandedReportHeader } from './BrandedReportHeader.jsx';
 export { default as ClubBadge, ClubBadgeLayer } from './ClubBadge.jsx';
 export { default as ClubGraceBanner } from './ClubGraceBanner.jsx';

@@ -72,15 +72,15 @@ describe('ClubStatusBanner — Manage billing', () => {
     await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('https://billing.stripe.com/p/1'));
   });
 
+  // Club features, the reminder among them, are off until Pro is released.
   it.each([
     ['the flags are still unknown', () => {}],
     ['pro is off', () => setFlags({ pro: false })],
-  ])('still warns the admin, but offers no billing, while %s', (_, seed) => {
+  ])('shows nothing at all while %s', (_, seed) => {
     seed();
     render(<ClubStatusBanner />);
 
-    expect(screen.getByTestId('club-grace-banner')).toHaveTextContent("Downtown Speakers's Pro ends tomorrow");
-    expect(screen.getByTestId('club-grace-banner')).toHaveTextContent('Renew to keep your presets');
+    expect(screen.queryByTestId('club-grace-banner')).toBeNull();
     expect(manageBilling()).toBeNull();
   });
 });

@@ -8,6 +8,7 @@ import {
   resetClubForTests,
   resetClubArchiveForTests,
   resetEntitlementForTests,
+  setFlags,
 } from '@toastmaster-timer/shared';
 import { TimerProvider, useTimer } from '../context/TimerContext';
 import { ToastProvider } from '../context/ToastContext';
@@ -47,6 +48,8 @@ beforeEach(() => {
   resetClubForTests();
   resetClubArchiveForTests();
   resetEntitlementForTests();
+  // Club features need Pro released (clubFeaturesOn).
+  setFlags({ pro: true });
   global.fetch = vi.fn();
 });
 
@@ -241,6 +244,15 @@ describe('ReportTab', () => {
       joinClub();
       renderWithProviders(<ReportTab />);
       expect(screen.getByTestId('club-archive-indicator')).toHaveTextContent('Saved to Downtown Speakers');
+    });
+
+    // Club features are off until Pro is released: no strip, no History.
+    it('says nothing about the club while pro is off', () => {
+      setFlags({ pro: false });
+      joinClub();
+      renderWithProviders(<ReportTab />);
+      expect(screen.queryByTestId('club-archive-indicator')).toBeNull();
+      expect(screen.queryByRole('button', { name: /history/i })).toBeNull();
     });
 
     // The indicator reads outbox emptiness, so a device that lost the network

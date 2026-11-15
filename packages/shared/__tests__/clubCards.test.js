@@ -20,10 +20,14 @@ const RED = 'b'.repeat(64);
 // page reload.
 async function load() {
   vi.resetModules();
+  // Club features need Pro released (clubFeaturesOn), on the same fresh module
+  // copy club.js reads. The gate itself is tested in club.test.js.
+  const flags = await import('../flags.js');
+  flags.setFlags({ pro: true });
   const cardImages = await import('../cardImages.js');
   const club = await import('../club.js');
   const clubCards = await import('../clubCards.js');
-  return { ...cardImages, ...club, ...clubCards };
+  return { ...flags, ...cardImages, ...club, ...clubCards };
 }
 
 function joinClub({ entitled = true, role = null, ver = 3, cards = { images: { blue: BLUE, red: RED } } } = {}) {

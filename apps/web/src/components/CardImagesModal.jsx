@@ -348,7 +348,7 @@ export default function CardImagesModal({ isOpen, onClose, onImagesChanged }) {
 
         <p className="text-xs text-gray-500 mt-4">
           Custom images are stored only in this browser.
-          {club?.entitled && canPublishCards() ? ' Share a set to put it on every club device.' : ''} Please
+          {canPublishCards() ? ' Share a set to put it on every club device.' : ''} Please
           upload only images you have the right to use — for example your club&apos;s own materials.
           This app is independent and cannot grant permission for third-party logos or artwork.
         </p>

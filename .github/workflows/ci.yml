@@ -40,7 +40,12 @@ jobs:
         run: npm test
       - name: Zoom-client specs are well formed
         run: npm run test:specs
+      # A factory/ PR only, as .factory/README.md says: an oracle is frozen for its own
+      # issue's build. Across a release PR (dev → master) later issues legitimately update
+      # earlier oracles' tests (#91 did #90's and #107's), and each of them already passed
+      # this check on its own factory/ PR into dev.
       - name: Oracle tests untouched since the oracle commit
+        if: startsWith(github.head_ref, 'factory/')
         run: node scripts/factory/check-oracle.mjs --base origin/${{ github.base_ref || 'dev' }}
       - name: Build
         run: npm run build

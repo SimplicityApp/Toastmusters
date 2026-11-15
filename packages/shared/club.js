@@ -1,4 +1,5 @@
 import { FREE_ENTITLEMENT, setEntitlement, getEntitlement } from './entitlement.js';
+import { areFlagsKnown, getFlags } from './flags.js';
 import { DEFAULT_BADGE_PLACEMENT, DEFAULT_PRIMARY_COLOR, normalizeBadgePlacement } from './clubBadge.js';
 
 /**
@@ -369,6 +370,28 @@ export function clubBadgePlacement() {
 // Grace and lapse: the three stages the device follows the server through
 // ---------------------------------------------------------------------------
 
+/** Whether Pro is released: the `pro` flag has arrived and is on. */
+function proReleased() {
+  return areFlagsKnown() && getFlags().pro === true;
+}
+
+/**
+ * Whether this device's club features are on: its club is active (the server
+ * says entitled) and Pro is released (the `pro` flag is known and on).
+ *
+ * Every club surface reads this one gate: the badge on the card and the video,
+ * the club's card set, its shared timings, the meeting archive and sharing, the
+ * club's branding on reports, and the renewal reminder. While `pro` is off a
+ * club device behaves as a lapsed one does: nothing is deleted, the device stays
+ * in its club, and everything is back the moment `pro` is on. Until the flags
+ * arrive it answers false, so nothing appears and then vanishes at load.
+ *
+ * @param {Object|null} [club] the cached club; read fresh when omitted
+ */
+export function clubFeaturesOn(club = loadClub()) {
+  return Boolean(club?.entitled) && proReleased();
+}
+
 export const CLUB_ACTIVE = 'active';
 export const CLUB_GRACE = 'grace';
 export const CLUB_LAPSED = 'lapsed';
@@ -383,10 +406,15 @@ export const CLUB_LAPSED = 'lapsed';
  * seven days past the period end, a scheduled cancellation keeps it until the
  * paid period runs out.
  *
+ * In grace, `reason` says which: 'payment_failed' (still set to renew, but the
+ * last charge did not go through) or 'not_renewing' (cancelled, or set not to
+ * renew, so it ends when the paid period does).
+ *
  * @param {number} [now]
  * @returns {{state: 'active'|'grace'|'lapsed', clubId: string|null,
  *   clubName: string|null, endsAt: number|null, daysLeft: number|null,
- *   isAdmin: boolean}|null} null when this device has never joined a club
+ *   isAdmin: boolean, reason?: 'payment_failed'|'not_renewing'}|null} null when
+ *   this device has never joined a club
  */
 export function clubLifecycle(now = Date.now()) {
   const club = loadClub();
@@ -416,6 +444,7 @@ export function clubLifecycle(now = Date.now()) {
   return {
     ...base,
     state: CLUB_GRACE,
+    reason: failing ? 'payment_failed' : 'not_renewing',
     endsAt,
     daysLeft: endsAt === null ? null : Math.max(0, Math.ceil((endsAt - now) / DAY_MS)),
   };
@@ -424,7 +453,8 @@ export function clubLifecycle(now = Date.now()) {
 /** The club whose Pro has ended, for the copy that has to name it. */
 export function lapsedClubName() {
   const club = loadClub();
-  if (!club || club.entitled) return null;
+  // Nothing to say about a club's Pro ending while Pro itself is not released.
+  if (!club || club.entitled || !proReleased()) return null;
   return club.club?.name || 'Your club';
 }
 
@@ -456,7 +486,19 @@ export function dismissGraceReminder(now = Date.now()) {
 }
 
 /**
+ * How close to its end a club that will not renew starts being reminded. A
+ * yearly plan set not to renew is in "grace" for most of the year; a reminder
+ * that early would be noise, and there is nothing urgent to do yet.
+ */
+export const GRACE_REMINDER_WINDOW_DAYS = 60;
+
+/**
  * The renewal reminder this device should be showing, or null.
+ *
+ * A club that will not renew is reminded only in its last
+ * GRACE_REMINDER_WINDOW_DAYS days, and only when its end date is known. A failed
+ * payment is reminded at once: Pro ends a week after it, and the fix (a new
+ * card) is quick.
  *
  * Grace only, deliberately. A lapsed club has nothing left to warn about — the
  * warning already ran for a week — and a banner that returned every day to a
@@ -468,8 +510,13 @@ export function dismissGraceReminder(now = Date.now()) {
  * @param {number} [now]
  */
 export function clubGraceReminder(now = Date.now()) {
+  if (!clubFeaturesOn()) return null;
   const life = clubLifecycle(now);
   if (!life || life.state !== CLUB_GRACE) return null;
+  if (life.reason === 'not_renewing') {
+    if (life.endsAt === null) return null;
+    if (life.endsAt - now >= GRACE_REMINDER_WINDOW_DAYS * DAY_MS) return null;
+  }
   return graceReminderDismissedToday(now) ? null : life;
 }
 
@@ -485,7 +532,7 @@ export function clubGraceReminder(now = Date.now()) {
  */
 export function clubKit() {
   const club = loadClub();
-  if (!club?.entitled) return null;
+  if (!clubFeaturesOn(club)) return null;
   const kit = club.kit;
   if (!kit || typeof kit !== 'object') return null;
   const name = String(kit.name ?? club.club?.name ?? '').trim();
