@@ -148,10 +148,12 @@ export function buildCards(record) {
 /**
  * Who may upload or publish: a named admin or editor on a device that still
  * holds the club. The same checks, in the same order, as a presets publish.
+ * The poll template (club-poll-template.js) uses it too, without the bucket.
  *
+ * @param {{assets?: boolean}} [options] - whether the route needs CARD_ASSETS
  * @returns {Promise<{store: Object, clubId: string, club: Object, uid: string}|{response: Response}>}
  */
-async function requirePublisher(request, env) {
+export async function requirePublisher(request, env, { assets = true } = {}) {
   const session = readSession(request, env);
   if (!session?.uid) return { response: unauthorized() };
   const claims = readClub(request, env);
@@ -159,7 +161,7 @@ async function requirePublisher(request, env) {
 
   const store = entitlementStore(env);
   if (!store) return { response: json({ error: 'Club storage is not configured' }, 503) };
-  if (!env.CARD_ASSETS) return { response: json({ error: 'Asset storage is not configured' }, 503) };
+  if (assets && !env.CARD_ASSETS) return { response: json({ error: 'Asset storage is not configured' }, 503) };
 
   const clubId = await verifiedClubId(env, claims);
   if (!clubId) return { response: forbidden() };
@@ -212,7 +214,7 @@ async function pruneUnreferenced(env, clubId, keep, now = Date.now()) {
   }
 }
 
-async function bumpVer(store, clubId, club) {
+export async function bumpVer(store, clubId, club) {
   const ver = (club.ver ?? 1) + 1;
   await store.put(clubKey(clubId), JSON.stringify({ ...club, ver }));
   return ver;

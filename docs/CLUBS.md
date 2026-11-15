@@ -91,6 +91,9 @@ clubState = {
   presets: { rules, order, hiddenBuiltins, publishedBy, publishedAt } | null,
   badge:   { x, y, scale },                  ← the club's default placement
   cards:   { label, images: { color: sha256 }, publishedBy, publishedAt } | null,
+  pollTemplate: { categories: [{ role, label?, slots }],
+                  options: { postToChat, showOnStage, expiryHours },
+                  publishedBy, publishedAt } | null,
   timezone,
   role,                                      ← this caller's role, or null
   plan, entitled, status, currentPeriodEnd, cancelAtPeriodEnd, source
@@ -113,6 +116,7 @@ toastmaster_club                    { clubToken, ver, club, kit, badge, plan, �
 toastmaster_club_presets            the club's published list
 toastmaster_preset_source           'club' | 'personal'
 toastmaster_club_cards              the club's card set: label and image hashes
+toastmaster_club_poll_template      the club's meeting poll template
 toastmaster_card_source             'club' | 'own'
 toastmaster_club_badge              this device's badge move, if it made one
 toastmaster_club_outbox             finished speeches not yet uploaded
@@ -153,6 +157,20 @@ from the console.
 Publishing prunes images no set names any more, sparing uploads newer than 15
 minutes so a second publisher's uploads survive until their own publish lands.
 
+## Poll template: the club's ballot setup
+
+An admin or editor publishes the meeting poll setup (categories, slots, and
+the post-to-chat, Stage and expiry options) from the Zoom app's **POLL** tab
+with **Publish to club**: `PUT /api/club/poll-template` stores
+`club-poll-template:<clubId>` and moves `ver`. Club devices set new polls up from
+it while the club is entitled; a lapsed club keeps it stored but unused, as
+with presets. Editing the ballot for one meeting never touches it.
+
+Closed poll results go through the outbox like speeches and land under the
+meeting as `poll:<clubId>:<meetingId>:<pollId>`: a key of its own, because
+compaction rewrites the meeting header from the fields it lists. Both meeting
+reads, and the shared `/r/` page, merge them back in as `polls`.
+
 ## KV inventory
 
 All in the `PROFILES` namespace, alongside the entitlement and Stripe prefixes.
@@ -171,12 +189,15 @@ club-presets:<clubId>                  { rules, order, hiddenBuiltins, badge,
                                          publishedBy, publishedAt }
 club-cards:<clubId>                    { label, images: { color: sha256 },
                                          publishedBy, publishedAt }
+club-poll-template:<clubId>            { categories, options, publishedBy, publishedAt }
 club-device:<clubId>:<deviceId>        { label, uid|null, activatedAt, lastSeenAt, revokedAt }
 club-member:<clubId>:zoom:<uid>        { role, displayName, addedAt, revokedAt }
 club-magic:<token>                     { clubId, email, exp }      15-minute TTL
 meeting:<clubId>:<invTs>:<meetingId>   { title, date, startedAt, speeches?: [...] }
    ↳ KV metadata                       { speeches, overtime, title }
 speech:<clubId>:<meetingId>:<speechId> one finished speech, before compaction
+poll:<clubId>:<meetingId>:<pollId>     one closed meeting poll: per category its
+                                       candidates, counts, byPath and winners
 report-share:<token>                   { clubId, meetingId }
 report-share-by-meeting:<clubId>:<id>  <token>         ← so a re-share reuses the address
 
@@ -201,10 +222,12 @@ PUT  /api/club/cards/<hash>               X-Club + uid, role admin|editor (one i
 PUT  /api/club/cards                      X-Club + uid, role admin|editor (the set)
 GET  /api/club/cards/<hash>               X-Club, or an admin's console session
 DELETE /api/club/cards                    admin
+PUT  /api/club/poll-template              X-Club + uid, role admin|editor
 POST /api/club/meetings/<id>/speeches      X-Club, + device revocation read
 GET  /api/club/meetings                   X-Club
 GET  /api/club/meetings/<id>              X-Club
 POST /api/club/meetings/<id>/share         X-Club
+POST /api/club/meetings/<id>/polls         X-Club, + device revocation read
 GET  /api/club/roster                     admin
 POST /api/club/members/<uid>/role         admin
 POST /api/club/devices/<id>/revoke        admin
@@ -339,7 +362,8 @@ Then clear `toastmaster_club`'s `lastRefreshAt` (or wait a day) and reload.
 `club_presets_published` · `club_presets_reset` · `club_presets_forked` ·
 `club_admin_opened` · `club_role_changed` · `club_access_revoked` ·
 `brand_badge_moved` · `meeting_ended` · `report_shared` ·
-`report_history_viewed` · `club_grace_banner_shown` · `club_lapsed_shown`
+`report_history_viewed` · `club_grace_banner_shown` · `club_lapsed_shown` ·
+`poll_template_published` (Worker)
 
 All carry `club_id` and `surface` (`zoom` or `web`). The existing
 `upgrade_prompt_shown` carries `plan_source` in `subscription | grant | club`,

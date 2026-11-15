@@ -415,8 +415,20 @@ On a club device, in a meeting with the camera on:
 4. **Share** — **End meeting & share** produces a branded image and a link.
    Paste the link into Zoom chat: expected a preview card, and the page opens
    for someone with no club and no account.
-5. Confirm on a **free** device that none of the above appears, and that the
-   timer is otherwise identical.
+5. **Meeting polls** — open the **POLL** tab after timing a few speeches.
+   Expected: the ballot lists this meeting's speakers per category. **Open
+   poll** shows a voting link and posts it to the meeting chat;
+   **Invite everyone** opens the app for the other participants, who can vote
+   in it on any plan. **Close poll** shows each category's winners. The host
+   of a scheduled meeting also sees **Create as Zoom poll**, which asks for
+   Zoom authorization and adds the same questions as a Zoom poll.
+   Scopes this uses: `meeting:write:poll`, `meeting:read:meeting` and
+   `meeting:read:list_poll_results` (the native poll's answers, fetched once
+   after the meeting ends). SDK APIs: `sendMessageToChat`,
+   `sendAppInvitationToAllParticipants`, `getMeetingContext`, `authorize`.
+6. Confirm on a **free** device that none of the above appears, and that the
+   timer is otherwise identical. A free participant can still vote in a poll
+   someone else opened.
 
 ## Step P6: Manage or cancel billing
 

@@ -4,7 +4,7 @@ import { json, methodNotAllowed, unauthorized } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
 import { verifiedClubId, buildKit } from './club.js';
 import { CODE_ALPHABET } from './club-admin.js';
-import { compactMeeting, meetingKey, meetingDate, parseMeetingId } from './club-meetings.js';
+import { compactMeeting, meetingKey, meetingDate, parseMeetingId, readMeetingPolls } from './club-meetings.js';
 
 /**
  * A meeting that travels: an image and a link.
@@ -228,6 +228,28 @@ function speechRow(speech) {
 }
 
 /**
+ * The meeting poll winners (#80), one row per category: its label, else its
+ * role; every tied name; "No votes" when nobody voted. Nothing at all for a
+ * meeting with no closed poll, so that page reads exactly as it always did.
+ */
+function winnersSection(polls) {
+  const rows = (Array.isArray(polls) ? polls : []).flatMap((poll) => (Array.isArray(poll?.categories) ? poll.categories : []));
+  if (!rows.length) return '';
+  return `<div class="wrap"><table>
+    <thead><tr><th>Vote</th><th>Winners</th></tr></thead>
+    <tbody>${rows
+      .map((category) => {
+        const names = Array.isArray(category?.winners) ? category.winners : [];
+        return `<tr>
+      <td>${escapeHtml(category?.label || category?.role)}</td>
+      <td class="name">${names.length ? escapeHtml(names.join(', ')) : 'No votes'}</td>
+    </tr>`;
+      })
+      .join('')}</tbody>
+  </table></div>`;
+}
+
+/**
  * The shared report, as HTML a crawler can read without running anything.
  *
  * Inline styles and no script at all: the page has to render identically in a
@@ -306,7 +328,7 @@ footer a { color: #2563eb; }
     <tbody>${speeches.map(speechRow).join('')}</tbody>
   </table></div>`
       : `<p class="empty">No speeches were timed in this meeting.</p>`
-  }
+  }${winnersSection(meeting?.polls)}
   <footer>
     <span>${escapeHtml(summary)}</span>
     <span>${fullImageUrl ? `<a href="${escapeHtml(fullImageUrl)}">Download the image</a> · ` : ''}Timed with Toastmusters Timer</span>
@@ -360,9 +382,10 @@ export async function handleSharedReport(request, url, env) {
   const share = await store.get(shareKey(token), 'json').catch(() => null);
   if (!share?.clubId || !share?.meetingId) return sharePageNotFound();
 
-  const [meeting, club] = await Promise.all([
+  const [meeting, club, polls] = await Promise.all([
     store.get(meetingKey(share.clubId, share.meetingId), 'json').catch(() => null),
     readClubRecord(env, share.clubId),
+    readMeetingPolls(env, share.clubId, share.meetingId),
   ]);
   if (!meeting) return sharePageNotFound();
 
@@ -372,7 +395,7 @@ export async function handleSharedReport(request, url, env) {
     clubName: kit?.name || club?.name || 'Toastmusters Timer',
     primaryColor: kit?.primaryColor || '#772432',
     logoUrl: kit?.logoUrl ? `${origin}${kit.logoUrl}` : null,
-    meeting: { ...meeting, date: meeting.date ?? meetingDate(share.meetingId) },
+    meeting: { ...meeting, date: meeting.date ?? meetingDate(share.meetingId), polls },
     imageUrl: `${origin}/api/club-assets/${share.clubId}/${shareObjectName(token)}`,
     fullImageUrl: `${origin}/api/club-assets/${share.clubId}/${shareFullObjectName(token)}`,
     canonicalUrl: `${origin}/r/${token}`,

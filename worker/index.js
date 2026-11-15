@@ -15,6 +15,10 @@ import { handleClub } from './club.js';
 import { handleClubAsset } from './club-assets.js';
 import { handleSharedReport } from './club-share.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
+import { handlePolls, handleVotePage } from './polls.js';
+
+// The Durable Object class must be exported from the entry point to be bound.
+export { PollRoom } from './poll-room.js';
 
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
 // "/(.*)" rule from the old vercel.json.
@@ -185,6 +189,12 @@ export default {
       return handleClub(request, url, env, { ctx });
     }
 
+    // Meeting polls. Ahead of the www redirect like every POST, and ahead of
+    // host routing so the Zoom app reaches it from the zoom.<domain> host.
+    if (pathname === '/api/polls' || pathname.startsWith('/api/polls/')) {
+      return handlePolls(request, url, env, ctx);
+    }
+
     // Identity + entitlement re-check (polled after a purchase). The web app's
     // identity call adds ?flags=1 for the release flags; the polls do not.
     if (pathname === '/api/me') {
@@ -308,6 +318,13 @@ export default {
     //     asset lookup so /r/<token> never falls through to the shell.
     if (pathname.startsWith('/r/')) {
       return withSecurityHeaders(await handleSharedReport(request, url, env), request, url);
+    }
+
+    // 3c. The backup voting link for a meeting poll. Worker-rendered like /r/,
+    //     so a phone never loads the web bundle to vote, and an unknown id is a
+    //     real 404 rather than the shell.
+    if (pathname.startsWith('/vote/')) {
+      return withSecurityHeaders(await handleVotePage(request, url, env), request, url);
     }
 
     // 4. The web timer lives at /timer/app. /app (its old path) moves

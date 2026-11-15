@@ -2,7 +2,7 @@ import { readClub } from './auth.js';
 import { json, methodNotAllowed, unauthorized } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
 import { verifiedClubId } from './club.js';
-import { shareMeeting } from './club-share.js';
+import { shareMeeting, isShareToken } from './club-share.js';
 
 /**
  * The club's archive: every finished speech, as it happens.
@@ -25,11 +25,21 @@ import { shareMeeting } from './club-share.js';
  * The speech keys carry their own metadata so the History list can count a
  * *live* meeting — speeches and over-times both — from the `list` it was
  * already doing, with no `get` per speech.
+ *
+ *   poll:<clubId>:<meetingId>:<pollId>       { pollId, closedAt, categories:
+ *                                              [{role, label?, candidates, counts,
+ *                                                byPath?, winners}] }
+ *
+ * A closed meeting poll (#80) has a key of its own rather than a field on the
+ * header, because compaction rewrites the header from the fields it lists.
+ * Both reads merge them back in as `polls`.
  */
 
 export const speechKey = (clubId, meetingId, speechId) => `speech:${clubId}:${meetingId}:${speechId}`;
 export const speechPrefix = (clubId, meetingId) => `speech:${clubId}:${meetingId}:`;
 export const meetingPrefix = (clubId) => `meeting:${clubId}:`;
+export const pollKey = (clubId, meetingId, pollId) => `poll:${clubId}:${meetingId}:${pollId}`;
+const pollPrefix = (clubId, meetingId) => `poll:${clubId}:${meetingId}:`;
 
 /** No club meets more than a handful of times a day, and 999 is plenty of room. */
 const MAX_SEQ = 999;
@@ -203,6 +213,86 @@ function meetingMetadata(meetingId, record) {
   };
 }
 
+const MAX_POLL_CATEGORIES = 10;
+const MAX_POLL_CANDIDATES = 30;
+const pollText = (value) => String(value ?? '').slice(0, 80);
+const pollCounts = (value, length) =>
+  Array.from({ length }, (_, i) => (Array.isArray(value) && Number.isFinite(Number(value[i])) ? Math.max(0, Number(value[i])) : 0));
+
+/** Everything a stored poll result is allowed to be, and nothing else. */
+function normalizePollResult(raw) {
+  const categories = (Array.isArray(raw?.categories) ? raw.categories : []).slice(0, MAX_POLL_CATEGORIES).map((c) => {
+    const candidates = (Array.isArray(c?.candidates) ? c.candidates : []).slice(0, MAX_POLL_CANDIDATES).map(pollText);
+    const byPath = c?.byPath && typeof c.byPath === 'object'
+      ? Object.fromEntries(['zoom', 'guest', 'link'].map((path) => [path, pollCounts(c.byPath[path], candidates.length)]))
+      : null;
+    return {
+      role: pollText(c?.role),
+      ...(c?.label ? { label: pollText(c.label) } : {}),
+      candidates,
+      counts: pollCounts(c?.counts, candidates.length),
+      ...(byPath ? { byPath } : {}),
+      winners: (Array.isArray(c?.winners) ? c.winners : []).map(pollText).filter((name) => candidates.includes(name)),
+    };
+  });
+  return {
+    pollId: raw.pollId,
+    closedAt: typeof raw?.closedAt === 'number' ? raw.closedAt : 0,
+    categories,
+    // The native Zoom poll's answers, when they came in after the meeting.
+    ...(raw?.zoom && typeof raw.zoom === 'object' ? { zoom: raw.zoom } : {}),
+  };
+}
+
+/** A meeting's closed polls, oldest first. Never throws: a read must not fail on one. */
+export async function readMeetingPolls(env, clubId, meetingId) {
+  const store = entitlementStore(env);
+  if (!store) return [];
+  try {
+    const keys = await listAll(store, pollPrefix(clubId, meetingId));
+    const polls = await Promise.all(keys.map((entry) => store.get(entry.name, 'json').catch(() => null)));
+    return polls.filter(Boolean).sort((a, b) => (a.closedAt ?? 0) - (b.closedAt ?? 0));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * POST /api/club/meetings/<meetingId>/polls — a closed poll's results arrive,
+ * through the same outbox as speeches. Keyed by pollId, so a retry rewrites
+ * the same key.
+ */
+export async function appendPollResults(request, env, meetingId) {
+  if (request.method !== 'POST') return methodNotAllowed();
+
+  const claims = readClub(request, env);
+  if (!claims) return unauthorized();
+  if (!parseMeetingId(meetingId)) return json({ error: 'invalid_meeting' }, 400);
+
+  const store = entitlementStore(env);
+  if (!store) return json({ error: 'Club storage is not configured' }, 503);
+
+  const clubId = await verifiedClubId(env, claims);
+  if (!clubId) return json({ error: 'forbidden' }, 403);
+
+  const club = await readClubRecord(env, clubId);
+  if (!club) return json({ error: 'club_not_found' }, 404);
+  const access = await resolveAccess(env, { clubId, club });
+  if (!access.entitled) return json({ error: 'upgrade_required', entitlement: access }, 402);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, 400);
+  }
+  if (!isShareToken(body?.pollId)) return json({ error: 'invalid_poll_id' }, 400);
+
+  const poll = normalizePollResult(body);
+  await store.put(pollKey(clubId, meetingId, poll.pollId), JSON.stringify(poll));
+  return json({ ok: true, meetingId, pollId: poll.pollId });
+}
+
 /** Whether a speech ran over. Stored on the key so a live count needs no gets. */
 const isOvertime = (speech) => speech.color === 'red' || speech.disqualified === true;
 
@@ -366,16 +456,20 @@ export async function readMeeting(request, env, meetingId) {
   const now = Date.now();
 
   if (meetingSettled(meetingId, now)) {
-    const compacted = await compactMeeting(env, clubId, meetingId, { now });
+    const [compacted, polls] = await Promise.all([
+      compactMeeting(env, clubId, meetingId, { now }),
+      readMeetingPolls(env, clubId, meetingId),
+    ]);
     if (!compacted) return json({ error: 'not_found' }, 404);
-    return json({ meeting: { meetingId, ...compacted } });
+    return json({ meeting: { meetingId, ...compacted, polls } });
   }
 
   // A live meeting is read where it lives, without being folded: folding it
   // would end the meeting for every other device still timing it.
-  const [header, speechKeys] = await Promise.all([
+  const [header, speechKeys, polls] = await Promise.all([
     store.get(meetingKey(clubId, meetingId), 'json').catch(() => null),
     listAll(store, speechPrefix(clubId, meetingId)),
+    readMeetingPolls(env, clubId, meetingId),
   ]);
   if (!header && !speechKeys.length) return json({ error: 'not_found' }, 404);
 
@@ -398,6 +492,7 @@ export async function readMeeting(request, env, meetingId) {
       startedAt: header?.startedAt ?? null,
       live: speechKeys.length > 0,
       speeches: [...merged.values()].sort(byFinishedAt),
+      polls,
     },
   });
 }
@@ -417,6 +512,7 @@ export function handleClubMeetings(request, route, env) {
   if (extra.length) return json({ error: 'Not found' }, 404);
   if (!tail) return readMeeting(request, env, decodeURIComponent(meetingId));
   if (tail === 'speeches') return appendSpeech(request, env, decodeURIComponent(meetingId));
+  if (tail === 'polls') return appendPollResults(request, env, decodeURIComponent(meetingId));
   // "End meeting & share": closes the record and gives it a public address.
   if (tail === 'share') return shareMeeting(request, env, decodeURIComponent(meetingId));
   return json({ error: 'Not found' }, 404);

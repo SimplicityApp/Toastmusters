@@ -107,9 +107,28 @@
         "type": "ratelimit",
         "namespace_id": "1001",
         "simple": { "limit": 10, "period": 60 }
+      },
+      // Votes through a meeting poll's web link (worker/polls.js), per poll and
+      // address. 120 a minute fits a hybrid club voting from one room's Wi-Fi;
+      // votes cast inside Zoom are keyed by account and never counted here.
+      {
+        "name": "POLL_VOTE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1002",
+        "simple": { "limit": 120, "period": 60 }
       }
     ]
   },
+
+  // Meeting polls (#80): one PollRoom Durable Object per poll holds its ballot
+  // and votes, so the counts at Close are final (KV's eventual consistency
+  // could miss the last votes). SQLite-backed, using only the key-value API.
+  // A native Zoom poll's refresh token lives here, encrypted, for at most 24 h.
+  "durable_objects": {
+    "bindings": [{ "name": "POLL_ROOM", "class_name": "PollRoom" }]
+  },
+  // Migrations are shared by every environment; each Worker applies them once.
+  "migrations": [{ "tag": "v1-poll-room", "new_sqlite_classes": ["PollRoom"] }],
 
   // Static Assets: serves the combined monorepo build in ./dist.
   //  - web app (apps/web)        -> served at /
@@ -194,8 +213,18 @@
             "type": "ratelimit",
             "namespace_id": "1001",
             "simple": { "limit": 10, "period": 60 }
+          },
+          {
+            "name": "POLL_VOTE_LIMITER",
+            "type": "ratelimit",
+            "namespace_id": "1002",
+            "simple": { "limit": 120, "period": 60 }
           }
         ]
+      },
+      // Not inherited either: the dev Worker gets its own PollRoom objects.
+      "durable_objects": {
+        "bindings": [{ "name": "POLL_ROOM", "class_name": "PollRoom" }]
       },
       // FLAGS_FORCE "1" keeps dev working with every feature on, and makes no
       // flag requests. "0" exercises the dark path; clear it to test the real

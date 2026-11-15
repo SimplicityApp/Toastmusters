@@ -405,10 +405,14 @@ export async function handleAuthStart(request, url, env, { now = Date.now(), ctx
  * @param {Object} env - ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
  * @param {string} code
  * @param {string} redirectUri
- * @param {{codeVerifier?: string, fetchImpl?: typeof fetch}} [options]
- * @returns {Promise<{ok: boolean, accessToken: string|null, status: number, scope: string|null}>}
+ * The refresh token is dropped unless `returnRefreshToken` asks for it: only
+ * the native Zoom poll (polls-zoom.js) keeps one, briefly and encrypted.
+ *
+ * @param {{codeVerifier?: string, returnRefreshToken?: boolean, fetchImpl?: typeof fetch}} [options]
+ * @returns {Promise<{ok: boolean, accessToken: string|null, status: number, scope: string|null,
+ *   refreshToken?: string|null}>}
  */
-export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, fetchImpl = fetch } = {}) {
+export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, returnRefreshToken = false, fetchImpl = fetch } = {}) {
   const basic = Buffer.from(`${env.ZOOM_CLIENT_ID}:${env.ZOOM_CLIENT_SECRET}`).toString('base64');
   const form = new URLSearchParams({
     grant_type: 'authorization_code',
@@ -432,7 +436,9 @@ export async function exchangeZoomCode(env, code, redirectUri, { codeVerifier, f
   const tokens = await tokenRes.json();
   const accessToken = typeof tokens?.access_token === 'string' && tokens.access_token ? tokens.access_token : null;
   const scope = typeof tokens?.scope === 'string' ? tokens.scope : null;
-  return { ok: Boolean(accessToken), accessToken, status: tokenRes.status, scope };
+  const result = { ok: Boolean(accessToken), accessToken, status: tokenRes.status, scope };
+  if (returnRefreshToken) result.refreshToken = typeof tokens?.refresh_token === 'string' ? tokens.refresh_token : null;
+  return result;
 }
 
 /**

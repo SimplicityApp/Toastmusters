@@ -142,6 +142,7 @@ export const clubDeviceKey = (clubId, deviceId) => `club-device:${clubId}:${devi
 export const clubMemberKey = (clubId, uid) => `club-member:${clubId}:zoom:${uid}`;
 export const clubPresetsKey = (clubId) => `club-presets:${clubId}`;
 export const clubCardsKey = (clubId) => `club-cards:${clubId}`;
+export const clubPollTemplateKey = (clubId) => `club-poll-template:${clubId}`;
 
 /**
  * The club a signed-in person administers, found from their uid alone.

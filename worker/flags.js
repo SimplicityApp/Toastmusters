@@ -39,6 +39,15 @@ export const FLAG_FALLBACKS = Object.freeze({
   // (packages/shared/timerSounds.js).
   // removeBy: 2027-03-31
   sounds: false,
+  // Meeting polls (Pro to run, free to vote): the Zoom app's POLL tab and
+  // POST /api/polls (worker/polls.js). Voting needs no flag: with it off, no
+  // poll can be opened to vote in.
+  // removeBy: 2027-06-30
+  polls: false,
+  // The native Zoom poll on top of a meeting poll (worker/polls-zoom.js). Its
+  // own flag because production needs Zoom's review of the poll scopes first.
+  // removeBy: 2027-06-30
+  polls_zoom: false,
 });
 
 // The ingestion host, called directly rather than through the browser's

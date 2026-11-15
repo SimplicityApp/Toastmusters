@@ -54,10 +54,20 @@ Server gates: flagEnabled(env, key, { uid }) → bare 404 when off
 
 ## The flags
 
-There are two flags, `pro` and `contact_capture`, declared in `FLAG_FALLBACKS`
-in `worker/flags.js`, each with a `removeBy` date in a comment. Both fallbacks
-are `false`: the safe value, not the current one. **Both must exist in PostHog
-before they can be turned on in production**; until then the fallback applies.
+The flags are declared in `FLAG_FALLBACKS` in `worker/flags.js`, each with a
+`removeBy` date in a comment. Every fallback is `false`: the safe value, not the
+current one. **Each must exist in PostHog before it can be turned on in
+production**; until then the fallback applies.
+
+`polls` gates meeting polls: the Zoom app's **POLL** tab and `POST /api/polls`
+(after the session check, so no session is still 401). Voting, the vote page
+`/vote/<id>` and the club poll template are not gated: with the flag off no
+poll can be opened to vote in. `polls_zoom` gates the native Zoom poll on top
+of it (**Create as Zoom poll**, `POST /api/polls/zoom`). It stays off in
+production until Zoom has reviewed the scopes `meeting:write:poll`,
+`meeting:read:meeting` and `meeting:read:list_poll_results`, and the SDK APIs
+`sendMessageToChat`, `sendAppInvitationToAllParticipants` and
+`getMeetingContext` are in the production app.
 
 `contact_capture` gates one thing: the Zoom app asking Zoom for an
 authorization code (`zoomSdk.authorize`) so the Worker can save the user's Zoom

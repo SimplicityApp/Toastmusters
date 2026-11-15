@@ -1,6 +1,7 @@
 import { verifyZoomSignature, generateCrcResponse } from './zoom-verify.js';
 import { purgeUserData } from './user-data.js';
 import { capturePostHogEvent } from './posthog.js';
+import { notifyMeetingEnded } from './polls-zoom.js';
 
 /** JSON Response helper. */
 function json(data, status = 200) {
@@ -141,6 +142,14 @@ export async function handleZoomWebhook(request, env, ctx) {
 
   if (event === 'meeting.started' || event === 'meeting.ended') {
     const payload = body.payload?.object || {};
+
+    // A native meeting poll's answers are fetched a few minutes after its
+    // meeting ends (worker/polls-zoom.js). In waitUntil: Zoom wants 200 in 3 s.
+    if (event === 'meeting.ended') {
+      ctx.waitUntil(
+        notifyMeetingEnded(env, payload).catch((err) => console.error('Poll meeting.ended error:', err?.message || err))
+      );
+    }
 
     await capturePostHogEvent(env, `zoom_${event.replace('.', '_')}`, {
       distinct_id: payload.host_id || 'unknown',
