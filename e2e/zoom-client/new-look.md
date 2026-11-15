@@ -7,12 +7,14 @@ covers:
   - apps/zoom-app/src/App.jsx
   - apps/zoom-app/src/hooks/useNewLook.js
   - apps/zoom-app/src/components/VideoPreviewLayer.jsx
+  - apps/zoom-app/src/hooks/useRulesEditor.js
 automated:
   - e2e/zoom.new-look.spec.js
   - apps/zoom-app/src/b/NewLookShell.test.jsx
   - apps/zoom-app/src/b/TimerCard.test.jsx
   - apps/zoom-app/src/b/TopBar.test.jsx
   - apps/zoom-app/src/b/Sheet.test.jsx
+  - apps/zoom-app/src/b/AgendaReport.test.jsx
   - apps/zoom-app/src/hooks/useNewLook.test.js
 needs:
   - dev deployed
@@ -123,8 +125,42 @@ disabled, and the status line "Start works once your video is on". Turn video on
 camera back and enables Start.
 Evidence: screenshots. Human: the camera toggle is the user's.
 
+### NL-13 · auto · Agenda: paste, pick the missing role, time from the agenda
+Do: Agenda tab → Paste from EasySpeak; paste `demo-agenda-easyspeak.txt`; Add. Then Paste → One
+per line: `NL One (Short Roles)` and `NL Two (Table Topics Master)`; Add. Pick Table Topics
+Speech on NL Two's red row. Tap NL One.
+Expect: the counts match ("Found N speakers"); NL Two is red with "(Table Topics Master) is not
+one of your roles" until a role is picked; tapping NL One opens the Timer tab with NL One on the
+card and "Up next: NL Two"; a Start there turns the video green at 0:30.
+Evidence: screenshots; `toastmaster_agenda`.
+
+### NL-14 · auto · Report: rows, copy, clear
+Do: finish two short speeches, one past red plus grace. Report tab → Copy report; Clear (cancel,
+then confirm).
+Expect: one row per speech with its colour dot, time and last colour, "OVER TIME" on the long
+one and the grace note under the list; the clipboard holds the tab-separated report; Clear asks
+first and then empties the list.
+Evidence: screenshots; clipboard text; `toastmaster_reports`.
+
+### NL-15 · auto · Report for a club with Pro: archive, history, share
+Do: with FLAGS_FORCE "1" on the club device, finish a speech; Report tab → History, open the
+newest meeting, back; End meeting & share with a name.
+Expect: "Saved to Claude Test Club" above the list (or "waiting to upload" while offline);
+History opens as a sheet listing meetings; the meeting opens with the club header; the share
+sheet ends with "Meeting saved", a link and the picture; the note says Clear only empties this
+device.
+Evidence: screenshots; `POST /api/club/meetings/...` in the Worker log.
+
+### NL-16 · auto · Roles & timing rules: edit, save, and the club's list
+Do: ⋯ → Roles & timing rules; open Short Roles; set Green to 0:20; Save. Start a Short Roles
+speech. On the club device (FLAGS_FORCE "1"), open the sheet again.
+Expect: rows show each role's three times; one row opens at a time; after Save the role list
+shows 0:20 · 0:45 · 1:00 and the video turns green at 0:20. On the club device the strip reads
+"Using Claude Test Club's timings" with "Use mine".
+Evidence: screenshots; `toastmaster_role_rules`.
+
 ## Not covered
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
 - Audio of the sounds: timer-sounds.
-- Agenda and Report tabs in the new look, the Roles & timing rules sheet, the Pro sheets,
-  the banners and the stage restyle: steps added with plan 13's Phases 2 and 3.
+- The Pro sheets, the banners and the stage restyle: steps added with plan 13's Phase 3.
+- Dragging agenda rows: the same dnd-kit sorting as today's tab, covered by the e2e and unit tests.

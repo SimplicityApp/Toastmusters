@@ -124,3 +124,72 @@ test('the ⋯ menu holds the footer\'s old buttons, and Pro once it is released'
   await menu.getByRole('menuitem', { name: 'Send feedback' }).click();
   await expect(menu).toHaveCount(0);
 });
+
+// ── Phase 2: Agenda, Report, Roles & timing rules ─────────────────────────
+
+const tab = (page, name) => page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name });
+
+test('agenda: paste one per line, pick the missing role, then time from the agenda', async ({ page }) => {
+  await openPanel(page);
+  await tab(page, 'Agenda').click();
+  await expect(page.getByText('No speakers yet')).toBeVisible();
+  await page.getByRole('button', { name: 'Paste from EasySpeak' }).click();
+  await page.getByRole('tab', { name: 'One per line' }).click();
+  await page.getByRole('textbox', { name: 'One speaker per line' }).fill('Ana (Ice Breaker)\nAlex (Table Topics Master)');
+  await expect(page.getByText('Found 2 speakers.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Add 2 speakers' }).click();
+
+  const list = page.getByRole('list', { name: 'Agenda' });
+  await expect(list.getByRole('listitem')).toHaveCount(2);
+  await expect(page.getByText('1 row needs a role', { exact: false })).toBeVisible();
+  // A row that needs a role is not loaded onto the timer.
+  await page.getByRole('button', { name: 'Alex: pick a role first' }).click();
+  await expect(page.getByTestId('timer-card')).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Pick a role for Alex' }).selectOption('Table Topics Speech');
+  await expect(page.getByText('1 row needs a role', { exact: false })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Put Ana on the timer' }).click();
+  await expect(page.getByRole('button', { name: 'Speaker: Ana. Change speaker' })).toBeVisible();
+  await expect(page.getByTestId('up-next')).toContainText('Alex');
+});
+
+test('agenda: an EasySpeak paste fills the agenda', async ({ page }) => {
+  const { readFileSync } = await import('node:fs');
+  const text = readFileSync(new URL('../demo-agenda-easyspeak.txt', import.meta.url), 'utf8');
+  await openPanel(page);
+  await tab(page, 'Agenda').click();
+  await page.getByRole('button', { name: 'Paste from EasySpeak' }).click();
+  await page.getByRole('textbox', { name: 'EasySpeak agenda' }).fill(text);
+  await expect(page.getByText(/Found \d+ speakers?\./)).toBeVisible();
+  await page.getByRole('button', { name: /^Add \d+ speakers?$/ }).click();
+  expect(await page.getByRole('list', { name: 'Agenda' }).getByRole('listitem').count()).toBeGreaterThan(2);
+  expect(await noSidewaysScroll(page)).toBe(true);
+});
+
+test('report: empty, then a speech to copy; the rules sheet edits a role', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openPanel(page);
+  await tab(page, 'Report').click();
+  await expect(page.getByText('No speeches timed yet')).toBeVisible();
+  await page.getByRole('button', { name: 'Go to the timer' }).click();
+
+  await page.getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByTestId('timer-display')).not.toHaveText('00:00', { timeout: 4000 });
+  await page.getByRole('button', { name: 'Finish' }).click();
+  await tab(page, 'Report').click();
+  await expect(page.getByRole('list', { name: 'Speeches timed' }).getByRole('listitem')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Copy report' }).click();
+  await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Roles & timing rules' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Roles & timing rules' });
+  await sheet.getByRole('button', { name: /^Ice Breaker/ }).click();
+  await sheet.getByLabel('Green').fill('3:30');
+  await sheet.getByLabel('Green').blur();
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(sheet).toHaveCount(0);
+  await tab(page, 'Timer').click();
+  await page.getByRole('button', { name: /Timing role/ }).click();
+  await expect(page.getByRole('option', { name: /Ice Breaker/ })).toContainText('3:30 · 5:00 · 6:00');
+});
