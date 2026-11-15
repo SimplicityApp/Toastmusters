@@ -246,7 +246,9 @@ until Zoom approves the new scopes.
        contains `//`), stores the results in the poll as `zoom`, and **deletes the token**.
        An empty or 404 answer retries at +15 min and +60 min, then gives up and deletes the
        token. Every path deletes the token by 24 h after creation at the latest.
-     - The rotated refresh token Zoom returns is never stored beyond that one call.
+     - Zoom rotates refresh tokens (the old one stops working once used), so while a
+       retry is pending the rotated token replaces the stored one, encrypted the same way.
+       It is still deleted on success, after the last retry, or at 24 h.
      - The owner's client reads `zoom` from `GET results` (Report tab, on open) and merges
        it into local results; on a club device it queues the archive upload (step 4).
        Poll storage for a native poll lives 7 days so the owner can collect the results.
@@ -377,7 +379,8 @@ Existing specs to update:
   primitive (a Durable Object binding plus migration in `wrangler.jsonc`, both envs).
 - **A stored Zoom credential (Q5):** the host's refresh token is kept for up to 24 h,
   encrypted with AES-256-GCM under an HKDF key from `SESSION_SIGNING_KEY`, in that poll's
-  DO only. It is deleted right after the results fetch, after the last retry, or by 24 h,
+  DO only. While a retry is pending, Zoom's rotated token replaces it (the old one is dead
+  once used). It is deleted right after the results fetch, after the last retry, or by 24 h,
   whichever comes first. It is never logged or returned to a client.
 - Votes trust Zoom's encrypted app context for identity and meeting match; a forged or
   replayed context fails `decryptAppContext` (expiry is enforced there).
