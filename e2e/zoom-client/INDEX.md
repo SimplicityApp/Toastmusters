@@ -13,6 +13,7 @@ Read this first. Update it in the same PR as any spec change.
 | [contact-capture](contact-capture.md) | draft | never | Zoom email/name capture: authorize, "Stay in touch" card, browser and web sign-in doors, purge on uninstall (#83) |
 | [timer-sounds](timer-sounds.md) | draft | never | Pro sounds: card-change chime (1/2/3 notes), break music during Take a Break, locked for free plans, audible through Share sound (#105) |
 | [club-card-sets](club-card-sets.md) | current | 905d8d1, 2026-11-13 | an admin or editor shares a custom card set with the club; another club device downloads it and shows it on real video; own choice kept; members can't publish; console removal; lapse; republish prunes the old image (plan 10 Phase 1). CC-07 and CC-08 not run on 905d8d1, and CC-06's member 403 never yet (a guest got 401) |
+| [meeting-polls](meeting-polls.md) | stale | never | Pro meeting polls (#80): ballot from this meeting's speakers, open with chat post and "Invite everyone", in-Zoom votes by verified uid and guests, the `/vote/<id>` backup link, close and reveal (Stage, Report tab, club archive, report image, `/r/`), club and personal templates, the native Zoom poll and its results after `meeting.ended`. Not yet run |
 | pro-club | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` P1–P7, plus the internal Club Pro plan (`06-zoom-client-test-plan-club-pro.md`); reference run `test-runs/2026-09-28-club-pro/run.md` |
 | webhooks-lifecycle | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 4, 5, 6 |
 
@@ -21,5 +22,5 @@ yet. Migrate one at a time, running each once so `verified_at` is real.
 
 ## Run order for a full pass
 Dependencies between specs, so the skill can batch human steps: `auth-identity` →
-`connection-notice` → `reauth-landing` → `contact-capture` → `timer-core` → `timer-sounds` → `agenda-import` → `pro-club` → `club-card-sets` → `webhooks-lifecycle` (deauth
+`connection-notice` → `reauth-landing` → `contact-capture` → `timer-core` → `timer-sounds` → `agenda-import` → `pro-club` → `club-card-sets` → `meeting-polls` → `webhooks-lifecycle` (deauth
 last, it removes the app).

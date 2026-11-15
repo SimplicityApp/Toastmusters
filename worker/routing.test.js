@@ -1272,3 +1272,39 @@ describe('zoom launch marker', () => {
     expect(res.headers.get('content-security-policy')).toContain('appssdk.zoom.us');
   });
 });
+
+// The backup voting link (#80). Worker-rendered HTML, like /r/<token>: an
+// unknown id is a real 404, never the SPA shell, and never indexed.
+describe('/vote/<id>', () => {
+  it('never serves the SPA shell, and answers an id nobody minted with a real 404', async () => {
+    const { PollRoom } = await import('./index.js');
+    const { makeDurableObjectNamespace, makeKv: makeFullKv } = await import('./durable-object-fake.js');
+    const env = { ...makeEnv(['/index.html', '/404.html']), PROFILES: makeFullKv() };
+    env.POLL_ROOM = makeDurableObjectNamespace(PollRoom, () => env);
+
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/vote/ABCDEFGHJKMNPQRS'), env, ctx);
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('x-asset-path')).toBeNull();
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    expect(res.headers.get('x-robots-tag') ?? (await res.text())).toMatch(/noindex/);
+  });
+
+  it('keeps the poll API reachable from the zoom. host, ahead of host routing', async () => {
+    const env = makeEnv(['/zoom/index.html']);
+
+    const res = await worker.fetch(
+      new Request('https://zoom.timer.simple-tech.app/api/polls', {
+        method: 'POST',
+        headers: { host: 'zoom.timer.simple-tech.app', 'content-type': 'application/json' },
+        body: JSON.stringify({ ballot: { categories: [] } }),
+      }),
+      env,
+      ctx
+    );
+
+    // No session: the poll handler's own answer, not the sidebar app's shell.
+    expect(res.status).toBe(401);
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+});

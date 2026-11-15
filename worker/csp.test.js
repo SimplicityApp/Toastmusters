@@ -106,3 +106,60 @@ describe('the root policy the Worker serves', () => {
     expect(fontSrc).toContain('https://fonts.gstatic.com');
   });
 });
+
+/**
+ * The backup voting page (#80): GET /vote/<id> is Worker-rendered HTML on the
+ * www host whose inline script posts the vote to /api/polls/<id>/votes and
+ * keeps a device token in localStorage. It must arrive with the root policy,
+ * and that policy must allow exactly those two things: inline script and a
+ * same-origin fetch. The dev server sends no CSP, so nothing else would catch a
+ * page that renders but cannot vote.
+ */
+describe('the voting page is served under a policy that lets it vote', () => {
+  it('answers /vote/<id> with ROOT_CSP: inline script and same-origin connect', async () => {
+    const { default: worker, PollRoom } = await import('./index.js');
+    const { makeDurableObjectNamespace, makeKv, makeCtx, makeEmptyAssets } = await import('./durable-object-fake.js');
+    const { mintSessionToken } = await import('./session-token.js');
+    const { entitlementKey } = await import('./entitlements.js');
+    const env = {
+      PROFILES: makeKv(),
+      ASSETS: makeEmptyAssets(),
+      SESSION_SIGNING_KEY: 'test-session-signing-key',
+      ZOOM_CLIENT_SECRET: 'test-zoom-client-secret',
+      ENTITLEMENT_ENFORCE: '1',
+      FLAGS_FORCE: '1',
+      WEB_ORIGIN: 'https://www.timer.simple-tech.app',
+    };
+    env.POLL_ROOM = makeDurableObjectNamespace(PollRoom, () => env);
+    await env.PROFILES.put(entitlementKey('owner-uid'), JSON.stringify({ status: 'active', currentPeriodEnd: Date.now() + 1e10 }));
+    const ctx = makeCtx();
+
+    const created = await worker.fetch(
+      new Request('https://www.timer.simple-tech.app/api/polls', {
+        method: 'POST',
+        headers: {
+          host: 'www.timer.simple-tech.app',
+          'content-type': 'application/json',
+          authorization: `Bearer ${mintSessionToken('owner-uid', 'test-session-signing-key')}`,
+        },
+        body: JSON.stringify({ ballot: { categories: [{ role: 'Standard Speech', candidates: ['Alice', 'Bob'] }] } }),
+      }),
+      env,
+      ctx
+    );
+    expect(created.ok).toBe(true);
+    const { id } = await created.json();
+
+    const res = await worker.fetch(
+      new Request(`https://www.timer.simple-tech.app/vote/${id}`, { headers: { host: 'www.timer.simple-tech.app' } }),
+      env,
+      ctx
+    );
+    const policy = res.headers.get('content-security-policy') ?? '';
+
+    expect(res.status).toBe(200);
+    expect(policy.match(/script-src ([^;]*)/)?.[1]).toContain("'unsafe-inline'");
+    expect(policy.match(/connect-src ([^;]*)/)?.[1]).toContain("'self'");
+    expect(policy).toContain("form-action 'self'");
+  });
+});

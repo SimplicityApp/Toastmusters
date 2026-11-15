@@ -4928,3 +4928,19 @@ describe('the cropped count-up layer', () => {
     expect(sdkMock.setVirtualBackground).toHaveBeenCalledWith({ fileUrl: GREEN });
   });
 });
+
+// Meeting polls (#80, AC-12, AC-15): posting the voting link to chat,
+// inviting everyone into the app, and the meeting number the native poll is
+// created on. All optional: a client that refuses them still runs the timer,
+// and the poll falls back to Copy link.
+describe('the SDK APIs meeting polls use', () => {
+  it('declares sendMessageToChat, sendAppInvitationToAllParticipants and getMeetingContext as optional capabilities', async () => {
+    const { USED_SDK_APIS } = await loadModule();
+    for (const name of ['sendMessageToChat', 'sendAppInvitationToAllParticipants', 'getMeetingContext']) {
+      const api = USED_SDK_APIS.find((entry) => entry.name === name);
+      expect(api, `${name} is in USED_SDK_APIS`).toBeDefined();
+      expect(api.capability).toBe(name);
+      expect(api.required).toBe(false);
+    }
+  });
+});

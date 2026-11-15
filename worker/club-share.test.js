@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   handleSharedReport,
+  renderSharePage,
   isShareToken,
   mintShareToken,
   shareKey,
@@ -438,5 +439,97 @@ describe('routing', () => {
 
     expect(res.status).toBe(301);
     expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/r/ZZZZZZZZZZZZZZZZ');
+  });
+});
+
+/**
+ * Poll winners on the shared page (#80, AC-17, Q6). Each category names its
+ * winners, ties included; a category nobody voted in says "No votes"; a
+ * meeting with no poll looks exactly as it did before polls existed.
+ */
+describe('poll winners on /r/<token>', () => {
+  const page = (token) => {
+    const url = new URL(`${ORIGIN}/r/${token}`);
+    return handleSharedReport(new Request(url), url, env);
+  };
+
+  const pollReq = (clubToken, body) =>
+    new Request(`https://x/api/club/meetings/${MEETING}/polls`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-club': clubToken },
+      body: JSON.stringify(body),
+    });
+
+  const closedPoll = {
+    pollId: 'ABCDEFGHJKMNPQRS',
+    closedAt: NOW,
+    categories: [
+      { role: 'Table Topics Speech', label: 'Best Table Topics Speaker', candidates: ['Carol', 'Dmitri'], counts: [4, 4], winners: ['Carol', 'Dmitri'] },
+      { role: 'Standard Speech', label: 'Best Speaker', candidates: ['Eleanor'], counts: [5], winners: ['Eleanor'] },
+      { role: 'Table Topics Evaluation', candidates: ['Frank'], counts: [0], winners: [] },
+    ],
+  };
+
+  it('lists each category with its winners, ties included, and "No votes" for an empty one', async () => {
+    const activation = await activated();
+    await timedMeeting(activation.clubToken);
+    const posted = await handleClubMeetings(pollReq(activation.clubToken, closedPoll), route(`/${MEETING}/polls`), env);
+    expect(posted.ok).toBe(true);
+    const { token } = await (await share(activation.clubToken)).json();
+
+    const html = await (await page(token)).text();
+
+    expect(html).toContain('Best Table Topics Speaker');
+    expect(html).toContain('Carol');
+    expect(html).toContain('Dmitri');
+    expect(html).toContain('Best Speaker');
+    expect(html).toContain('Eleanor');
+    // No label: the role names the category.
+    expect(html).toContain('Table Topics Evaluation');
+    expect(html).toContain('No votes');
+  });
+
+  it('escapes a winner\'s name rather than letting it become markup', async () => {
+    const activation = await activated();
+    await timedMeeting(activation.clubToken);
+    await handleClubMeetings(
+      pollReq(activation.clubToken, {
+        ...closedPoll,
+        categories: [{ role: 'Standard Speech', label: 'Best Speaker', candidates: ['<script>x</script>'], counts: [1], winners: ['<script>x</script>'] }],
+      }),
+      route(`/${MEETING}/polls`),
+      env
+    );
+    const { token } = await (await share(activation.clubToken)).json();
+
+    const html = await (await page(token)).text();
+    expect(html).toContain('Best Speaker');
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
+  });
+
+  it('renders a meeting with no poll exactly as before', () => {
+    const meeting = { date: '2026-09-29', title: null, speeches: [speech()] };
+    const base = { clubName: 'Downtown Speakers', primaryColor: '#772432', logoUrl: null, imageUrl: 'i', canonicalUrl: 'c', fullImageUrl: 'f' };
+
+    const without = renderSharePage({ ...base, meeting });
+    expect(renderSharePage({ ...base, meeting: { ...meeting, polls: [] } })).toBe(without);
+    expect(without).not.toContain('No votes');
+    expect(without).not.toMatch(/winner/i);
+  });
+
+  it('renders the winners straight from meeting.polls', () => {
+    const html = renderSharePage({
+      clubName: 'Downtown Speakers',
+      primaryColor: '#772432',
+      logoUrl: null,
+      imageUrl: 'i',
+      canonicalUrl: 'c',
+      fullImageUrl: 'f',
+      meeting: { date: '2026-09-29', title: null, speeches: [speech()], polls: [closedPoll] },
+    });
+    expect(html).toContain('Carol');
+    expect(html).toContain('Eleanor');
+    expect(html).toContain('No votes');
   });
 });

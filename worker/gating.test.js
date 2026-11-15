@@ -232,3 +232,26 @@ describe('a revoked device', () => {
     expect((await listMeetings(listReq(dead), env)).status).toBe(200);
   });
 });
+
+/**
+ * Meeting polls (#80, AC-1): running a poll is Pro, voting never is. Through
+ * the Worker's front door, so the route and the gate are tested together.
+ */
+describe('meeting polls', () => {
+  const pollsReq = (uid) =>
+    new Request('https://zoom.timer.simple-tech.app/api/polls', {
+      method: 'POST',
+      headers: { host: 'zoom.timer.simple-tech.app', 'content-type': 'application/json', ...bearer(uid) },
+      body: JSON.stringify({ ballot: { categories: [{ role: 'Standard Speech', candidates: ['Alice', 'Bob'] }] } }),
+    });
+
+  it('refuses to open a poll on the free plan with the upgrade answer', async () => {
+    const { default: worker } = await import('./index.js');
+    // An asset store that has nothing, so a request that misses the route is a 404, not a throw.
+    const ASSETS = { fetch: async () => new Response('not found', { status: 404 }) };
+    const res = await worker.fetch(pollsReq('free'), { ...env, ASSETS, FLAGS_FORCE: '1' }, { waitUntil: () => {} });
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toMatchObject({ error: 'upgrade_required' });
+  });
+});

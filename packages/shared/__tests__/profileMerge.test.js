@@ -172,3 +172,19 @@ describe('fieldsToApplyLocally', () => {
     expect(fieldsToApplyLocally(null, remote)).toEqual({ toastmaster_agenda: entry('a', 1) });
   });
 });
+
+// Meeting polls (#80, AC-11): a Pro user without a club keeps their ballot
+// setup on every device. The meeting's own draft and results stay local.
+describe('the personal poll template', () => {
+  it('syncs through the profile', () => {
+    expect(SYNCED_KEYS).toContain('toastmaster_poll_template');
+    const merged = normalizeProfile(profile({ toastmaster_poll_template: entry({ categories: [], options: {} }, 100) }));
+    expect(merged.fields).toHaveProperty('toastmaster_poll_template');
+  });
+
+  it('keeps one meeting\'s draft, results and the club\'s copy out of it', () => {
+    expect(SYNCED_KEYS).not.toContain('toastmaster_poll_draft');
+    expect(SYNCED_KEYS).not.toContain('toastmaster_poll_results');
+    expect(SYNCED_KEYS).not.toContain('toastmaster_club_poll_template');
+  });
+});

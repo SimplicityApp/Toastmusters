@@ -18,6 +18,7 @@ import {
   startNewMeeting,
   subscribeOutbox,
 } from '../clubArchive.js';
+import * as clubArchive from '../clubArchive.js';
 import { CLUB_STORAGE_KEY, resetClubForTests } from '../club.js';
 import { resetEntitlementForTests } from '../entitlement.js';
 
@@ -850,5 +851,85 @@ describe('after a drain that had nothing to do', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * Closed poll results (#80, AC-9) travel the same outbox as speeches:
+ * `recordPollResults(results, {getToken, fetchImpl, now})` queues them for the
+ * meeting this device is timing and posts them to
+ * `/api/club/meetings/<meetingId>/polls`, surviving a reload like a speech.
+ */
+describe('queueing a closed poll', () => {
+  const closed = (over = {}) => ({
+    pollId: 'ABCDEFGHJKMNPQRS',
+    closedAt: EVENING,
+    categories: [
+      { role: 'Table Topics Speech', label: 'Best Table Topics Speaker', candidates: ['Alice', 'Bob'], counts: [3, 1], winners: ['Alice'] },
+    ],
+    ...over,
+  });
+
+  const record = (...args) => {
+    expect(typeof clubArchive.recordPollResults, 'clubArchive.js exports recordPollResults()').toBe('function');
+    return clubArchive.recordPollResults(...args);
+  };
+
+  it('queues nothing without a club, or once the club has lapsed', () => {
+    const fetchImpl = vi.fn();
+    expect(record(closed(), { fetchImpl })).toBeNull();
+
+    joinClub({ entitled: false, plan: 'free', status: 'canceled' });
+    expect(record(closed(), { fetchImpl })).toBeNull();
+    expect(readOutbox()).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('posts the results to the meeting\'s polls route with the club header', async () => {
+    joinClub();
+    const fetchImpl = vi.fn(async () => ok());
+
+    record(closed(), { fetchImpl, now: EVENING });
+    await drainOutbox({ fetchImpl });
+
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('/api/club/meetings/20260929/polls');
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-Club']).toBe('club.tok');
+    expect(JSON.parse(init.body)).toMatchObject({
+      pollId: 'ABCDEFGHJKMNPQRS',
+      categories: [{ role: 'Table Topics Speech', label: 'Best Table Topics Speaker', winners: ['Alice'] }],
+    });
+    expect(readOutbox()).toEqual([]);
+  });
+
+  it('still holds the results after a reload when the network was down, and sends them next time', async () => {
+    joinClub();
+    const offline = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    record(closed(), { fetchImpl: offline });
+    await drainOutbox({ fetchImpl: offline });
+
+    reload();
+
+    expect(readOutbox()).toHaveLength(1);
+    const online = vi.fn(async () => ok());
+    await drainOutbox({ fetchImpl: online });
+    expect(online.mock.calls[0][0]).toBe('/api/club/meetings/20260929/polls');
+    expect(readOutbox()).toEqual([]);
+  });
+
+  it('sends speeches to the speeches route and the poll to the polls route, in the order they happened', async () => {
+    joinClub();
+    const offline = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    recordSpeech(speech(), { fetchImpl: offline });
+    record(closed(), { fetchImpl: offline });
+    await drainOutbox({ fetchImpl: offline });
+
+    const online = vi.fn(async () => ok());
+    await drainOutbox({ fetchImpl: online });
+    expect(online.mock.calls.map(([url]) => url)).toEqual([
+      '/api/club/meetings/20260929/speeches',
+      '/api/club/meetings/20260929/polls',
+    ]);
   });
 });

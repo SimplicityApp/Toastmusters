@@ -345,3 +345,60 @@ describe('filenames and summaries', () => {
     expect(readableReportDate('not-a-date')).toBeNull();
   });
 });
+
+/**
+ * Poll winners on the picture (#80, AC-17, Q6): a "Winners" block under the
+ * speeches, one row per category (its label, else its role), tied names
+ * joined, "No votes" for a category nobody voted in. Closed results ride in as
+ * `polls` beside `speeches`, in the shape the club archive stores them.
+ */
+describe('the Winners block', () => {
+  const POLLS = [
+    {
+      pollId: 'ABCDEFGHJKMNPQRS',
+      closedAt: 1,
+      categories: [
+        { role: 'Table Topics Speech', label: 'Best Table Topics Speaker', candidates: ['Ann', 'Bo'], counts: [3, 3], winners: ['Ann', 'Bo'] },
+        { role: 'Standard Speech', label: 'Best Speaker', candidates: ['Cy'], counts: [4], winners: ['Cy'] },
+        { role: 'Table Topics Evaluation', candidates: ['Di'], counts: [0], winners: [] },
+      ],
+    },
+  ];
+
+  it('draws a Winners heading and one row per category, ties joined and "No votes" for an empty one', async () => {
+    const { ops, createCanvas } = stubCanvas();
+
+    await renderReportPng({ kit: KIT, meeting: MEETING, speeches: [speech()], polls: POLLS }, { createCanvas });
+    const text = textOf(ops);
+    const all = text.join('\n');
+
+    expect(text.some((t) => /winners/i.test(t))).toBe(true);
+    expect(all).toContain('Best Table Topics Speaker');
+    expect(text.some((t) => t.includes('Ann') && t.includes('Bo'))).toBe(true);
+    expect(all).toContain('Best Speaker');
+    expect(all).toContain('Cy');
+    expect(all).toContain('Table Topics Evaluation');
+    expect(all).toContain('No votes');
+  });
+
+  it('grows the full picture to make room for it', async () => {
+    const { sizes, createCanvas } = stubCanvas();
+
+    await renderReportPng({ kit: KIT, meeting: MEETING, speeches: [speech()], polls: POLLS }, { createCanvas });
+
+    expect(sizes[0].height).toBeGreaterThan(reportImageHeight(1));
+  });
+
+  it('draws exactly what it drew before when there are no poll results', async () => {
+    const before = stubCanvas();
+    const withEmpty = stubCanvas();
+
+    await renderReportPng({ kit: KIT, meeting: MEETING, speeches: manySpeeches(3) }, { createCanvas: before.createCanvas });
+    await renderReportPng({ kit: KIT, meeting: MEETING, speeches: manySpeeches(3), polls: [] }, { createCanvas: withEmpty.createCanvas });
+
+    expect(withEmpty.sizes).toEqual(before.sizes);
+    expect(before.sizes[0].height).toBe(reportImageHeight(3));
+    expect(withEmpty.ops).toEqual(before.ops);
+    expect(textOf(before.ops).some((t) => /winners/i.test(t))).toBe(false);
+  });
+});

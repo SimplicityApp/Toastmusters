@@ -421,3 +421,90 @@ describe('reading the archive back', () => {
     expect((await res.json()).meetings).toEqual([]);
   });
 });
+
+/**
+ * Closed poll results (#80, AC-9). They live under their own key,
+ * `poll:<clubId>:<meetingId>:<pollId>`, because compaction rewrites the
+ * meeting header from the fields it lists and would drop a `polls` field; the
+ * two reads merge them back in, before and after compaction.
+ */
+describe('poll results in the archive', () => {
+  const pollReq = (clubToken, meetingId, body) =>
+    new Request(`https://x/api/club/meetings/${meetingId}/polls`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(clubToken ? { 'x-club': clubToken } : {}) },
+      body: JSON.stringify(body),
+    });
+
+  const closedPoll = (over = {}) => ({
+    pollId: 'ABCDEFGHJKMNPQRS',
+    closedAt: LIVE_NOW,
+    categories: [
+      {
+        role: 'Table Topics Speech',
+        label: 'Best Table Topics Speaker',
+        candidates: ['Alice', 'Bob'],
+        counts: [3, 3],
+        byPath: { zoom: [2, 1], guest: [0, 1], link: [1, 1] },
+        winners: ['Alice', 'Bob'],
+      },
+      { role: 'Standard Speech', label: 'Best Speaker', candidates: ['Dan'], counts: [0], byPath: { zoom: [0], guest: [0], link: [0] }, winners: [] },
+    ],
+    ...over,
+  });
+
+  const postPoll = (clubToken, body = closedPoll(), meetingId = MEETING) =>
+    handleClubMeetings(pollReq(clubToken, meetingId, body), route(`/${meetingId}/polls`), env);
+
+  const readOne = async (clubToken) =>
+    (await (await handleClubMeetings(readReq(clubToken, `/${MEETING}`), route(`/${MEETING}`), env)).json()).meeting;
+
+  it('stores a closed poll under the meeting, and a live read returns it', async () => {
+    const { clubToken } = await activated();
+    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+
+    const res = await postPoll(clubToken);
+    expect(res.ok).toBe(true);
+
+    const meeting = await readOne(clubToken);
+    expect(meeting.polls).toHaveLength(1);
+    expect(meeting.polls[0]).toMatchObject({
+      pollId: 'ABCDEFGHJKMNPQRS',
+      categories: [
+        { role: 'Table Topics Speech', label: 'Best Table Topics Speaker', winners: ['Alice', 'Bob'] },
+        { role: 'Standard Speech', label: 'Best Speaker', winners: [] },
+      ],
+    });
+    // The path split travels with the totals.
+    expect(meeting.polls[0].categories[0].byPath).toEqual({ zoom: [2, 1], guest: [0, 1], link: [1, 1] });
+  });
+
+  it('still returns it after the meeting is compacted, and on the read after that', async () => {
+    const { clubToken } = await activated();
+    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    await postPoll(clubToken);
+
+    vi.setSystemTime(SETTLED_NOW);
+    const compacted = await readOne(clubToken);
+    expect([...kv.store.keys()].filter((k) => k.startsWith('speech:'))).toHaveLength(0);
+    expect(compacted.polls?.[0]?.pollId).toBe('ABCDEFGHJKMNPQRS');
+
+    const again = await readOne(clubToken);
+    expect(again.polls?.[0]?.categories?.[0]?.winners).toEqual(['Alice', 'Bob']);
+  });
+
+  it('is safe to send twice: one poll, one entry', async () => {
+    const { clubToken } = await activated();
+    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    await postPoll(clubToken);
+    await postPoll(clubToken);
+
+    expect((await readOne(clubToken)).polls).toHaveLength(1);
+  });
+
+  it('turns away a poll with no club token, and one for a meetingId we never mint', async () => {
+    const { clubToken } = await activated();
+    expect((await postPoll(null)).status).toBe(401);
+    expect((await postPoll(clubToken, closedPoll(), 'not-a-meeting')).status).toBe(400);
+  });
+});

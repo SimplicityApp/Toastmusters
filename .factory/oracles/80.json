@@ -1,0 +1,22 @@
+{
+  "issue": 80,
+  "files": [
+    "worker/durable-object-fake.js",
+    "worker/polls.test.js",
+    "worker/polls-zoom.test.js",
+    "worker/club-poll-template.test.js",
+    "worker/club-meetings.test.js",
+    "worker/club-share.test.js",
+    "worker/routing.test.js",
+    "worker/csp.test.js",
+    "worker/gating.test.js",
+    "packages/shared/__tests__/polls.test.js",
+    "packages/shared/__tests__/profileMerge.test.js",
+    "packages/shared/__tests__/reportImage.test.js",
+    "packages/shared/__tests__/clubArchive.test.js",
+    "apps/zoom-app/src/utils/zoomSdk.test.js",
+    "apps/zoom-app/src/components/PollTab.test.jsx",
+    "apps/zoom-app/src/components/TimerStage.test.jsx",
+    "e2e/zoom.meeting-polls.spec.js"
+  ]
+}
