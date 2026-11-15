@@ -1,7 +1,7 @@
 ---
 id: agenda-import
 title: Simple Format import takes exact role names and asks for the rest in the Zoom client
-status: current
+status: stale
 covers:
   - packages/shared/simpleFormatParser.js
   - apps/zoom-app/src/context/TimerContext.jsx

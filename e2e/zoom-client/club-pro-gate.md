@@ -1,7 +1,7 @@
 ---
 id: club-pro-gate
 title: Club features only while Pro is released
-status: current
+status: stale
 covers:
   - packages/shared/club.js
   - packages/shared/clubPresets.js

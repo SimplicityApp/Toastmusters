@@ -1,7 +1,7 @@
 ---
 id: new-look
 title: Design B, the redesigned panel (new_look)
-status: draft
+status: stale
 covers:
   - apps/zoom-app/src/b
   - apps/zoom-app/src/App.jsx
