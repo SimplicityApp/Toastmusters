@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { trackEvent } from '../utils/posthog';
+import { useFlag } from '../hooks/useFlag';
 
 export default memo(function NavTabs({ activeTab, onTabChange }) {
   // Agenda, Live, Report: the meeting's own order. The agenda is prepared
@@ -10,6 +11,9 @@ export default memo(function NavTabs({ activeTab, onTabChange }) {
     { id: 'live', label: 'LIVE' },
     { id: 'report', label: 'REPORT' },
   ];
+  // The poll comes last, as it does in the meeting: the vote is taken at the end.
+  const { enabled: pollsOn } = useFlag('polls');
+  if (pollsOn) tabs.push({ id: 'poll', label: 'POLL' });
 
   const handleTabChange = (tabId) => {
     (window.requestIdleCallback || setTimeout)(() => trackEvent('tab_viewed', {

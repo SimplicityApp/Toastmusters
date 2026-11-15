@@ -79,6 +79,7 @@ export default memo(function TimerStage({
   onRenameSpeaker,
   clubKit,
   badgePlacement,
+  pollWinners,
 }) {
   const phaseInfo = rules ? getPhaseInfo(elapsedTime, rules, status) : null;
   const phaseText = phaseInfo ? formatPhaseTextFor(phaseInfo, rules) : '';
@@ -221,10 +222,26 @@ export default memo(function TimerStage({
         </div>
       </div>
 
-      {/* Deliberately empty: the color is the signal. A speaker watching a shared
+      {/* Empty but for the poll winners: the color is the signal. A speaker watching a shared
           screen should be reading green/yellow/red the way they would read timing
           cards in the room, not a clock counting at them. */}
-      <div className="relative flex-1 min-h-0" />
+      <div className="relative flex-1 min-h-0">
+        {/* The closed poll's winners, put here by "Show on Stage" on the POLL
+            tab. Only this device's stage: the poll owner chooses to share it. */}
+        {pollWinners?.length > 0 && (
+          <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 mx-auto max-w-md rounded-xl bg-black/55 p-4 text-white text-center space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wider text-white/80">Winners</div>
+            {pollWinners.map((category, i) => (
+              <div key={i}>
+                <div className="text-sm text-white/80" style={textShadow}>{category.label || category.role}</div>
+                <div className="text-xl font-semibold" style={textShadow}>
+                  {category.winners?.length ? category.winners.join(', ') : 'No votes'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Organizer instrumentation, grouped at the bottom. Small on purpose:
           readable to whoever is running the timer, easy for the speaker to

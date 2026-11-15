@@ -106,6 +106,9 @@ export const USED_SDK_APIS = [
   { name: 'onAppVisibilityChange', capability: 'onAppVisibilityChange', required: false, purpose: 'Noticing background changes' },
   { name: 'onMyMediaChange', capability: 'onMyMediaChange', required: false, purpose: 'Overlay sizing' },
   { name: 'openUrl', capability: 'openUrl', required: false, purpose: 'Marketplace review link, Stripe checkout and billing' },
+  { name: 'sendMessageToChat', capability: 'sendMessageToChat', required: false, purpose: 'Posting the poll\'s voting link to the meeting chat' },
+  { name: 'sendAppInvitationToAllParticipants', capability: 'sendAppInvitationToAllParticipants', required: false, purpose: 'Inviting everyone into the app to vote' },
+  { name: 'getMeetingContext', capability: 'getMeetingContext', required: false, purpose: 'The meeting number a native Zoom poll is created on' },
 ];
 
 const capabilitiesWhere = (required) =>
@@ -2276,6 +2279,67 @@ export async function readZoomUserSummary() {
   } catch (error) {
     log(`Could not read your Zoom sign-in status: ${error.message || error.name}`, 'warn');
     return empty;
+  }
+}
+
+/**
+ * The meeting's number and topic, for the native Zoom poll: Zoom's REST API
+ * creates polls on the numeric meeting ID, which the app context does not carry.
+ *
+ * @returns {Promise<{meetingID: string|null, meetingTopic: string|null}>} nulls when the client cannot say
+ */
+export async function readMeetingContext() {
+  const empty = { meetingID: null, meetingTopic: null };
+  await initializeZoomSdk();
+  if (!sdkAvailable || !isApiAvailable('getMeetingContext')) return empty;
+  try {
+    const context = await zoomSdk.getMeetingContext();
+    return {
+      meetingID: context?.meetingID != null ? String(context.meetingID) : null,
+      meetingTopic: typeof context?.meetingTopic === 'string' ? context.meetingTopic : null,
+    };
+  } catch (error) {
+    log(`Could not read the meeting context: ${error.message || error.name}`, 'warn');
+    return empty;
+  }
+}
+
+/**
+ * Post a message to the meeting chat, as this user. Used for the poll's voting
+ * link; a client that refused the capability answers false, and the caller
+ * falls back to Copy link.
+ *
+ * @param {string} message
+ * @returns {Promise<boolean>} whether Zoom took it
+ */
+export async function sendChatMessage(message) {
+  await initializeZoomSdk();
+  if (!sdkAvailable || !isApiAvailable('sendMessageToChat')) return false;
+  try {
+    await zoomSdk.sendMessageToChat({ message });
+    return true;
+  } catch (error) {
+    log(`Could not post to the meeting chat: ${error.message || error.name}`, 'warn');
+    return false;
+  }
+}
+
+/**
+ * Invite every participant into this app, so they can vote in the open poll.
+ * The invitation carries no data: the invited app finds the poll itself
+ * (POST /api/polls/current).
+ *
+ * @returns {Promise<boolean>} whether Zoom sent it
+ */
+export async function inviteAllParticipants() {
+  await initializeZoomSdk();
+  if (!sdkAvailable || !isApiAvailable('sendAppInvitationToAllParticipants')) return false;
+  try {
+    await zoomSdk.sendAppInvitationToAllParticipants();
+    return true;
+  } catch (error) {
+    log(`Could not invite everyone into the app: ${error.message || error.name}`, 'warn');
+    return false;
   }
 }
 

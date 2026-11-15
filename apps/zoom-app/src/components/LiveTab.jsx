@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, memo, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, memo, lazy, Suspense, useSyncExternalStore } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
 import { Play, Square, RotateCcw, Eraser, Video, Image, Volume2, Lock } from 'lucide-react';
@@ -14,7 +14,7 @@ import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeIn
 import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, isClubBadgeMoved, getZoomParticipants, OVERLAY_MODE_CARD, OVERLAY_MODE_STAGE, notifyCardImagesChanged, preloadBackgroundImages } from '../utils/zoomSdk';
 import { useClub } from '../hooks/useClub';
 import { SOUNDS_LOCK_MESSAGES, useSoundsAccess } from '../hooks/useSounds';
-import { formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle } from '@toastmaster-timer/shared';
+import { formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle, getStageWinners, subscribeStageWinners } from '@toastmaster-timer/shared';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { trackEvent } from '../utils/posthog';
 
@@ -38,6 +38,8 @@ const PREVIEW_COLORS = [
 
 export default memo(function LiveTab() {
   const { isRunning, elapsedTime, currentStatus } = useTimerTick();
+  // Winners the POLL tab's "Show on Stage" put up, for this device's stage only.
+  const pollWinners = useSyncExternalStore(subscribeStageWinners, getStageWinners, getStageWinners);
   const {
     currentSpeaker,
     startTimer,
@@ -1006,6 +1008,7 @@ export default memo(function LiveTab() {
           onRenameSpeaker={handleRenameSpeaker}
           clubKit={clubKit}
           badgePlacement={badgePlacement}
+          pollWinners={pollWinners}
         />
       )}
 

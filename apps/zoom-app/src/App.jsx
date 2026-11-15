@@ -8,14 +8,18 @@ import TimerSounds from './components/TimerSounds';
 import ContactCapture from './components/ContactCapture';
 import ZoomConnectionNotice from './components/ZoomConnectionNotice';
 import ClubStatusBanner from './components/ClubStatusBanner';
+import { PollVoteBanner } from './components/PollVote';
+import { useFlag } from './hooks/useFlag';
 import './App.css';
 
 const LiveTab = lazy(() => import('./components/LiveTab'));
 const AgendaTab = lazy(() => import('./components/AgendaTab'));
 const ReportTab = lazy(() => import('./components/ReportTab'));
+const PollTab = lazy(() => import('./components/PollTab'));
 
 function App() {
   const [activeTab, setActiveTab] = useState('live');
+  const { enabled: pollsOn } = useFlag('polls');
 
   return (
     <ToastProvider>
@@ -27,6 +31,8 @@ function App() {
               is rarely whoever pays. */}
           <ClubStatusBanner />
           <NavTabs activeTab={activeTab} onTabChange={setActiveTab} />
+          {/* A poll someone opened in this meeting: one tap to the ballot. */}
+          {pollsOn && activeTab !== 'poll' && <PollVoteBanner onOpen={() => setActiveTab('poll')} />}
 
           <Suspense fallback={
             <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',flex:1}}>
@@ -38,6 +44,7 @@ function App() {
               {activeTab === 'live' && <LiveTab />}
               {activeTab === 'agenda' && <AgendaTab onSwitchToLive={() => setActiveTab('live')} />}
               {activeTab === 'report' && <ReportTab />}
+              {activeTab === 'poll' && pollsOn && <PollTab />}
             </div>
           </Suspense>
 

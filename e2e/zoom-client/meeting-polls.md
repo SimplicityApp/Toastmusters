@@ -5,14 +5,21 @@ status: stale
 covers:
   - apps/zoom-app/src/App.jsx
   - apps/zoom-app/src/components/NavTabs.jsx
+  - apps/zoom-app/src/components/PollTab.jsx
+  - apps/zoom-app/src/components/PollVote.jsx
   - apps/zoom-app/src/components/ReportTab.jsx
   - apps/zoom-app/src/components/TimerStage.jsx
   - apps/zoom-app/src/utils/zoomSdk.js
   - packages/shared/club.js
   - packages/shared/clubArchive.js
+  - packages/shared/polls.js
   - packages/shared/reportImage.js
   - worker/club-meetings.js
+  - worker/club-poll-template.js
   - worker/club-share.js
+  - worker/poll-room.js
+  - worker/polls.js
+  - worker/polls-zoom.js
   - worker/zoom-webhook.js
 automated:
   - worker/polls.test.js
@@ -47,10 +54,6 @@ client proves the SDK bridge (chat, invite, meeting context, authorize), the rea
 identities of a second participant and a guest, Zoom's own poll window and the
 meeting.ended webhook.
 
-When the implementation lands, add its files to `covers` (`PollTab.jsx`, `PollVote.jsx`,
-`worker/polls.js`, `packages/shared/polls.js`); they are left out here only because
-`npm run test:specs` refuses a path that does not exist yet.
-
 ## Purpose
 Catches a poll that cannot be opened from inside Zoom, a voting link that points at the
 `zoom.` host (which routes every path to the sidebar app), a chat post or invite that
@@ -76,8 +79,8 @@ Expect: each edit shows at once; the new role becomes that category's role and a
 Evidence: `toastmaster_role_rules` gains "Humorous Speech Contest"; `role_added` in PostHog.
 
 ### MP-04 · human · The voting link is posted to the meeting chat
-Do: with "Post to chat" on, click "Open poll". The user confirms the chat message (it sends a message to the meeting).
-Expect: the sidebar shows `https://www.timer-dev.simple-tech.app/vote/<id>` with Copy link; the meeting chat shows the same link once. With "Post to chat" off, nothing is posted and Copy link still shows.
+Do: with "Post the voting link in the meeting chat" on, click "Open poll". The user confirms the chat message (it sends a message to the meeting).
+Expect: the sidebar shows `https://www.timer-dev.simple-tech.app/vote/<id>` with Copy link; the meeting chat shows the same link once. With it off, nothing is posted and Copy link still shows.
 Evidence: `POST /api/polls` 201 in the Worker log; `poll_opened` in PostHog; screenshot of the chat.
 
 ### MP-05 · human · A second device votes through the link

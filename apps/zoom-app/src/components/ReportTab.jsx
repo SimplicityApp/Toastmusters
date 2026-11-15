@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { useTimer } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
 import { Copy, Check, Trash2, X, History, CloudOff, ChevronLeft, Share2 } from 'lucide-react';
@@ -6,7 +6,7 @@ import { useState } from 'react';
 import BrandedReportHeader from '@toastmaster-timer/ui/BrandedReportHeader';
 import ReportHistoryList from '@toastmaster-timer/ui/ReportHistoryList';
 import ShareStep from '@toastmaster-timer/ui/ShareStep';
-import { fetchHistory, fetchMeeting, endMeetingAndShare, copyReportImage } from '@toastmaster-timer/shared';
+import { fetchHistory, fetchMeeting, endMeetingAndShare, copyReportImage, loadPollResults, savePollResult, recordPollResults, categoryTitle } from '@toastmaster-timer/shared';
 import ConfirmModal from './ConfirmModal';
 import { useClub, useOutboxPending } from '../hooks/useClub';
 import { getSessionToken } from '../utils/zoomIdentity';
@@ -44,6 +44,38 @@ export default memo(function ReportTab() {
   const [openMeeting, setOpenMeeting] = useState(null);
   // null | { phase: 'title'|'working'|'done', title, result }
   const [share, setShare] = useState(null);
+  // This meeting's closed polls (POLL tab), oldest first.
+  const [polls, setPolls] = useState(() => loadPollResults());
+
+  // A native Zoom poll's answers arrive after the meeting ends (the Worker
+  // fetches them on meeting.ended). Picked up here, once, and archived like the
+  // poll they belong to.
+  useEffect(() => {
+    const token = getSessionToken();
+    const waiting = loadPollResults().filter((poll) => poll.zoomPoll && !poll.zoom);
+    if (!token || !waiting.length) return;
+    let alive = true;
+    (async () => {
+      for (const poll of waiting) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await fetch(`/api/polls/${poll.pollId}/results`, { headers: { Authorization: `Bearer ${token}` } });
+          // eslint-disable-next-line no-await-in-loop
+          const body = response.ok ? await response.json() : null;
+          if (!body?.zoom) continue;
+          const merged = { ...poll, zoom: body.zoom };
+          savePollResult(merged);
+          recordPollResults(merged, { getToken: getSessionToken });
+        } catch {
+          // Offline: the next visit to this tab tries again.
+        }
+      }
+      if (alive) setPolls(loadPollResults());
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // A lapsed club keeps its cached record (the device still knows which club to
   // re-check) but stops archiving, so the strip and History go with it.
@@ -53,7 +85,7 @@ export default memo(function ReportTab() {
   const endMeeting = async () => {
     const title = share?.title ?? '';
     setShare({ phase: 'working', title, result: null });
-    const result = await endMeetingAndShare({ title, speeches: reports, getToken: getSessionToken });
+    const result = await endMeetingAndShare({ title, speeches: reports, polls, getToken: getSessionToken });
     setShare({ phase: 'done', title, result });
     trackEvent('meeting_ended', {
       speeches: result.speeches,
@@ -183,6 +215,7 @@ export default memo(function ReportTab() {
   // and clearing this device's scratch list must not reach into it.
   const handleConfirmClear = () => {
     clearAllReports();
+    setPolls([]);
     setShowClearConfirm(false);
   };
 
@@ -215,6 +248,30 @@ export default memo(function ReportTab() {
             <History className="h-4 w-4" />
             History
           </button>
+        </div>
+      )}
+
+      {polls.length > 0 && (
+        <div className="rounded-lg border border-gray-200 p-3 space-y-2" data-testid="poll-results">
+          <h2 className="text-sm font-semibold text-gray-900">Poll winners</h2>
+          {polls.flatMap((poll) => poll.categories ?? []).map((category, i) => (
+            <div key={i} className="flex justify-between gap-2 text-sm">
+              <span className="text-gray-600">{categoryTitle(category)}</span>
+              <span className="font-semibold text-gray-900 text-right">
+                {category.winners?.length ? category.winners.join(', ') : 'No votes'}
+              </span>
+            </div>
+          ))}
+          {polls.filter((poll) => poll.zoom).map((poll) => (
+            <div key={`zoom-${poll.pollId}`} className="text-xs text-gray-600">
+              <div className="font-semibold">Zoom poll</div>
+              {(poll.zoom.questions ?? []).map((question, i) => (
+                <div key={i}>
+                  {question.name}: {Object.entries(question.answers ?? {}).map(([answer, n]) => `${answer} ${n}`).join(', ')}
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
 
