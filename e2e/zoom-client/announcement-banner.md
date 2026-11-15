@@ -66,6 +66,14 @@ Expect: the banner disappears at once and is not back after reopening.
 Evidence: `localStorage.toastmaster_announcements_dismissed` holds its id; PostHog
 `announcement_dismissed`.
 
+### AB-05 · auto · On the new look, the note says it is here
+Do: with FLAGS_FORCE "1,pro=0" on dev (`new_look` on, `pro` off), open the app on a device that
+never closed it.
+Expect: the strip above the top row reads "New look: the timer sits in the middle now, with your
+settings under Look & sound. Pro is coming soon." and the "Coming soon:" notice does not show.
+Closing it keeps both closed after reopening.
+Evidence: screenshot; `toastmaster_announcements_dismissed` holds `new-look-2026-11`.
+
 ## Not covered
 - The web app (`apps/web`). The shared banner and the list support `surfaces: ['web']`, but
   only the Zoom app renders it so far.

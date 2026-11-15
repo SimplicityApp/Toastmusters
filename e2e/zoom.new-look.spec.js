@@ -193,3 +193,33 @@ test('report: empty, then a speech to copy; the rules sheet edits a role', async
   await page.getByRole('button', { name: /Timing role/ }).click();
   await expect(page.getByRole('option', { name: /Ice Breaker/ })).toContainText('3:30 · 5:00 · 6:00');
 });
+
+// ── Phase 3: Pro, notices, stage ─────────────────────────────────────────
+
+test('the top note says the new look is here, while Pro is still coming', async ({ page }) => {
+  await openPanel(page);
+  await expect(page.getByText('New look:')).toBeVisible();
+  await expect(page.getByText('Coming soon:')).toHaveCount(0);
+});
+
+test('the Pro chip opens Upgrade as a sheet once Pro is released', async ({ page }) => {
+  await openPanel(page, { flags: { new_look: true, pro: true, sounds: true } });
+  await page.getByRole('button', { name: 'Upgrade to Pro' }).click();
+  const sheet = page.getByRole('dialog', { name: 'One Pro account for your whole club' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByText('Already on Pro through your club?')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+});
+
+test('the full-screen timer opens from its sheet and names the share', async ({ page }) => {
+  await openPanel(page);
+  await page.getByRole('button', { name: /^On your video/ }).click();
+  await page.getByRole('radio', { name: /Full-screen timer/ }).click();
+  const stage = page.getByTestId('timer-stage');
+  await expect(stage).toBeVisible();
+  await expect(stage.getByRole('button', { name: 'Share the timer to the meeting' })).toHaveText('Share to the meeting');
+  await stage.getByRole('button', { name: 'Close the timer stage' }).click();
+  await expect(stage).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'On your video: Timer only' })).toBeVisible();
+});

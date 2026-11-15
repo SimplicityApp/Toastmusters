@@ -8,6 +8,10 @@ covers:
   - apps/zoom-app/src/hooks/useNewLook.js
   - apps/zoom-app/src/components/VideoPreviewLayer.jsx
   - apps/zoom-app/src/hooks/useRulesEditor.js
+  - apps/zoom-app/src/components/TimerStage.jsx
+  - apps/zoom-app/src/components/ProLaunchModal.jsx
+  - apps/zoom-app/src/components/ClubSurveyModal.jsx
+  - apps/zoom-app/src/components/UpgradeModal.jsx
 automated:
   - e2e/zoom.new-look.spec.js
   - apps/zoom-app/src/b/NewLookShell.test.jsx
@@ -15,6 +19,7 @@ automated:
   - apps/zoom-app/src/b/TopBar.test.jsx
   - apps/zoom-app/src/b/Sheet.test.jsx
   - apps/zoom-app/src/b/AgendaReport.test.jsx
+  - apps/zoom-app/src/b/Phase3.test.jsx
   - apps/zoom-app/src/hooks/useNewLook.test.js
 needs:
   - dev deployed
@@ -159,8 +164,36 @@ shows 0:20 · 0:45 · 1:00 and the video turns green at 0:20. On the club device
 "Using Claude Test Club's timings" with "Use mine".
 Evidence: screenshots; `toastmaster_role_rules`.
 
+### NL-17 · auto · Pro chip and ⋯ once Pro is released
+Do: with FLAGS_FORCE "1" on a free device, look at the top row; press the Pro chip; close; ⋯.
+Expect: a blue "Pro" chip with the red launch dot; Upgrade opens as a sheet from the bottom edge
+with the PRO tag, the prices and the club code field; ⋯ starts with "Your plan · Free · See Pro"
+and "Join my club with a code". On the club Pro device the chip is amber and reads "Manage".
+Evidence: screenshots.
+
+### NL-18 · auto · The full-screen timer from its sheet
+Do: "On your video" → Full-screen timer; press "Share to the meeting"; stop sharing; close the
+stage.
+Expect: the stage covers the panel with the card artwork; the share button reads "Share to the
+meeting" and starts a Zoom share of the timer; closing returns to the panel in Timer only.
+Evidence: screenshots; Zoom's share toolbar.
+
+### NL-19 · auto · The club question as a sheet
+Do: with the prompt debug controls (dev build) or a due prompt, let the club question come up
+after FINISH.
+Expect: "Which club are you from?" rises as a sheet; Not now closes it; Don't ask me again
+retires it.
+Evidence: screenshots; `toastmaster_prompts`.
+
+### NL-20 · auto · The top note on the new look
+Do: on a device that never closed it, open the app with FLAGS_FORCE "1,pro=0".
+Expect: "New look: the timer sits in the middle now, with your settings under Look & sound. Pro
+is coming soon." above the top row (see announcement-banner AB-05).
+Evidence: screenshot.
+
 ## Not covered
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
 - Audio of the sounds: timer-sounds.
-- The Pro sheets, the banners and the stage restyle: steps added with plan 13's Phase 3.
+- The connection and club-renewal banners: unchanged by design B (they already sit at the top
+  as the boards draw them); connection-notice and club-renewal-reminder cover them.
 - Dragging agenda rows: the same dnd-kit sorting as today's tab, covered by the e2e and unit tests.
