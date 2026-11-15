@@ -71,3 +71,6 @@ Evidence: screenshot.
   the same banner earlier the same day.
 - Other club behaviour in `club.js` (joining, refresh, lapse, card sets). See
   [club-card-sets](club-card-sets.md); `pro-club` is not migrated yet.
+  Reviewed 2026-11-14 against fix/club-token-refresh-grace: its only `club.js` change is the
+  comment on `refreshClub`'s 401/403/404 branch; the banner and reminder are untouched. The
+  refresh keeping a device in its club past 24 h is club-card-sets CC-10.

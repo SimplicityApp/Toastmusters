@@ -64,3 +64,6 @@ Evidence: screenshots.
   `TimerApp.test.jsx`.
 - A club that lapses while `pro` is on: [club-renewal-reminder](club-renewal-reminder.md) and
   the lapse steps in [club-card-sets](club-card-sets.md).
+- The daily club refresh with a token past 24 h (fix/club-token-refresh-grace). Reviewed
+  2026-11-14: its only `club.js` change is a comment in `refreshClub`; the gate is untouched.
+  See [club-card-sets](club-card-sets.md) CC-10.
