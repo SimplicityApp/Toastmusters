@@ -11,6 +11,8 @@ needs:
   - dev deployed
   - a second Zoom account in the `authenticated` state, in a meeting with the owner (docs/ZOOM_AUTH_AND_REDIRECTS.md, "Reaching the authenticated state deliberately")
   - camera on, Timer + Camera mode
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: never
 verified_on: never
 ---

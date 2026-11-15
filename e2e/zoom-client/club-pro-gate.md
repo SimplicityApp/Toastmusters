@@ -17,6 +17,8 @@ needs:
   - FLAGS_FORCE "0" on dev (`pro` off) for GP-01 and GP-02; "1" for GP-03
   - a club device whose club is active (Claude Test Club on the test Mac), with a club card
     set, club timings and the badge shown on cards
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: 32ebeb7
 verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev with FLAGS_FORCE "0" then "1")
 ---

@@ -12,6 +12,8 @@ automated:
 needs:
   - dev deployed
   - FLAGS_FORCE "0" on dev (`pro` off) for PC-01 to PC-03; "1" for PC-04
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: 4d95d3d
 verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev 3e3f2561 and 2fcb1b39)
 ---

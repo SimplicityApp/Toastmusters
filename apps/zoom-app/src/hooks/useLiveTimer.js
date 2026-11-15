@@ -978,6 +978,7 @@ export function useLiveTimer() {
     showSoundsModal,
     setShowSoundsModal,
     soundsLockReason,
+    cardImagesGeneration,
     setCardImagesGeneration,
     videoState,
     isClearingVideo,

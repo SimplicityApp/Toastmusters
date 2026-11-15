@@ -16,6 +16,8 @@ automated:
 needs:
   - dev deployed
   - camera on, in a meeting
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: 905d8d1
 verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev 3ce801a6)
 ---

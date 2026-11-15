@@ -23,6 +23,8 @@ needs:
   - a free account, then a Pro one (club code via /pro/<CODE>, or a subscription)
   - speakers or headphones on the test computer
   - a second participant on another computer, for TS-07 only
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: never
 verified_on: never
 ---

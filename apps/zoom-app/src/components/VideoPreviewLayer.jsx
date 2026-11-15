@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { Move, Plus, Minus, Eye, EyeOff, RotateCcw } from 'lucide-react';
 import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge';
 
+// Written out in full, so Tailwind sees every class it has to generate.
+const CHIP_REVEAL = 'opacity-0 transition-opacity group-hover/chip:opacity-100 group-focus-within/chip:opacity-100';
+const BADGE_REVEAL = 'opacity-0 transition-opacity group-hover/badge:opacity-100 group-focus-within/badge:opacity-100';
+
 /**
  * What the organizer moves around on the timer preview: the count-up chip
  * participants see on the video, and the club's badge. Each is dragged into
@@ -15,6 +19,12 @@ import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge';
  *
  * Rendered inside the positioned preview box; both pieces are absolutely
  * placed within it.
+ *
+ * `revealControls` 'hover' (design B) keeps the − / + / eye / reset buttons
+ * out of sight until the pointer is on the chip or badge, or keyboard focus is
+ * inside it; 'always' (today's panel) shows them all the time. `chipHint` is a
+ * one-line note under the chip; `onChipEngaged` fires the first time the
+ * pointer reaches the chip, so a caller can retire that note.
  */
 export default function VideoPreviewLayer({
   containerRef,
@@ -31,7 +41,11 @@ export default function VideoPreviewLayer({
   onAdjustBadgeScale,
   onToggleBadgeVisible,
   onResetBadgePlacement,
+  revealControls = 'always',
+  chipHint = null,
+  onChipEngaged,
 }) {
+  const hover = revealControls === 'hover';
   const [dragging, setDragging] = useState(false);
   const [draggingBadge, setDraggingBadge] = useState(false);
 
@@ -51,6 +65,7 @@ export default function VideoPreviewLayer({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragging(true);
+    onChipEngaged?.();
   };
 
   const handlePointerMove = (event) => {
@@ -106,7 +121,7 @@ export default function VideoPreviewLayer({
               transform: 'translate(-50%, -50%)',
               maxWidth: '44%',
             }}
-            className="pointer-events-auto"
+            className={hover ? 'group/badge pointer-events-auto' : 'pointer-events-auto'}
           >
             <button
               type="button"
@@ -128,7 +143,13 @@ export default function VideoPreviewLayer({
               />
             </button>
             {!draggingBadge && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex items-center gap-0.5">
+              <div
+                className={
+                  hover
+                    ? `absolute top-full left-1/2 -translate-x-1/2 pt-1 flex items-center gap-0.5 ${BADGE_REVEAL}`
+                    : 'absolute top-full left-1/2 -translate-x-1/2 mt-1 flex items-center gap-0.5'
+                }
+              >
                 {badgePlacement.visible && (
                   <>
                     <button
@@ -196,6 +217,8 @@ export default function VideoPreviewLayer({
             top: `${readoutPosition.y * 100}%`,
             transform: 'translate(-50%, -50%)',
           }}
+          className={hover ? 'group/chip' : undefined}
+          onMouseEnter={onChipEngaged}
         >
           <button
             type="button"
@@ -251,23 +274,51 @@ export default function VideoPreviewLayer({
               </button>
             );
             return nearLeftEdge ? (
-              <div className="absolute left-full top-1/2 -translate-y-1/2 ml-1 flex items-center gap-0.5">
+              <div
+                className={
+                  hover
+                    ? `absolute left-full top-1/2 -translate-y-1/2 pl-1 flex items-center gap-0.5 ${CHIP_REVEAL}`
+                    : 'absolute left-full top-1/2 -translate-y-1/2 ml-1 flex items-center gap-0.5'
+                }
+              >
                 {sizeButtons}
                 {eyeButton}
               </div>
             ) : (
               <>
                 {readoutVisible && (
-                  <div className="absolute right-full top-1/2 -translate-y-1/2 mr-1 flex items-center gap-0.5">
+                  <div
+                    className={
+                      hover
+                        ? `absolute right-full top-1/2 -translate-y-1/2 pr-1 flex items-center gap-0.5 ${CHIP_REVEAL}`
+                        : 'absolute right-full top-1/2 -translate-y-1/2 mr-1 flex items-center gap-0.5'
+                    }
+                  >
                     {sizeButtons}
                   </div>
                 )}
-                <div className="absolute left-full top-1/2 -translate-y-1/2 ml-1 flex items-center">
+                <div
+                  className={
+                    hover
+                      ? `absolute left-full top-1/2 -translate-y-1/2 pl-1 flex items-center ${CHIP_REVEAL}`
+                      : 'absolute left-full top-1/2 -translate-y-1/2 ml-1 flex items-center'
+                  }
+                >
                   {eyeButton}
                 </div>
               </>
             );
           })()}
+          {chipHint && !dragging && (
+            <span
+              role="note"
+              className={`pointer-events-none absolute whitespace-nowrap rounded-md bg-gray-900 px-2 py-1.5 text-[11px] leading-snug text-white shadow-lg ${
+                readoutPosition.y > 0.5 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+              } ${readoutPosition.x > 0.6 ? 'right-0' : 'left-0'}`}
+            >
+              {chipHint}
+            </span>
+          )}
         </div>
       )}
     </>

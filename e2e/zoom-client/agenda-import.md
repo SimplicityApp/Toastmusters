@@ -17,6 +17,8 @@ needs:
   - club presets not live on this device (not in a club, or "Mine" in Edit Timing Rules)
   - no custom role on the device shares a name with a role or bracket text below (note the device's custom roles in the run log; leave the rest, they are the user's own list)
   - built-in roles not hidden on this device (Standard Speech, Ice Breaker and Table Topics Speech in the role dropdown); a hidden one is highlighted as "not one of your roles" in IM-02, IM-05 and IM-06. Then IM-03, IM-05 and IM-06 use a listed role with the same thresholds where possible in its place (see the 2026-11-13 run under IM-06)
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: b029a29
 verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev a249d5d7)
 ---
