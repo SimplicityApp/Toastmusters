@@ -98,6 +98,9 @@ export function loadReports() {
 export function clearReports() {
   try {
     forget(STORAGE_KEYS.REPORTS);
+    // A meeting's poll draft and closed results (polls.js) go with its reports.
+    localStorage.removeItem('toastmaster_poll_draft');
+    localStorage.removeItem('toastmaster_poll_results');
   } catch (error) {
     console.error('Failed to clear reports:', error);
   }

@@ -257,6 +257,32 @@ function drawRow(ctx, speech, index, top) {
   }
 }
 
+/** Every category of every closed poll, in order: one Winners row each. */
+function winnerRows(polls) {
+  return (Array.isArray(polls) ? polls : []).flatMap((poll) => (Array.isArray(poll?.categories) ? poll.categories : []));
+}
+
+/** How much taller the full picture gets for its Winners block: a heading plus a row per category. */
+const winnersBlockHeight = (rows) => (rows.length ? REPORT_ROW_HEIGHT * (rows.length + 1) : 0);
+
+function drawWinners(ctx, rows, top) {
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = INK;
+  ctx.font = `bold 20px ${FONT_STACK}`;
+  ctx.fillText('Winners', PADDING, top + REPORT_ROW_HEIGHT / 2);
+  rows.forEach((category, index) => {
+    const middle = top + REPORT_ROW_HEIGHT * (index + 1) + REPORT_ROW_HEIGHT / 2;
+    ctx.fillStyle = MUTED;
+    ctx.font = `19px ${FONT_STACK}`;
+    ctx.fillText(ellipsizeText(ctx, String(category.label || category.role || ''), 400), PADDING, middle);
+    const names = Array.isArray(category.winners) && category.winners.length ? category.winners.join(', ') : 'No votes';
+    ctx.fillStyle = INK;
+    ctx.font = `bold 19px ${FONT_STACK}`;
+    ctx.fillText(ellipsizeText(ctx, names, REPORT_IMAGE_WIDTH - PADDING * 2 - 440), PADDING + 440, middle);
+  });
+}
+
 function drawFooter(ctx, height, { hidden = 0 } = {}) {
   const top = height - REPORT_FOOTER_HEIGHT;
   ctx.fillStyle = RULE;
@@ -279,14 +305,17 @@ function drawFooter(ctx, height, { hidden = 0 } = {}) {
  *   variant 'full'      1200 × (180 + 44·rows)   every speech — Copy image
  *   variant 'preview'   1200 × 630               six rows + "…and N more" — the OG image
  *
+ * Closed poll results (`polls`, as the club archive stores them) add a
+ * Winners block under the speeches on the full picture.
+ *
  * @param {{club?: Object|null, kit?: Object|null, meeting?: Object|null,
- *   speeches?: Array<Object>}} report
+ *   speeches?: Array<Object>, polls?: Array<Object>}} report
  * @param {{variant?: 'full'|'preview', createCanvas?: Function,
  *   logo?: CanvasImageSource|null, label?: string}} [options]
  * @returns {Promise<Blob|null>} null when the device has no PNG encoder
  */
 export async function renderReportPng(
-  { club = null, kit = null, meeting = null, speeches = [] } = {},
+  { club = null, kit = null, meeting = null, speeches = [], polls = [] } = {},
   { variant = 'full', createCanvas = defaultCreateCanvas, logo = null, label = 'Timing report' } = {}
 ) {
   const rows = Array.isArray(speeches) ? speeches : [];
@@ -294,7 +323,8 @@ export async function renderReportPng(
   const shown = preview ? rows.slice(0, PREVIEW_MAX_ROWS) : rows;
   const hidden = rows.length - shown.length;
 
-  const height = preview ? PREVIEW_IMAGE_HEIGHT : reportImageHeight(shown.length);
+  const winners = preview ? [] : winnerRows(polls);
+  const height = preview ? PREVIEW_IMAGE_HEIGHT : reportImageHeight(shown.length) + winnersBlockHeight(winners);
   const canvas = createCanvas(REPORT_IMAGE_WIDTH, height);
   // A stub canvas in a test gets its size from the constructor; a real one
   // needs it assigned, and assigning it also clears the bitmap.
@@ -321,6 +351,8 @@ export async function renderReportPng(
   shown.forEach((speech, index) => {
     drawRow(ctx, speech ?? {}, index, REPORT_HEADER_HEIGHT + index * REPORT_ROW_HEIGHT);
   });
+
+  if (winners.length) drawWinners(ctx, winners, REPORT_HEADER_HEIGHT + shown.length * REPORT_ROW_HEIGHT);
 
   drawFooter(ctx, height, { hidden: preview ? hidden : 0 });
 

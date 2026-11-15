@@ -40,6 +40,9 @@ export const SYNCED_KEYS = Object.freeze([
   // Which uploaded picture belongs to which card slot, so another device knows
   // what artwork to fetch. The pictures themselves live in R2, not here.
   'toastmaster_card_asset_hashes',
+  // The personal ballot setup for meeting polls (polls.js). One meeting's draft
+  // and its results stay local, and a club device reads the club's copy.
+  'toastmaster_poll_template',
 ]);
 
 const SYNCED = new Set(SYNCED_KEYS);

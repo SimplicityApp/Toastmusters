@@ -28,6 +28,8 @@ export const CLUB_PRESETS_STORAGE_KEY = 'toastmaster_club_presets';
 export const PRESET_SOURCE_STORAGE_KEY = 'toastmaster_preset_source';
 /** The club's published card set, as the device last received it: hashes, not pixels. */
 export const CLUB_CARDS_STORAGE_KEY = 'toastmaster_club_cards';
+/** The club's published poll template (polls.js), as the device last received it. */
+export const CLUB_POLL_TEMPLATE_STORAGE_KEY = 'toastmaster_club_poll_template';
 /**
  * Which cards this device shows: 'club' or 'own'. Unset means derived, as the
  * preset switch is: a device that never chose its own cards shows the club's.
@@ -178,6 +180,16 @@ export function saveClubPresets(presets) {
   try {
     if (presets?.rules) localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, JSON.stringify(presets));
     else localStorage.removeItem(CLUB_PRESETS_STORAGE_KEY);
+  } catch {
+    // Private mode. The club still works this page load; it just re-fetches.
+  }
+}
+
+/** @param {Object|null} template - null removes the key */
+export function saveClubPollTemplate(template) {
+  try {
+    if (template?.categories) localStorage.setItem(CLUB_POLL_TEMPLATE_STORAGE_KEY, JSON.stringify(template));
+    else localStorage.removeItem(CLUB_POLL_TEMPLATE_STORAGE_KEY);
   } catch {
     // Private mode. The club still works this page load; it just re-fetches.
   }
@@ -770,6 +782,7 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
   // set lands the same way, behind its own switch in cardImages.js.
   saveClubPresets(body.presets ?? null);
   saveClubCards(body.cards ?? null);
+  saveClubPollTemplate(body.pollTemplate ?? null);
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
   warmLogoQuietly();
@@ -832,6 +845,7 @@ export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
   // resolves, so nobody is ever shown a code and asked to type it back in.
   saveClubPresets(body.presets ?? null);
   saveClubCards(body.cards ?? null);
+  saveClubPollTemplate(body.pollTemplate ?? null);
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
   warmLogoQuietly();
@@ -913,6 +927,9 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
   // none at all, so a device that last refreshed on a bundle that did not know
   // about card sets still receives the one already published.
   if (verMoved || (!loadClubCards() && body.cards)) saveClubCards(body.cards ?? null);
+  // The poll template too: a member's one-meeting edits live in the poll draft,
+  // so only a publish replaces this copy.
+  if (verMoved) saveClubPollTemplate(body.pollTemplate ?? null);
 
   const entry = store(toCacheEntry(body, { clubToken: body.clubToken ?? club.clubToken, lastRefreshAt: now }));
   applyPlan(clubEntitlementOf(entry));
@@ -963,6 +980,7 @@ export function leaveClub({ fetchImpl } = {}) {
   // touched, so its own choice is simply what shows again.
   saveClubCards(null);
   writeCardSource(null);
+  saveClubPollTemplate(null);
   // The badge placement goes with the club: it is a position on the club's
   // badge, and there is no badge to place once the club is gone.
   clearClubBadgeOverride();
@@ -1013,6 +1031,21 @@ export function rememberPublishedCards(ver, cards) {
   const club = loadClub();
   if (!club) return null;
   saveClubCards(cards ?? null);
+  return store({ ...club, ver: typeof ver === 'number' ? ver : club.ver });
+}
+
+/**
+ * Take the answer to a poll template publish, for the same reason
+ * `rememberPublishedPresets` exists.
+ *
+ * @param {number} ver
+ * @param {Object|null} template
+ * @returns {Object|null} the club as it now stands
+ */
+export function rememberPublishedPollTemplate(ver, template) {
+  const club = loadClub();
+  if (!club) return null;
+  saveClubPollTemplate(template ?? null);
   return store({ ...club, ver: typeof ver === 'number' ? ver : club.ver });
 }
 

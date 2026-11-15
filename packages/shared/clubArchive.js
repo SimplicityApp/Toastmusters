@@ -309,6 +309,40 @@ export function recordSpeech(speech, { getToken, fetchImpl, now = Date.now() } =
   return entry;
 }
 
+/**
+ * Queue a closed poll's results for the meeting this device is timing.
+ *
+ * The same outbox as speeches, so the results survive a reload and go out in
+ * the order things happened. The Worker keys them by `pollId`, so a retry
+ * rewrites the same record. Same rules as `recordSpeech`: no club, or a lapsed
+ * one, queues nothing.
+ *
+ * @param {{pollId: string, closedAt?: number, categories: Array}} results
+ * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch, now?: number}} [options]
+ * @returns {Object|null} the queued entry, or null when there was no club
+ */
+export function recordPollResults(results, { getToken, fetchImpl, now = Date.now() } = {}) {
+  const club = loadClub();
+  if (!club?.clubToken || !club.entitled || !results?.pollId) return null;
+
+  const entry = {
+    kind: 'poll',
+    pollId: String(results.pollId),
+    meetingId: deriveMeetingId({ now, timezone: club.timezone ?? null }),
+    closedAt: typeof results.closedAt === 'number' ? results.closedAt : now,
+    categories: Array.isArray(results.categories) ? results.categories : [],
+  };
+
+  const queued = [...readOutbox(), entry];
+  writeOutbox(queued.length > MAX_OUTBOX_ENTRIES ? queued.slice(-MAX_OUTBOX_ENTRIES) : queued);
+  notify();
+  drainOutbox({ getToken, fetchImpl }).catch(() => {});
+  return entry;
+}
+
+/** What identifies an outbox entry: a speech by its id, a poll by its. */
+const entryKey = (entry) => (entry.kind === 'poll' ? `poll:${entry.pollId}` : entry.speechId);
+
 // One request in flight at a time, the same discipline the overlay queue and
 // the profile push already use. Concurrent callers share the running drain.
 let draining = null;
@@ -349,7 +383,9 @@ function withDeadline(promise, ms, controller) {
 async function uploadOne(entry, { getToken, fetchImpl }) {
   const token = getToken?.();
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const request = (fetchImpl ?? fetch)(`${MEETINGS_ENDPOINT}/${encodeURIComponent(entry.meetingId)}/speeches`, {
+  const isPoll = entry.kind === 'poll';
+  const route = isPoll ? 'polls' : 'speeches';
+  const request = (fetchImpl ?? fetch)(`${MEETINGS_ENDPOINT}/${encodeURIComponent(entry.meetingId)}/${route}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -359,7 +395,7 @@ async function uploadOne(entry, { getToken, fetchImpl }) {
     credentials: 'same-origin',
     cache: 'no-store',
     ...(controller ? { signal: controller.signal } : {}),
-    body: JSON.stringify({
+    body: JSON.stringify(isPoll ? { pollId: entry.pollId, closedAt: entry.closedAt, categories: entry.categories } : {
       speechId: entry.speechId,
       name: entry.name,
       role: entry.role,
@@ -496,7 +532,7 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
       }
       // Anything else — accepted, or refused in a way a retry cannot fix —
       // means this entry is done travelling.
-      const remaining = readOutbox().filter((queued) => queued.speechId !== entry.speechId);
+      const remaining = readOutbox().filter((queued) => entryKey(queued) !== entryKey(entry));
       writeOutbox(remaining);
       notify();
       if (response.ok) sent += 1;
@@ -723,7 +759,7 @@ function isRepeatShare(localIds, last) {
  *
  * @param {{title?: string|null, speeches?: Array<Object>, meetingId?: string,
  *   getToken?: () => string|null, fetchImpl?: typeof fetch, now?: number,
- *   createCanvas?: Function}} [options]
+ *   createCanvas?: Function, polls?: Array<Object>}} [options]
  * @returns {Promise<{meetingId: string, date: string|null, title: string|null,
  *   speeches: number, overtime: number, blob: Blob|null, filename: string,
  *   url: string|null, token: string|null, error: string|null}>}
@@ -736,6 +772,7 @@ export async function endMeetingAndShare({
   fetchImpl,
   now = Date.now(),
   createCanvas,
+  polls = [],
 } = {}) {
   const club = loadClub();
   const kit = clubKit();
@@ -785,7 +822,9 @@ export async function endMeetingAndShare({
   result.speeches = shown.length;
   result.overtime = shown.filter(isOvertime).length;
 
-  const report = { club, kit, meeting: { meetingId: id, date, title: cleanTitle }, speeches: shown };
+  // This device's closed polls draw the Winners block; the /r/ page reads the
+  // same results from the archive.
+  const report = { club, kit, meeting: { meetingId: id, date, title: cleanTitle }, speeches: shown, polls };
   const draw = { logo: getClubLogoImage(), ...(createCanvas ? { createCanvas } : {}) };
   let previewPng = null;
   try {

@@ -20,3 +20,4 @@ export * from './clubCards.js';
 export * from './clubArchive.js';
 export * from './reportImage.js';
 export * from './timerSounds.js';
+export * from './polls.js';
