@@ -71,6 +71,11 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: /factory-build ${{ steps.gate.outputs.issue }}
           claude_args: --model claude-opus-5-5 --effort high --max-turns 200 --allowedTools Bash,Read,Edit,Write,MultiEdit,Glob,Grep,Task,Skill
+          # Factory PRs are opened by the Claude bot, which the action counts as untrusted since
+          # 2026-11-12 (restrict_untrusted_prs, on by default) and so denies node/npm/vitest.
+          # The trust check is this workflow's gate: state.mjs only lets a station run after a
+          # factory actor opened the human gate (.factory/README.md), and fork PRs get no secrets.
+          restrict_untrusted_prs: "false"
       - name: Check the station ran
         if: steps.gate.outputs.issue
         env:
