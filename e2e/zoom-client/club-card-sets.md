@@ -1,7 +1,7 @@
 ---
 id: club-card-sets
 title: Club card sets (share card artwork with the club)
-status: current
+status: stale
 covers:
   - worker/club-cards.js
   - packages/shared/clubCards.js
@@ -105,6 +105,9 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 `ver` went up by 1; `GET /api/club/cards/<old hash>` with a club token → 404 (pruned).
 
 ## Not covered
+- Meeting polls (#80): `club.js` also stores the club's poll template, `club-cards.js` shares its
+  publisher check with it, and `LiveTab.jsx` passes poll winners to the Stage. Reviewed
+  2026-11-15: the card set flow is unchanged; see [meeting-polls](meeting-polls.md). Rerun pending.
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.
 - Card sets are one per club for now (open question 2 in the plan).

@@ -107,6 +107,8 @@ Evidence: the second participant confirms; note the result for each share path i
 log.
 
 ## Not covered
+- Meeting polls (#80, `LiveTab.jsx` passes poll winners to the Stage). Reviewed 2026-11-15: no
+  effect on sounds; see [meeting-polls](meeting-polls.md). Not rerun for it.
 - Break music from audio files. Only the synthesized "Music box" track ships so far; licensed
   tracks under `apps/zoom-app/public/music/` will add file playback, which needs its own
   step.

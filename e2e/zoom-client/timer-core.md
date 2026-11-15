@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: current
+status: stale
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -163,6 +163,9 @@ TC-10, TC-11 and TC-13 passed with the same substitutions; TC-09 and TC-12 not r
 Log: test-runs/2026-11-13-pre-master-specs/run.md.
 
 ## Not covered
+- Meeting polls (#80): `LiveTab.jsx` passes the poll winners to the Stage, and `zoomSdk.js`
+  gained three optional APIs (chat, invite, meeting context). Reviewed 2026-11-15: no step here
+  changes; the winners panel and the APIs are in [meeting-polls](meeting-polls.md). Rerun pending.
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).
 - Choosing the background you return to between speeches. Its picker lives only in Card

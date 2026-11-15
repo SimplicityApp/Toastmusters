@@ -125,5 +125,8 @@ Reviewed against #88 (2026-11-01): its `zoomSdk.js` changes are the overlay queu
 frame only; nothing in authorize, `onAuthorized` or the contact flow. No step changes.
 
 ## Not covered
+- Meeting polls (#80) added three optional APIs to `zoomSdk.js` and reuse
+  `requestZoomAuthorizeCode` for the native Zoom poll. Reviewed 2026-11-15: contact capture is
+  unchanged; see [meeting-polls](meeting-polls.md) MP-13, MP-14.
 - Zoom clients older than the one that supports `authorize` / `onAuthorized`.
 - Accounts where the admin blocks the scopes.
