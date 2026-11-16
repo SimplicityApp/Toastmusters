@@ -81,7 +81,11 @@ Evidence: screenshot; `toastmaster_announcements_dismissed` holds `new-look-2026
   yet; unit and e2e tests cover them. Run AB-02 against the first entry that does.
 - What replaces the pre-launch notice at launch: the one-time Pro announcement, on its own
   branch (`feat/pro-launch-announcement`) with its own spec.
-- Design B's panel (`new_look` on, plan 13). App.jsx now picks between today's panel and
-  NewLookShell; until design B's own shell lands, NewLookShell is today's panel, so these
-  steps hold either way. Run them with `new_look` off (`FLAGS_FORCE "1,new_look=0"` or
-  `"0"`); design B's banner placement gets its own steps with its shell.
+- Design B's panel (`new_look` on, plan 13): AB-05 covers its note. AB-01 to AB-04 describe
+  today's panel; run them with `new_look` off (`FLAGS_FORCE "1,new_look=0"` or `"0"`).
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): AB-05 passed with "1,pro=0"; AB-01 passed with
+"1,new_look=0". AB-02 and AB-03 not run: the test device closed the "Coming soon:" notice in an
+earlier run, and the Zoom webview has no inspector to clear
+`toastmaster_announcements_dismissed`; it stayed closed through this run's reopenings (AB-04's
+point). Rerun AB-02 to AB-04 on a device that never closed it. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.

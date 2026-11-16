@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: stale
+status: current
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -18,8 +18,8 @@ needs:
   - camera on, in a meeting
   - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
     today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
-verified_at: 905d8d1
-verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev 3ce801a6)
+verified_at: 7e05b9a
+verified_on: 2026-11-16 (Zoom 7.2.5, macOS 26.7.2, dev with FLAGS_FORCE "1,new_look=0")
 ---
 
 # Core timer in the Zoom client
@@ -165,6 +165,10 @@ second click (the first focused the panel). Log: test-runs/2026-11-13-91-live-ta
 Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6 with `FLAGS_FORCE` "1", Zoom on macOS): TC-01…TC-08,
 TC-10, TC-11 and TC-13 passed with the same substitutions; TC-09 and TC-12 not run (human).
 Log: test-runs/2026-11-13-pre-master-specs/run.md.
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,new_look=0", Zoom on macOS): TC-01…TC-08, TC-10,
+TC-11 and TC-13 passed on today's panel with the same substitutions; TC-09 and TC-12 not run
+(human). TC-06's resume toast had faded before the shot; elapsed and colour were right.
+Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 
 ## Not covered
 - Colour accuracy on every camera/background setting.

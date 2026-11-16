@@ -127,3 +127,11 @@ Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6, A = Zoom desktop, B = web app in 
 profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards" (null label in
 KV). CC-06 only from B, a guest with no Zoom session: 401, not the member 403. CC-07 (console
 sign-in) and CC-08 (lapsing the club) not run. Log: test-runs/2026-11-13-pre-master-specs/run.md.
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,new_look=0", A = Zoom desktop): CC-05
+passed. CC-01 added and selected "Custom 1" but showed no **Share with my club**: A's cached
+club role was null although its member row says admin. Its last refresh went out before the
+Zoom session existed (`refreshClub` at module load in `main.jsx`), so the server could not
+name the caller; tracked separately. CC-02 and CC-09 blocked by that; the set was deleted
+again. CC-03, CC-04, CC-06 to CC-08 need B, a member device or the console and were not run;
+CC-10 passed on #145's run the same day. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.

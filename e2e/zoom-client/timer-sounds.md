@@ -131,3 +131,9 @@ log.
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the sounds; no step here loads an agenda
   row. See [timer-core](timer-core.md) TC-13. Not rerun for it.
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): TS-09 passed with FLAGS_FORCE "0" on the club Pro device
+(the footer now shows the locked "Pro" coming-soon button, as on dev since 2026-11-14), and
+TS-05 with "1,new_look=0" after several closes, reopens and a Refresh app. Not run: TS-01 (no
+free account on the test Mac), TS-08 (needs FLAGS_FORCE cleared and `sounds` targeted off in
+PostHog), and the human steps. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.

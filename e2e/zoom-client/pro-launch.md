@@ -85,6 +85,8 @@ Expect: the red dot sits on the top row's Pro chip (there is no footer). 2.5 s a
 window shows the four timing cards over "NEW · Pro for your club" with the same words as PL-02;
 "See what's in Pro" opens Upgrade as a sheet from the bottom edge.
 Evidence: screenshots; `pro_launch_learn_more` in PostHog.
+Not run 2026-11-16 (design B pass): the only test device is in Claude Test Club, so it has no
+free plan to show the window to.
 
 ## Not covered
 - The footer while `pro` is off: since the merge with dev (2026-11-14) it shows the locked
