@@ -113,6 +113,36 @@ describe('VideoPreviewLayer', () => {
     expect(onResetBadgePlacement).toHaveBeenCalledTimes(1);
   });
 
+  it('in design B, keeps the chip and badge above the card text and every chip button inside near the right edge', () => {
+    // 2026-11-16 Zoom run: at the bottom right the card's status line took the
+    // − / + clicks, and the eye hung outside the panel.
+    render(
+      <Harness
+        revealControls="hover"
+        readoutPosition={{ x: 0.9, y: 0.85 }}
+        readoutVisible
+        clubKit={KIT}
+        badgePlacement={{ x: 0.8, y: 0.12, scale: 0.12, visible: true }}
+        chipHint="Drag me to move. Point at me to resize or hide."
+      />
+    );
+    expect(chip().parentElement.className).toContain('z-10');
+    expect(badge().parentElement.className).toContain('z-10');
+    const larger = screen.getByRole('button', { name: 'Make the count-up larger' });
+    const eye = screen.getByRole('button', { name: 'Hide the count-up from your video' });
+    expect(eye.parentElement).toBe(larger.parentElement);
+    expect(larger.parentElement.className).toContain('right-full');
+    // The one-time hint wraps rather than running off the panel.
+    expect(screen.getByRole('note').className).toContain('max-w-[11rem]');
+    expect(screen.getByRole('note').className).not.toContain('whitespace-nowrap');
+  });
+
+  it("leaves today's panel as it was: no layering class, the eye on the chip's right", () => {
+    render(<Harness readoutPosition={{ x: 0.9, y: 0.85 }} readoutVisible />);
+    expect(chip().parentElement.className).not.toContain('z-10');
+    expect(screen.getByRole('button', { name: 'Hide the count-up from your video' }).parentElement.className).toContain('left-full');
+  });
+
   it('draws no badge without a club kit', () => {
     render(<Harness clubKit={null} badgePlacement={{ x: 0.8, y: 0.12, scale: 0.12, visible: true }} />);
     expect(screen.queryByRole('button', { name: /club's badge/ })).not.toBeInTheDocument();

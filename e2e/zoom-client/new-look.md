@@ -48,7 +48,8 @@ Do: deploy dev with FLAGS_FORCE "1,pro=0", open Toastmasters Timer from Apps.
 Expect: one top row: Agenda / Timer / Report, a grey "Pro" chip with a lock, and ⋯. No
 footer. The Timer tab shows the blue card with "Who's speaking?", the role, the rules line,
 the preview, 00:00, "Ready · green at …", the four swatches, Start and Reset, then the four
-"Look & sound" rows. No horizontal scrollbar; Start is visible without scrolling.
+"Look & sound" rows. No horizontal scrollbar; Start is visible without scrolling. The one-time
+hint beside the chip ("Drag me to move. Point at me to resize or hide.") wraps inside the panel.
 Evidence: screenshot; `localStorage.toastmaster_new_look_last` is "1".
 
 ### NL-02 · auto · The card drives the colour on real video
@@ -68,9 +69,12 @@ Evidence: one `setVirtualBackground` / filter push in the debug log for the drag
 `toastmaster_overlay_time_readout` holds x > 0.7, y > 0.7.
 
 ### NL-04 · auto · The chip's controls show on hover only
-Do: move the pointer away from the preview, then onto the chip. Press +, then the eye.
+Do: move the pointer away from the preview, then onto the chip. Press +, then the eye. Show it
+again, drag the chip to the bottom right of the preview (over the status line), and press + there.
 Expect: − / + / eye are hidden until the pointer is on the chip. + makes the count-up on the
-video larger; the eye hides it from the video (the chip dims).
+video larger; the eye hides it from the video (the chip dims). At the bottom right the buttons
+still take clicks (the status line under the clock does not cover them) and all three stay
+inside the panel, to the chip's left.
 Evidence: screenshots before and after hover; readout scale and visibility in
 `toastmaster_overlay_time_readout`.
 
@@ -120,7 +124,9 @@ Evidence: screenshots; `toastmaster_club_badge`.
 ### NL-11 · auto · The ⋯ menu's help items
 Do: ⋯ → How-to videos; ⋯ → Send feedback (close it); ⋯ → Rate the app.
 Expect: the browser opens www.toastmusters.com/tutorials; the feedback dialog opens in the
-panel; the browser opens the Marketplace listing.
+panel; the browser opens the Marketplace listing. On the dev app Zoom stops How-to videos at
+"Accessing Untrusted Site": its Domain Allow List lacks www.toastmusters.com (the production
+app allows it). That stop is the pass on dev.
 Evidence: screenshots of the browser tabs.
 
 ### NL-12 · human · Video off
@@ -152,23 +158,27 @@ Do: with FLAGS_FORCE "1" on the club device, finish a speech; Report tab → His
 newest meeting, back; End meeting & share with a name.
 Expect: "Saved to Claude Test Club" above the list (or "waiting to upload" while offline);
 History opens as a sheet listing meetings; the meeting opens with the club header; the share
-sheet ends with "Meeting saved", a link and the picture; the note says Clear only empties this
-device.
+sheet ends with "Meeting saved", the text with its link, and WhatsApp / Email / Copy image / Copy
+link; the note says Clear only empties this device.
 Evidence: screenshots; `POST /api/club/meetings/...` in the Worker log.
 
 ### NL-16 · auto · Roles & timing rules: edit, save, and the club's list
 Do: ⋯ → Roles & timing rules; open Short Roles; set Green to 0:20; Save. Start a Short Roles
 speech. On the club device (FLAGS_FORCE "1"), open the sheet again.
-Expect: rows show each role's three times; one row opens at a time; after Save the role list
-shows 0:20 · 0:45 · 1:00 and the video turns green at 0:20. On the club device the strip reads
-"Using Claude Test Club's timings" with "Use mine".
+Expect: rows show each role's three times; one row opens at a time; no role row shows below the
+Reset all / Save footer; after Save the role list shows 0:20 · 0:45 · 1:00 and the video turns
+green at 0:20. On the club device the strip reads "Using Claude Test Club's timings" with
+"Use mine", or, once this device saved its own rules, "Using your own timings" with "Use Claude
+Test Club's"; each button switches to the other and back without losing the device's rules.
 Evidence: screenshots; `toastmaster_role_rules`.
 
 ### NL-17 · auto · Pro chip and ⋯ once Pro is released
 Do: with FLAGS_FORCE "1" on a free device, look at the top row; press the Pro chip; close; ⋯.
 Expect: a blue "Pro" chip with the red launch dot; Upgrade opens as a sheet from the bottom edge
 with the PRO tag, the prices and the club code field; ⋯ starts with "Your plan · Free · See Pro"
-and "Join my club with a code". On the club Pro device the chip is amber and reads "Manage".
+and "Join my club with a code". On the club Pro device the chip is amber; it opens the Pro sheet
+("This device is on Pro through Claude Test Club", Manage billing), and ⋯ starts with "Your plan ·
+Pro · Manage" with no "Join my club" row.
 Evidence: screenshots.
 
 ### NL-18 · auto · The full-screen timer from its sheet
@@ -179,8 +189,9 @@ meeting" and starts a Zoom share of the timer; closing returns to the panel in T
 Evidence: screenshots; Zoom's share toolbar.
 
 ### NL-19 · auto · The club question as a sheet
-Do: with the prompt debug controls (dev build) or a due prompt, let the club question come up
-after FINISH.
+Do: on a device that has not answered the club question, deploy dev built with
+`VITE_ENABLE_DEBUG_PANEL=true` (it drops the prompts' time gates; design B has no debug panel of
+its own), then FINISH speeches until the club question is due.
 Expect: "Which club are you from?" rises as a sheet; Not now closes it; Don't ask me again
 retires it.
 Evidence: screenshots; `toastmaster_prompts`.
@@ -190,6 +201,16 @@ Do: on a device that never closed it, open the app with FLAGS_FORCE "1,pro=0".
 Expect: "New look: the timer sits in the middle now, with your settings under Look & sound. Pro
 is coming soon." above the top row (see announcement-banner AB-05).
 Evidence: screenshot.
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,pro=0", then
+"1" for NL-09's second half, NL-10, NL-15, NL-16's club half and NL-17): NL-01–NL-03, NL-05–NL-11,
+NL-13–NL-18 and NL-20 passed. ❌ NL-04 at the bottom right: the status line under the clock
+(`opacity-95`, its own stacking context) covered − / +, and the eye hung outside the panel near
+the right edge; NL-01's hint ran off the panel; NL-16's footer left a strip where rows showed.
+All three fixed after the run (chip and badge at `z-10`, no opacity on the status line, buttons on
+the chip's left near the right edge, hint `max-w-[11rem]`, footer covering the sheet's padding)
+with unit and e2e checks, not yet rerun here. Not run: NL-12 (human), NL-19 (no prompt due),
+NL-17's free half (no free device). Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 
 ## Not covered
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".

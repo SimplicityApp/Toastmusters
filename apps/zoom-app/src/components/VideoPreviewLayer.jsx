@@ -23,7 +23,7 @@ const BADGE_REVEAL = 'opacity-0 transition-opacity group-hover/badge:opacity-100
  * `revealControls` 'hover' (design B) keeps the − / + / eye / reset buttons
  * out of sight until the pointer is on the chip or badge, or keyboard focus is
  * inside it; 'always' (today's panel) shows them all the time. `chipHint` is a
- * one-line note under the chip; `onChipEngaged` fires the first time the
+ * short note beside the chip (it wraps at 11rem); `onChipEngaged` fires the first time the
  * pointer reaches the chip, so a caller can retire that note.
  */
 export default function VideoPreviewLayer({
@@ -121,7 +121,7 @@ export default function VideoPreviewLayer({
               transform: 'translate(-50%, -50%)',
               maxWidth: '44%',
             }}
-            className={hover ? 'group/badge pointer-events-auto' : 'pointer-events-auto'}
+            className={hover ? 'group/badge pointer-events-auto z-10' : 'pointer-events-auto'}
           >
             <button
               type="button"
@@ -204,7 +204,11 @@ export default function VideoPreviewLayer({
 
           No data-tooltip anywhere in this cluster, deliberately: the tooltip
           pseudo-element repaints above the chip while it moves under pointer
-          capture, which smeared black trails across the preview. */}
+          capture, which smeared black trails across the preview.
+
+          In design B the card's clock and status line share this box, so the
+          chip and the badge sit at z-10: their buttons must stay above that
+          text to take clicks. */}
       {readoutPosition && (
         <div
           // The anchor is the chip alone, so its center — not the center of
@@ -217,7 +221,7 @@ export default function VideoPreviewLayer({
             top: `${readoutPosition.y * 100}%`,
             transform: 'translate(-50%, -50%)',
           }}
-          className={hover ? 'group/chip' : undefined}
+          className={hover ? 'group/chip z-10' : undefined}
           onMouseEnter={onChipEngaged}
         >
           <button
@@ -243,6 +247,10 @@ export default function VideoPreviewLayer({
               chip off its anchor. */}
           {!dragging && (() => {
             const nearLeftEdge = readoutPosition.x < 0.35;
+            // Design B's preview fills the panel's width, so near its right
+            // edge the eye would hang outside the panel: keep every button on
+            // the chip's left there instead.
+            const nearRightEdge = hover && readoutPosition.x > 0.65;
             const sizeButtons = readoutVisible && (
               <>
                 <button
@@ -273,6 +281,14 @@ export default function VideoPreviewLayer({
                 {readoutVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
               </button>
             );
+            if (nearRightEdge) {
+              return (
+                <div className={`absolute right-full top-1/2 -translate-y-1/2 pr-1 flex items-center gap-0.5 ${CHIP_REVEAL}`}>
+                  {sizeButtons}
+                  {eyeButton}
+                </div>
+              );
+            }
             return nearLeftEdge ? (
               <div
                 className={
@@ -312,7 +328,7 @@ export default function VideoPreviewLayer({
           {chipHint && !dragging && (
             <span
               role="note"
-              className={`pointer-events-none absolute whitespace-nowrap rounded-md bg-gray-900 px-2 py-1.5 text-[11px] leading-snug text-white shadow-lg ${
+              className={`pointer-events-none absolute w-max max-w-[11rem] rounded-md bg-gray-900 px-2 py-1.5 text-[11px] leading-snug text-white shadow-lg ${
                 readoutPosition.y > 0.5 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
               } ${readoutPosition.x > 0.6 ? 'right-0' : 'left-0'}`}
             >

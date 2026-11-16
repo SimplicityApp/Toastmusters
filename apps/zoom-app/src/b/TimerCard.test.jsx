@@ -117,6 +117,11 @@ describe('TimerCard', () => {
     expect(onCoachSeen).toHaveBeenCalled();
   });
 
+  it('paints the status line without opacity, so the chip and badge buttons stay clickable over it', () => {
+    renderCard();
+    expect(screen.getByTestId('timer-status').className).not.toMatch(/opacity/);
+  });
+
   it('draws no count-up chip in the full-screen mode', () => {
     renderCard({ readoutPosition: null });
     expect(screen.queryByRole('button', { name: /count-up/ })).toBeNull();

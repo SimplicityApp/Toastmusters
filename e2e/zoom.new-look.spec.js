@@ -112,6 +112,31 @@ test('the count-up chip hides its controls until pointed at', async ({ page }) =
   await expect(controls).toHaveCSS('opacity', '1');
 });
 
+// 2026-11-16 Zoom run (NL-04): with the chip at the bottom right, the card's
+// status line covered − / +, and the eye hung outside the panel. Playwright's
+// click fails on a covered button, so a plain click proves the fix.
+test('at the bottom right of the preview the chip\'s buttons still take clicks and stay in the panel', async ({ page }) => {
+  await openPanel(page);
+  const chip = page.getByRole('button', { name: 'Drag to place the count-up participants see on your video' });
+  const preview = await page.getByTestId('video-preview').boundingBox();
+  const start = await chip.boundingBox();
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(preview.x + preview.width * 0.85, preview.y + preview.height * 0.85, { steps: 5 });
+  await page.mouse.up();
+
+  const scale = () =>
+    page.evaluate(() => JSON.parse(localStorage.getItem('toastmaster_overlay_time_readout') || '{}').scale ?? null);
+  const before = await scale();
+  await chip.hover();
+  await page.getByRole('button', { name: 'Make the count-up larger' }).click();
+  await expect.poll(scale).not.toBe(before);
+
+  const eye = await page.getByRole('button', { name: 'Hide the count-up from your video' }).boundingBox();
+  const width = await page.evaluate(() => document.documentElement.clientWidth);
+  expect(eye.x + eye.width).toBeLessThanOrEqual(width);
+});
+
 test('the ⋯ menu holds the footer\'s old buttons, and Pro once it is released', async ({ page }) => {
   await openPanel(page, { flags: { new_look: true, pro: true, sounds: true } });
   await expect(page.getByRole('button', { name: 'Upgrade to Pro' })).toBeVisible();
@@ -184,6 +209,10 @@ test('report: empty, then a speech to copy; the rules sheet edits a role', async
   await page.getByRole('button', { name: 'More' }).click();
   await page.getByRole('menuitem', { name: 'Roles & timing rules' }).click();
   const sheet = page.getByRole('dialog', { name: 'Roles & timing rules' });
+  // The Save footer reaches the sheet's bottom edge: no role row shows under it.
+  const footer = sheet.getByRole('button', { name: 'Save' }).locator('..');
+  const [footerBox, sheetBox] = await Promise.all([footer.boundingBox(), sheet.boundingBox()]);
+  expect(Math.abs(footerBox.y + footerBox.height - (sheetBox.y + sheetBox.height))).toBeLessThanOrEqual(1);
   await sheet.getByRole('button', { name: /^Ice Breaker/ }).click();
   await sheet.getByLabel('Green').fill('3:30');
   await sheet.getByLabel('Green').blur();

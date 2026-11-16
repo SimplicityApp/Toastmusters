@@ -172,7 +172,10 @@ export default function RulesSheet({ open, onClose }) {
           )}
         </div>
 
-        <div className="sticky bottom-0 -mx-4 mt-4 flex gap-2 border-t border-slate-100 bg-white px-4 pt-3">
+        {/* -bottom-4 / -mb-4 / pb-4: the sheet's scroll box has 1rem of bottom
+            padding, and a footer stuck at bottom-0 left that strip open, with
+            the role rows showing through under Save (2026-11-16 Zoom run). */}
+        <div className="sticky -bottom-4 -mx-4 -mb-4 mt-4 flex gap-2 border-t border-slate-100 bg-white px-4 pb-4 pt-3">
           <button type="button" onClick={e.handleResetAll} className="h-11 rounded-xl border border-gray-300 px-4 text-sm font-semibold hover:bg-slate-50">
             Reset all
           </button>
