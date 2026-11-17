@@ -1,7 +1,7 @@
 ---
 id: stage-club-badge
 title: Club badge on the Full-Screen Timer stage
-status: draft
+status: stale
 covers:
   - apps/zoom-app/src/components/TimerStage.jsx
   - apps/zoom-app/src/utils/stageBadgeLayout.js
@@ -73,6 +73,11 @@ Do: on the Live tab preview, hide the badge (its eye button). Open Full-Screen T
 show it again.
 Expect: no badge on the stage while hidden; it is back in SB-01's spot once shown.
 Evidence: snaps.
+
+## Runs
+- 2026-11-16, `fix/stage-club-badge-size` (#165): blocked, not run. Dev and the test Mac were held
+  by the design-B Zoom pass, and wrangler's Cloudflare login on the Mac had expired, so the
+  branch could not be deployed to dev.
 
 ## Not covered
 - What other participants see when the stage is shared: the share is the panel itself, so
