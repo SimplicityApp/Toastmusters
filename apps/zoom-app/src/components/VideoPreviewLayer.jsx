@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Move, Plus, Minus, Eye, EyeOff, RotateCcw } from 'lucide-react';
 import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge';
 
@@ -132,43 +132,71 @@ export default function VideoPreviewLayer({
     };
   };
 
-  const handlePointerDown = (event) => {
+  // A drag is followed on window, not on the dragged element. In Zoom's
+  // webview the release goes to whatever is under the pointer, and once the
+  // chip or badge stops short of the pointer (at the preview's edge, or the
+  // badge at its inset) the element never heard it: the drag never ended, and
+  // the next hover moved it again (2026-11-17 Zoom run, NL-10).
+  const latest = useRef({});
+  latest.current = { onReadoutPositionChange, onBadgePlacementChange };
+  const stopFollowing = useRef(null);
+  useEffect(() => () => stopFollowing.current?.(), []);
+  const followDrag = (event, onMove, onEnd) => {
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDragging(true);
-    onChipEngaged?.();
-  };
-
-  const handlePointerMove = (event) => {
-    if (!dragging) return;
-    onReadoutPositionChange?.(positionFromEvent(event), { commit: false });
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Capture is a nicety here; the window listeners do the work.
+    }
+    const { pointerId } = event;
+    const move = (e) => {
+      if (e.pointerId === pointerId) onMove(positionFromEvent(e));
+    };
+    const end = (e) => {
+      if (e.pointerId !== pointerId) return;
+      stop();
+      onEnd(positionFromEvent(e));
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      stopFollowing.current = null;
+    };
+    stopFollowing.current?.();
+    stopFollowing.current = stop;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
   };
 
   // Pushing the repositioned frame to Zoom costs a multi-MB bridge transfer,
-  // so it happens once, on release — the badge itself follows every move.
-  const handlePointerEnd = (event) => {
-    if (!dragging) return;
-    setDragging(false);
-    onReadoutPositionChange?.(positionFromEvent(event), { commit: true });
+  // so it happens once, on release — the chip itself follows every move.
+  const handlePointerDown = (event) => {
+    setDragging(true);
+    onChipEngaged?.();
+    followDrag(
+      event,
+      (position) => latest.current.onReadoutPositionChange?.(position, { commit: false }),
+      (position) => {
+        setDragging(false);
+        latest.current.onReadoutPositionChange?.(position, { commit: true });
+      }
+    );
   };
 
-  // The badge is the same gesture on the same preview, so it is the same three
-  // handlers against a second piece of state rather than a second control.
+  // The badge is the same gesture on the same preview, against a second piece
+  // of state rather than a second control.
   const handleBadgePointerDown = (event) => {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
     setDraggingBadge(true);
-  };
-
-  const handleBadgePointerMove = (event) => {
-    if (!draggingBadge) return;
-    onBadgePlacementChange?.(positionFromEvent(event), { commit: false });
-  };
-
-  const handleBadgePointerEnd = (event) => {
-    if (!draggingBadge) return;
-    setDraggingBadge(false);
-    onBadgePlacementChange?.(positionFromEvent(event), { commit: true });
+    followDrag(
+      event,
+      (position) => latest.current.onBadgePlacementChange?.(position, { commit: false }),
+      (position) => {
+        setDraggingBadge(false);
+        latest.current.onBadgePlacementChange?.(position, { commit: true });
+      }
+    );
   };
 
   return (
@@ -200,9 +228,6 @@ export default function VideoPreviewLayer({
             <button
               type="button"
               onPointerDown={handleBadgePointerDown}
-              onPointerMove={handleBadgePointerMove}
-              onPointerUp={handleBadgePointerEnd}
-              onPointerCancel={handleBadgePointerEnd}
               className={`block w-full touch-none select-none rounded-lg ${
                 draggingBadge ? 'cursor-grabbing' : 'cursor-grab'
               } ${badgePlacement.visible ? '' : 'opacity-40'}`}
@@ -301,9 +326,6 @@ export default function VideoPreviewLayer({
           <button
             type="button"
             onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerEnd}
-            onPointerCancel={handlePointerEnd}
             className={`flex items-center gap-1 px-2 py-1 rounded-md ${hover ? 'bg-gray-900/90' : 'bg-black/35'} border border-white/50 text-white text-sm font-mono font-semibold touch-none select-none ${
               dragging ? 'cursor-grabbing' : 'cursor-grab'
             } ${readoutVisible ? '' : 'opacity-50'}`}

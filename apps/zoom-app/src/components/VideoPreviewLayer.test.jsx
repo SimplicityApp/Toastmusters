@@ -53,6 +53,40 @@ describe('VideoPreviewLayer', () => {
     expect(onReadoutPositionChange).toHaveBeenLastCalledWith({ x: 0, y: 1 }, { commit: true });
   });
 
+  it('ends a drag released anywhere, not only on the dragged chip or badge', () => {
+    // 2026-11-17 Zoom run: in Zoom's webview the release went to whatever was
+    // under the pointer; past the badge's inset that was not the badge, and the
+    // drag never ended.
+    const onReadoutPositionChange = vi.fn();
+    const onBadgePlacementChange = vi.fn();
+    render(
+      <Harness
+        revealControls="hover"
+        readoutPosition={{ x: 0.5, y: 0.5 }}
+        readoutVisible
+        onReadoutPositionChange={onReadoutPositionChange}
+        clubKit={KIT}
+        badgePlacement={{ x: 0.8, y: 0.12, scale: 0.12, visible: true }}
+        onBadgePlacementChange={onBadgePlacementChange}
+      />
+    );
+
+    fireEvent.pointerDown(badge(), { pointerId: 2, clientX: 320, clientY: 27 });
+    fireEvent.pointerMove(document.body, { pointerId: 2, clientX: 20, clientY: 200 });
+    fireEvent.pointerUp(document.body, { pointerId: 2, clientX: 4, clientY: 220 });
+    expect(onBadgePlacementChange).toHaveBeenCalledWith({ x: 0.05, y: 200 / 225 }, { commit: false });
+    expect(onBadgePlacementChange).toHaveBeenLastCalledWith({ x: 0.01, y: 220 / 225 }, { commit: true });
+    expect(screen.getByRole('button', { name: 'Make the club badge larger' })).toBeInTheDocument();
+    // Ended: moving over the badge afterwards does not drag it again.
+    fireEvent.pointerMove(badge(), { pointerId: 2, clientX: 300, clientY: 100 });
+    expect(onBadgePlacementChange).toHaveBeenCalledTimes(2);
+
+    fireEvent.pointerDown(chip(), { pointerId: 1, clientX: 200, clientY: 112 });
+    fireEvent.pointerUp(document.body, { pointerId: 1, clientX: 380, clientY: 220 });
+    expect(onReadoutPositionChange).toHaveBeenLastCalledWith({ x: 0.95, y: 220 / 225 }, { commit: true });
+    expect(screen.getByRole('button', { name: 'Make the count-up larger' })).toBeInTheDocument();
+  });
+
   it('hides the size and eye buttons while the chip is being dragged', () => {
     render(<Harness readoutPosition={{ x: 0.5, y: 0.5 }} readoutVisible onReadoutPositionChange={() => {}} />);
     expect(screen.getByRole('button', { name: 'Make the count-up larger' })).toBeInTheDocument();
