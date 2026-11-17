@@ -9,7 +9,8 @@ automated:
   - packages/ui/BrandedReportHeader.test.jsx
 needs:
   - dev deployed
-  - FLAGS_FORCE "1" on dev (`pro` on, the default)
+  - FLAGS_FORCE "1" on dev (`pro` on; `wrangler.jsonc` ships dev with "0", which hides History),
+    e.g. `wrangler deploy --env dev --var FLAGS_FORCE:1` after the build; restore after the run
   - a club device whose club is active and shows its branding on reports (Claude Test Club on
     the test Mac), with at least one meeting in the club's History
   - the Mac's time zone west of UTC (`date +%Z`; the test Mac is EST), which is where the
