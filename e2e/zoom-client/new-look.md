@@ -209,8 +209,11 @@ NL-13–NL-18 and NL-20 passed. ❌ NL-04 at the bottom right: the status line u
 the right edge; NL-01's hint ran off the panel; NL-16's footer left a strip where rows showed.
 All three fixed after the run (chip and badge at `z-10`, no opacity on the status line, buttons on
 the chip's left near the right edge, hint `max-w-[11rem]`, footer covering the sheet's padding)
-with unit and e2e checks, not yet rerun here. Not run: NL-12 (human), NL-19 (no prompt due),
-NL-17's free half (no free device). Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
+with unit and e2e checks. Rerun 2026-11-16 on d7b2579 with FLAGS_FORCE "1" (the hint's seen-key
+renamed in that build only, so the hint showed again): NL-01, NL-04 (bottom right: − / + / eye on
+the chip's left, all take clicks), NL-10 and NL-16 (nothing under the footer) pass. Not run: NL-12
+(human), NL-19 (no prompt due), NL-17's free half (no free device). Logs:
+test-runs/2026-11-16-design-b-new-look-2/run.md, test-runs/2026-11-16-design-b-rerun/run.md.
 
 ## Not covered
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
