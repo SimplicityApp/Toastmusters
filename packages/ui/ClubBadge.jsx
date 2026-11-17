@@ -16,6 +16,13 @@
  * needs an ancestor with `container-type: size`; `ClubBadgeLayer` below is that
  * ancestor, and callers should use it rather than placing this directly.
  *
+ * The layer has to be the card, not whatever happens to surround it: `cqh` is
+ * a share of the layer's height, and the canvas's is a share of the 16:9
+ * frame's. The full-screen stage is a tall, narrow panel showing a 16:9 card
+ * across its middle, so it puts the layer on that card band (see
+ * `apps/zoom-app/src/utils/stageBadgeLayout.js`); a layer over the whole panel
+ * made the badge several times its size on the video.
+ *
  * Stock Tailwind only; the club's colour is data, not a token, so it rides an
  * inline style. See README.md.
  */
@@ -40,7 +47,7 @@ const RADIUS_OF_HEIGHT = 0.24;
  * — the frame the badge will actually land on — so every preview agrees with
  * the video. On a square tile that is ~78% of the tile's width, so it still
  * never runs off the container; every surface this badge is placed on is square
- * or wider.
+ * or wider (the stage places it on its 16:9 card band, not on the tall panel).
  */
 const MAX_WIDTH_OF_HEIGHT = ((44 * 16) / 9).toFixed(2);
 

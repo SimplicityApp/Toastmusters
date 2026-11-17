@@ -152,6 +152,35 @@ function badgeSpec(width, height, kit, placement) {
   };
 }
 
+/** The inset the badge and the readout keep from every edge of the frame. */
+const EDGE_INSET_OF_HEIGHT = 0.04;
+
+/**
+ * The badge's centre on a frame: the placement scaled to the frame, then pulled
+ * in just far enough that the whole badge stays inside the frame's inset.
+ *
+ * Exported so the stage, which draws the badge in the DOM rather than on a
+ * canvas, keeps it on the card by the same rule as the video. Without that, a
+ * badge dragged to a corner sits inside the frame on the video and half off the
+ * stage.
+ *
+ * @param {number} width - frame width in pixels
+ * @param {number} height - frame height in pixels
+ * @param {{x: number, y: number}} place - normalized centre
+ * @param {number} badgeWidth - pixels
+ * @param {number} badgeHeight - pixels
+ * @returns {{cx: number, cy: number}} pixels from the frame's top left
+ */
+export function badgeCentre(width, height, place, badgeWidth, badgeHeight) {
+  // The same 4% inset the readout uses, so the two never sit at different
+  // distances from the same edge.
+  const pad = Math.round(height * EDGE_INSET_OF_HEIGHT);
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  const cx = Math.round(clamp(place.x * width, pad + badgeWidth / 2, Math.max(pad + badgeWidth / 2, width - pad - badgeWidth / 2)));
+  const cy = Math.round(clamp(place.y * height, pad + badgeHeight / 2, Math.max(pad + badgeHeight / 2, height - pad - badgeHeight / 2)));
+  return { cx, cy };
+}
+
 /**
  * Where the badge sits on the frame. Measures the name, so `ctx.font` must
  * already be `spec.font`.
@@ -164,12 +193,7 @@ function badgeLayout(ctx, width, height, spec) {
   const labelWidth = label ? ctx.measureText(label).width : 0;
   const badgeWidth = Math.round(chrome + labelWidth - (label ? 0 : gap));
 
-  // The same 4% inset the readout uses, so the two never sit at different
-  // distances from the same edge.
-  const pad = Math.round(height * 0.04);
-  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-  const cx = Math.round(clamp(place.x * width, pad + badgeWidth / 2, Math.max(pad + badgeWidth / 2, width - pad - badgeWidth / 2)));
-  const cy = Math.round(clamp(place.y * height, pad + badgeHeight / 2, Math.max(pad + badgeHeight / 2, height - pad - badgeHeight / 2)));
+  const { cx, cy } = badgeCentre(width, height, place, badgeWidth, badgeHeight);
   return {
     label,
     cy,

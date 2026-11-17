@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import {
   Play,
   Square,
@@ -14,6 +14,7 @@ import {
 import { formatTime, getPhaseInfo, formatPhaseTextFor, getDisplaySeconds } from '@toastmaster-timer/shared';
 import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge';
 import { getBackgroundUrl } from '../utils/zoomSdk';
+import { stageBadgeLayout } from '../utils/stageBadgeLayout';
 import StageSpeakerPicker from './StageSpeakerPicker';
 
 // Shown underneath the branded PNG, so the color signal is already correct while
@@ -36,6 +37,52 @@ const BUTTON_BASE =
 const PRIMARY_BUTTON = `flex-1 ${BUTTON_BASE} bg-white/15 hover:bg-white/25 border-white/40`;
 const SECONDARY_BUTTON = `flex-1 ${BUTTON_BASE} bg-transparent hover:bg-white/15 border-white/20 text-white/85`;
 const ICON_BUTTON = `${BUTTON_BASE} bg-transparent hover:bg-white/15 border-white/20 text-white/85`;
+
+const sameGeometry = (a, b) =>
+  !!a && !!b && Object.keys(a).every((key) => a[key] === b[key]);
+
+/**
+ * The sizes the badge's place on the stage depends on: the stage, how far its
+ * top and bottom controls reach in, and the badge as rendered. Re-measured
+ * whenever any of them changes size: the panel is resized, the controls wrap,
+ * or the badge grows with a longer name or a bigger scale.
+ *
+ * Null until measured, and in environments with no layout at all (jsdom),
+ * which keeps the badge hidden rather than guessing at a place for it.
+ */
+function useStageGeometry(enabled, stageRef, headerRef, footerRef, badgeRef) {
+  const [geometry, setGeometry] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!enabled) return undefined;
+    const measure = () => {
+      const stage = stageRef.current;
+      const header = headerRef.current;
+      const footer = footerRef.current;
+      const badge = badgeRef.current;
+      if (!stage || !header || !footer) return;
+      const next = {
+        width: stage.clientWidth,
+        height: stage.clientHeight,
+        topInset: header.offsetTop + header.offsetHeight,
+        bottomInset: stage.clientHeight - footer.offsetTop,
+        badgeWidth: badge?.offsetWidth ?? 0,
+        badgeHeight: badge?.offsetHeight ?? 0,
+      };
+      setGeometry((previous) => (sameGeometry(previous, next) ? previous : next));
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    [stageRef, headerRef, footerRef, badgeRef].forEach((ref) => {
+      if (ref.current) observer.observe(ref.current);
+    });
+    return () => observer.disconnect();
+  }, [enabled, stageRef, headerRef, footerRef, badgeRef]);
+
+  return enabled ? geometry : null;
+}
 
 /**
  * Full-panel timer display: the stage.
@@ -86,6 +133,22 @@ export default memo(function TimerStage({
 
   const textShadow = { textShadow: '0 2px 4px rgba(0,0,0,0.5), 0 4px 8px rgba(0,0,0,0.3)' };
 
+  const stageRef = useRef(null);
+  const headerRef = useRef(null);
+  const footerRef = useRef(null);
+  const badgeRef = useRef(null);
+  const showBadge = Boolean(clubKit?.showOnCards);
+  const geometry = useStageGeometry(showBadge, stageRef, headerRef, footerRef, badgeRef);
+  const badgeLayout = geometry
+    ? stageBadgeLayout(
+      geometry,
+      { width: geometry.badgeWidth, height: geometry.badgeHeight },
+      badgePlacement
+    )
+    : null;
+  const band = badgeLayout?.band ?? null;
+  const badgeCentre = badgeLayout?.centre ?? null;
+
   // The same branded PNGs card and camera mode push into the video pipeline, so a
   // club sees one consistent visual whichever mode it settles on.
   //
@@ -113,6 +176,7 @@ export default memo(function TimerStage({
 
   return (
     <div
+      ref={stageRef}
       className={`fixed inset-0 z-50 ${bgColor} flex flex-col transition-colors duration-300`}
       data-testid="timer-stage"
     >
@@ -125,19 +189,48 @@ export default memo(function TimerStage({
           it at, so it lands in the same relative spot whichever mode a club
           settles on. DOM rather than canvas here because the stage *is* the
           shared surface — nothing is pushed through the video pipeline — and
-          above the artwork for the same reason the readout is. */}
-      {clubKit?.showOnCards && (
-        <ClubBadgeLayer>
-          <ClubBadge
-            name={clubKit.name}
-            primaryColor={clubKit.primaryColor}
-            logoUrl={clubKit.logoUrl}
-            placement={badgePlacement}
-          />
-        </ClubBadgeLayer>
+          above the artwork for the same reason the readout is.
+
+          Laid on the 16:9 card band, not the whole stage: the badge's size is
+          a share of the frame it sits on, and on the tall sidebar panel the
+          stage is several times taller than the card. Kept on the card and off
+          the controls by stageBadgeLayout; hidden until measured. Before the
+          controls in the DOM, so they (and the speaker list) paint over it. */}
+      {showBadge && (
+        <div
+          className="absolute pointer-events-none"
+          data-testid="stage-card-band"
+          style={band
+            ? { left: band.left, top: band.top, width: band.width, height: band.height }
+            : { left: 0, top: 0, width: 0, height: 0 }}
+        >
+          <ClubBadgeLayer>
+            <div
+              ref={badgeRef}
+              style={{
+                position: 'absolute',
+                left: badgeCentre ? badgeCentre.x : 0,
+                top: badgeCentre ? badgeCentre.y : 0,
+                // Its own width, not whatever is left between `left` and the
+                // card's edge: that is what gets measured and kept on the card.
+                width: 'max-content',
+                transform: 'translate(-50%, -50%)',
+                visibility: badgeCentre ? 'visible' : 'hidden',
+              }}
+            >
+              <ClubBadge
+                name={clubKit.name}
+                primaryColor={clubKit.primaryColor}
+                logoUrl={clubKit.logoUrl}
+                placement={badgePlacement}
+                positioned={false}
+              />
+            </div>
+          </ClubBadgeLayer>
+        </div>
       )}
 
-      <div className="relative p-4 space-y-2">
+      <div ref={headerRef} className="relative p-4 space-y-2">
         <div className="flex items-start gap-2">
           {/* Editable here, not just on the panel: once the stage is up it covers
               the panel entirely, and the organizer still has to name each speaker
@@ -230,7 +323,7 @@ export default memo(function TimerStage({
           readable to whoever is running the timer, easy for the speaker to
           ignore. The scrim has to be this dark because white-on-yellow is the
           worst of the four states and the readout must hold up in all of them. */}
-      <div className="relative p-4 space-y-2 bg-black/35">
+      <div ref={footerRef} className="relative p-4 space-y-2 bg-black/35">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <button
