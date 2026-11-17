@@ -143,6 +143,75 @@ describe('VideoPreviewLayer', () => {
     expect(screen.getByRole('button', { name: 'Hide the count-up from your video' }).parentElement.className).toContain('left-full');
   });
 
+  it('in design B, the chip and its buttons are near-opaque; today\'s panel keeps them translucent', () => {
+    // 2026-11-17 Zoom rerun: over the card's status line, its text showed
+    // through the chip and the − / + / eye.
+    const props = { readoutPosition: { x: 0.5, y: 0.85 }, readoutVisible: true };
+    const { unmount } = render(<Harness {...props} revealControls="hover" />);
+    for (const el of [chip(), screen.getByRole('button', { name: 'Make the count-up larger' })]) {
+      expect(el.className).toContain('bg-gray-900/90');
+      expect(el.className).not.toContain('bg-black/35');
+    }
+    unmount();
+    render(<Harness {...props} />);
+    expect(chip().className).toContain('bg-black/35');
+    expect(screen.getByRole('button', { name: 'Make the count-up larger' }).className).toContain('bg-black/35');
+  });
+
+  describe('the badge near the edges', () => {
+    // jsdom lays nothing out: give the badge a 120×30 box in a 400×225 layer.
+    const isAnchor = (el) => el.dataset?.testid === 'club-badge-anchor';
+    const isLayer = (el) => el.firstElementChild?.dataset?.testid === 'club-badge-anchor';
+    const sizes = {
+      offsetWidth: (el) => (isAnchor(el) ? 120 : 0),
+      offsetHeight: (el) => (isAnchor(el) ? 30 : 0),
+      clientWidth: (el) => (isLayer(el) ? 400 : 0),
+      clientHeight: (el) => (isLayer(el) ? 225 : 0),
+    };
+    // Own descriptors on HTMLElement.prototype (offset*); undefined where jsdom
+    // keeps the getter on Element.prototype (client*), so deleting restores it.
+    const saved = {};
+    beforeAll(() => {
+      for (const [prop, size] of Object.entries(sizes)) {
+        saved[prop] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, prop);
+        Object.defineProperty(HTMLElement.prototype, prop, { configurable: true, get() { return size(this); } });
+      }
+    });
+    afterAll(() => {
+      for (const prop of Object.keys(sizes)) {
+        if (saved[prop]) Object.defineProperty(HTMLElement.prototype, prop, saved[prop]);
+        else delete HTMLElement.prototype[prop];
+      }
+    });
+    const anchor = () => screen.getByTestId('club-badge-anchor');
+
+    it('in design B, keeps it inside the frame as the video does, at its full width', () => {
+      // 2026-11-17 Zoom rerun: dragged to the far left, the badge ran past the
+      // card; at the top right its name was cut short.
+      const { rerender } = render(
+        <Harness revealControls="hover" clubKit={KIT} badgePlacement={{ x: 0.02, y: 0.98, scale: 0.12, visible: true }} />
+      );
+      // The video's 4% inset of the frame's height (9px of 225), plus half the badge.
+      expect(parseFloat(anchor().style.left)).toBeCloseTo(((9 + 60) / 400) * 100, 3);
+      expect(parseFloat(anchor().style.top)).toBeCloseTo((1 - (9 + 15) / 225) * 100, 3);
+      expect(anchor().style.width).toBe('max-content');
+
+      rerender(<Harness revealControls="hover" clubKit={KIT} badgePlacement={{ x: 0.99, y: 0.01, scale: 0.12, visible: true }} />);
+      expect(parseFloat(anchor().style.left)).toBeCloseTo((1 - (9 + 60) / 400) * 100, 3);
+      expect(parseFloat(anchor().style.top)).toBeCloseTo(((9 + 15) / 225) * 100, 3);
+
+      rerender(<Harness revealControls="hover" clubKit={KIT} badgePlacement={{ x: 0.5, y: 0.5, scale: 0.12, visible: true }} />);
+      expect(anchor().style.left).toBe('50%');
+    });
+
+    it("leaves today's panel placing it on the stored point", () => {
+      render(<Harness clubKit={KIT} badgePlacement={{ x: 0.02, y: 0.98, scale: 0.12, visible: true }} />);
+      expect(anchor().style.left).toBe('2%');
+      expect(anchor().style.top).toBe('98%');
+      expect(anchor().style.width).toBe('');
+    });
+  });
+
   it('draws no badge without a club kit', () => {
     render(<Harness clubKit={null} badgePlacement={{ x: 0.8, y: 0.12, scale: 0.12, visible: true }} />);
     expect(screen.queryByRole('button', { name: /club's badge/ })).not.toBeInTheDocument();

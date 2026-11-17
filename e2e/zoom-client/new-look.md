@@ -73,8 +73,8 @@ Do: move the pointer away from the preview, then onto the chip. Press +, then th
 again, drag the chip to the bottom right of the preview (over the status line), and press + there.
 Expect: − / + / eye are hidden until the pointer is on the chip. + makes the count-up on the
 video larger; the eye hides it from the video (the chip dims). At the bottom right the buttons
-still take clicks (the status line under the clock does not cover them) and all three stay
-inside the panel, to the chip's left.
+still take clicks (the status line under the clock does not cover them, and its text does not
+show through them) and all three stay inside the panel, to the chip's left.
 Evidence: screenshots before and after hover; readout scale and visibility in
 `toastmaster_overlay_time_readout`.
 
@@ -118,7 +118,9 @@ Evidence: screenshots.
 Do: with FLAGS_FORCE "1" on the club device, point at the club badge on the preview, press +,
 then drag it to the bottom left and release; press reset.
 Expect: − / + / eye / reset appear on hover only; the badge on the video grows, moves on
-release, and returns to the club's position on reset.
+release, and returns to the club's position on reset. On the preview the badge shows the club's
+whole name and stays inside the preview, at the top right and at the far bottom left, where the
+video puts it.
 Evidence: screenshots; `toastmaster_club_badge`.
 
 ### NL-11 · auto · The ⋯ menu's help items

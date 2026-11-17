@@ -135,6 +135,81 @@ test('at the bottom right of the preview the chip\'s buttons still take clicks a
   const eye = await page.getByRole('button', { name: 'Hide the count-up from your video' }).boundingBox();
   const width = await page.evaluate(() => document.documentElement.clientWidth);
   expect(eye.x + eye.width).toBeLessThanOrEqual(width);
+
+  // 2026-11-17 Zoom rerun: the status line's text showed through the chip's
+  // translucent buttons there. They are near-opaque now.
+  const alpha = await page
+    .getByRole('button', { name: 'Make the count-up larger' })
+    .evaluate((el) => {
+      const match = getComputedStyle(el).backgroundColor.match(/rgba?\(([^)]+)\)/);
+      const parts = match ? match[1].split(/[ ,/]+/).filter(Boolean) : [];
+      return parts.length === 4 ? Number(parts[3]) : 1;
+    });
+  expect(alpha).toBeGreaterThanOrEqual(0.85);
+});
+
+// A club device with Pro released, so the club's badge is on the preview.
+const CLUB = {
+  clubToken: 'club-token',
+  // Fresh, so the app does not refresh the club against the (unmocked) server.
+  lastRefreshAt: Date.now(),
+  ver: 1,
+  club: { id: 'club-1', name: 'Claude Test Club' },
+  kit: { name: 'Claude Test Club', logoUrl: null, primaryColor: '#0f766e', showOnCards: true, showOnReports: true },
+  presets: null,
+  badge: { x: 0.8, y: 0.12, scale: 0.12 },
+  timezone: null,
+  role: 'admin',
+  plan: 'pro',
+  entitled: true,
+  status: 'active',
+  currentPeriodEnd: Date.now() + 200 * 24 * 60 * 60 * 1000,
+  cancelAtPeriodEnd: false,
+  source: 'club',
+};
+
+// 2026-11-17 Zoom rerun (NL-10): dragged to the far left, the badge ran past
+// the preview and the card; at its top-right spot the club's name was cut to
+// "Claude Test …". The video keeps it inside the frame, whole.
+test('the club badge stays inside the preview, with its whole name, at either edge', async ({ page }) => {
+  await page.addInitScript((club) => {
+    if (sessionStorage.getItem('e2e_seeded')) return;
+    sessionStorage.setItem('e2e_seeded', '1');
+    localStorage.setItem('toastmaster_club', JSON.stringify(club));
+  }, CLUB);
+  // 340px: about the width Zoom's side panel gives the app.
+  await openPanel(page, {
+    width: 340,
+    flags: { new_look: true, pro: true, sounds: true },
+    entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'club' },
+  });
+  const handle = page.getByRole('button', { name: "Drag to place your club's badge on your video" });
+  const anchor = handle.locator('..');
+  await expect(anchor).toBeVisible();
+  const whole = () => anchor.getByText('Claude Test Club').evaluate((el) => el.scrollWidth <= el.clientWidth);
+  const inside = async () => {
+    const [box, frame] = await Promise.all([anchor.boundingBox(), page.getByTestId('video-preview').boundingBox()]);
+    return (
+      box.x >= frame.x - 0.5 &&
+      box.y >= frame.y - 0.5 &&
+      box.x + box.width <= frame.x + frame.width + 0.5 &&
+      box.y + box.height <= frame.y + frame.height + 0.5
+    );
+  };
+  expect(await whole()).toBe(true);
+  expect(await inside()).toBe(true);
+
+  const frame = await page.getByTestId('video-preview').boundingBox();
+  for (const [fx, fy] of [[0.99, 0.01], [0.01, 0.99]]) {
+    const from = await handle.boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(frame.x + frame.width * fx, frame.y + frame.height * fy, { steps: 5 });
+    await page.mouse.up();
+    await page.mouse.move(1, 1);
+    expect(await whole(), `name whole at ${fx}, ${fy}`).toBe(true);
+    expect(await inside(), `inside the preview at ${fx}, ${fy}`).toBe(true);
+  }
 });
 
 test('the ⋯ menu holds the footer\'s old buttons, and Pro once it is released', async ({ page }) => {
