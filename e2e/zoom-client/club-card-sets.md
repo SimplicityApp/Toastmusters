@@ -147,3 +147,10 @@ Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6, A = Zoom desktop, B = web app in 
 profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards" (null label in
 KV). CC-06 only from B, a guest with no Zoom session: 401, not the member 403. CC-07 (console
 sign-in) and CC-08 (lapsing the club) not run. Log: test-runs/2026-11-13-pre-master-specs/run.md.
+
+Run 2026-11-17 (PR #164 branch adf1d5a, dev b6c9ac2c, A = Zoom 7.2.5 desktop): CC-11, CC-01 and
+CC-02 passed. A's refresh was made due on this open by a build-only 60 s
+`CLUB_REFRESH_INTERVAL_MS`, not by waiting 24 h. `GET /api/club` carried `authorization` and went
+out 1.6 s after `POST /api/zoom/session`; Share, the club code and the invite link all showed. CC-02's
+toast text was not captured. Other steps not rerun, so `verified_at` stays on 905d8d1.
+Log: test-runs/2026-11-16-164-club-refresh-session/run.md.
