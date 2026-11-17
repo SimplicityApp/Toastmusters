@@ -1,7 +1,7 @@
 ---
 id: club-history
 title: Club history meeting view shows the meeting's own day
-status: stale
+status: current
 covers:
   - packages/ui/BrandedReportHeader.jsx
   - packages/ui/ReportHistoryList.jsx
@@ -15,8 +15,8 @@ needs:
     the test Mac), with at least one meeting in the club's History
   - the Mac's time zone west of UTC (`date +%Z`; the test Mac is EST), which is where the
     meeting's header used to say the day before
-verified_at: never
-verified_on: never
+verified_at: a3cd339
+verified_on: 2026-11-16 (Zoom 7.2.5, macOS 26.7.2, EST; dev version 3bf2eca6 with FLAGS_FORCE "1"; run test-runs/2026-11-16-club-history)
 ---
 
 # Club history meeting view shows the meeting's own day
