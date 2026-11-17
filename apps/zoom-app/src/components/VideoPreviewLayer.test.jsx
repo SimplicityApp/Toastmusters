@@ -35,8 +35,8 @@ describe('VideoPreviewLayer', () => {
     render(<Harness readoutPosition={{ x: 0.5, y: 0.5 }} readoutVisible onReadoutPositionChange={onReadoutPositionChange} />);
 
     fireEvent.pointerDown(chip(), { pointerId: 1, clientX: 200, clientY: 112 });
-    fireEvent.pointerMove(chip(), { pointerId: 1, clientX: 100, clientY: 45 });
-    fireEvent.pointerMove(chip(), { pointerId: 1, clientX: 300, clientY: 180 });
+    fireEvent.pointerMove(chip(), { pointerId: 1, buttons: 1, clientX: 100, clientY: 45 });
+    fireEvent.pointerMove(chip(), { pointerId: 1, buttons: 1, clientX: 300, clientY: 180 });
     fireEvent.pointerUp(chip(), { pointerId: 1, clientX: 300, clientY: 180 });
 
     const commits = onReadoutPositionChange.mock.calls.filter(([, opts]) => opts.commit);
@@ -72,7 +72,7 @@ describe('VideoPreviewLayer', () => {
     );
 
     fireEvent.pointerDown(badge(), { pointerId: 2, clientX: 320, clientY: 27 });
-    fireEvent.pointerMove(document.body, { pointerId: 2, clientX: 20, clientY: 200 });
+    fireEvent.pointerMove(document.body, { pointerId: 2, buttons: 1, clientX: 20, clientY: 200 });
     fireEvent.pointerUp(document.body, { pointerId: 2, clientX: 4, clientY: 220 });
     expect(onBadgePlacementChange).toHaveBeenCalledWith({ x: 0.05, y: 200 / 225 }, { commit: false });
     expect(onBadgePlacementChange).toHaveBeenLastCalledWith({ x: 0.01, y: 220 / 225 }, { commit: true });
@@ -85,6 +85,34 @@ describe('VideoPreviewLayer', () => {
     fireEvent.pointerUp(document.body, { pointerId: 1, clientX: 380, clientY: 220 });
     expect(onReadoutPositionChange).toHaveBeenLastCalledWith({ x: 0.95, y: 220 / 225 }, { commit: true });
     expect(screen.getByRole('button', { name: 'Make the count-up larger' })).toBeInTheDocument();
+  });
+
+  it('ends a drag whose release never arrived at the first move with no button held, where it was last dragged', () => {
+    // 2026-11-17 Zoom run: released near the panel's left edge, the page got
+    // no pointerup at all, and the next hover dragged the badge again.
+    const onBadgePlacementChange = vi.fn();
+    render(
+      <Harness
+        revealControls="hover"
+        clubKit={KIT}
+        badgePlacement={{ x: 0.8, y: 0.12, scale: 0.12, visible: true }}
+        onBadgePlacementChange={onBadgePlacementChange}
+      />
+    );
+    fireEvent.pointerDown(badge(), { pointerId: 1, clientX: 320, clientY: 27 });
+    fireEvent.pointerMove(document.body, { pointerId: 1, buttons: 1, clientX: 8, clientY: 220 });
+    fireEvent.pointerMove(document.body, { pointerId: 1, buttons: 0, clientX: 380, clientY: 20 });
+    expect(onBadgePlacementChange).toHaveBeenLastCalledWith({ x: 0.02, y: 220 / 225 }, { commit: true });
+    expect(screen.getByRole('button', { name: 'Make the club badge larger' })).toBeInTheDocument();
+  });
+
+  it('keeps the last dragged spot when a drag is cancelled', () => {
+    const onReadoutPositionChange = vi.fn();
+    render(<Harness readoutPosition={{ x: 0.5, y: 0.5 }} readoutVisible onReadoutPositionChange={onReadoutPositionChange} />);
+    fireEvent.pointerDown(chip(), { pointerId: 1, clientX: 200, clientY: 112 });
+    fireEvent.pointerMove(document.body, { pointerId: 1, buttons: 1, clientX: 100, clientY: 45 });
+    fireEvent.pointerCancel(document.body, { pointerId: 1 });
+    expect(onReadoutPositionChange).toHaveBeenLastCalledWith({ x: 0.25, y: 0.2 }, { commit: true });
   });
 
   it('hides the size and eye buttons while the chip is being dragged', () => {
@@ -192,15 +220,17 @@ describe('VideoPreviewLayer', () => {
     expect(screen.getByRole('button', { name: 'Make the count-up larger' }).className).toContain('bg-black/35');
   });
 
-  describe('the badge near the edges', () => {
-    // jsdom lays nothing out: give the badge a 120×30 box in a 400×225 layer.
-    const isAnchor = (el) => el.dataset?.testid === 'club-badge-anchor';
-    const isLayer = (el) => el.firstElementChild?.dataset?.testid === 'club-badge-anchor';
+  describe('near the edges', () => {
+    // jsdom lays nothing out: give the badge a 120×30 box and the chip an
+    // 80×28 one, each in a 400×225 frame (the element's parent).
+    const SIZED = { 'club-badge-anchor': [120, 30], 'count-up-anchor': [80, 28] };
+    const size = (el) => SIZED[el.dataset?.testid];
+    const isFrame = (el) => Array.from(el.children ?? []).some((child) => size(child));
     const sizes = {
-      offsetWidth: (el) => (isAnchor(el) ? 120 : 0),
-      offsetHeight: (el) => (isAnchor(el) ? 30 : 0),
-      clientWidth: (el) => (isLayer(el) ? 400 : 0),
-      clientHeight: (el) => (isLayer(el) ? 225 : 0),
+      offsetWidth: (el) => size(el)?.[0] ?? 0,
+      offsetHeight: (el) => size(el)?.[1] ?? 0,
+      clientWidth: (el) => (isFrame(el) ? 400 : 0),
+      clientHeight: (el) => (isFrame(el) ? 225 : 0),
     };
     // Own descriptors on HTMLElement.prototype (offset*); undefined where jsdom
     // keeps the getter on Element.prototype (client*), so deleting restores it.
@@ -236,6 +266,17 @@ describe('VideoPreviewLayer', () => {
 
       rerender(<Harness revealControls="hover" clubKit={KIT} badgePlacement={{ x: 0.5, y: 0.5, scale: 0.12, visible: true }} />);
       expect(anchor().style.left).toBe('50%');
+    });
+
+    it('in design B, keeps the count-up chip inside the frame as the video does', () => {
+      // 2026-11-17 Zoom run: dropped at the right edge, the chip hung off the panel.
+      const { unmount } = render(<Harness revealControls="hover" readoutPosition={{ x: 1, y: 0 }} readoutVisible />);
+      const chipAnchor = screen.getByTestId('count-up-anchor');
+      expect(parseFloat(chipAnchor.style.left)).toBeCloseTo((1 - (9 + 40) / 400) * 100, 3);
+      expect(parseFloat(chipAnchor.style.top)).toBeCloseTo(((9 + 14) / 225) * 100, 3);
+      unmount();
+      render(<Harness readoutPosition={{ x: 1, y: 0 }} readoutVisible />);
+      expect(screen.getByTestId('count-up-anchor').style.left).toBe('100%');
     });
 
     it("leaves today's panel placing it on the stored point", () => {

@@ -148,6 +148,24 @@ test('at the bottom right of the preview the chip\'s buttons still take clicks a
   expect(alpha).toBeGreaterThanOrEqual(0.85);
 });
 
+// 2026-11-17 Zoom run: dropped at the preview's right edge, the chip hung off
+// the panel. The video keeps the count-up inside the frame; so does the preview.
+test('the count-up chip stays inside the preview when dropped past its edge', async ({ page }) => {
+  await openPanel(page, { width: 340 });
+  const chip = page.getByRole('button', { name: 'Drag to place the count-up participants see on your video' });
+  const preview = page.getByTestId('video-preview');
+  const frame = await preview.boundingBox();
+  const start = await chip.boundingBox();
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(frame.x + frame.width + 30, frame.y - 30, { steps: 5 });
+  await page.mouse.up();
+  await page.mouse.move(1, 1);
+  const box = await chip.boundingBox();
+  expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width + 0.5);
+  expect(box.y).toBeGreaterThanOrEqual(frame.y - 0.5);
+});
+
 // A club device with Pro released, so the club's badge is on the preview.
 const CLUB = {
   clubToken: 'club-token',

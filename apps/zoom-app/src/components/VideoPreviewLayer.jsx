@@ -28,6 +28,49 @@ function insetCenter(fraction, size, extent, inset) {
 }
 
 /**
+ * `placement` as the video draws it: moved in by `insetCenter` with the
+ * element's measured size, in the frame its parent fills. Off, it returns
+ * `placement` untouched. The frame is the parent, not containerRef: on mount
+ * a parent's ref is attached only after its children's layout effects have
+ * run, so containerRef is still empty here.
+ */
+function useInsetPlacement(enabled, ref, placement, deps) {
+  const [box, setBox] = useState(null);
+  useLayoutEffect(() => {
+    if (!enabled) return undefined;
+    const el = ref.current;
+    const frame = el?.parentElement;
+    if (!el || !frame) return undefined;
+    const measure = () => {
+      const next = { width: el.offsetWidth, height: el.offsetHeight, frameWidth: frame.clientWidth, frameHeight: frame.clientHeight };
+      setBox((prev) =>
+        prev &&
+        prev.width === next.width &&
+        prev.height === next.height &&
+        prev.frameWidth === next.frameWidth &&
+        prev.frameHeight === next.frameHeight
+          ? prev
+          : next
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    observer.observe(frame);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, ...deps]);
+  if (!enabled || !box || !placement) return placement;
+  const inset = box.frameHeight * 0.04;
+  return {
+    ...placement,
+    x: insetCenter(placement.x, box.width, box.frameWidth, inset),
+    y: insetCenter(placement.y, box.height, box.frameHeight, inset),
+  };
+}
+
+/**
  * What the organizer moves around on the timer preview: the count-up chip
  * participants see on the video, and the club's badge. Each is dragged into
  * place, sized with − / + and hidden with the eye, and the move reaches Zoom
@@ -71,54 +114,20 @@ export default function VideoPreviewLayer({
   const [dragging, setDragging] = useState(false);
   const [draggingBadge, setDraggingBadge] = useState(false);
 
-  // Design B only: the badge is drawn where the video will put it, kept inside
-  // the frame like the video keeps it, and at its full width (bounded by its
-  // own 44% ceiling). Centred on the raw point and shrink-wrapped against the
-  // container's right edge, it ran out past the card on the left and cut the
-  // club's name short on the right (2026-11-17 Zoom rerun, NL-10). Today's
-  // panel keeps placing it as shipped.
+  // Design B only: the chip and the badge are drawn where the video will put
+  // them, kept inside the frame as the video keeps them (readoutCenter in
+  // zoomSdk.js, badgeLayout in clubBadge.js), and the badge at its full width
+  // (bounded by its own 44% ceiling). Centred on the raw point and
+  // shrink-wrapped against the right edge, the badge ran out past the card on
+  // the left and cut the club's name short on the right, and the chip hung
+  // off the panel at the right edge (2026-11-17 Zoom runs, NL-10). Today's
+  // panel keeps placing them as shipped.
   const insetBadge = hover && Boolean(clubKit && badgePlacement);
   const badgeRef = useRef(null);
-  const [badgeBox, setBadgeBox] = useState(null);
-  useLayoutEffect(() => {
-    if (!insetBadge) return undefined;
-    const badgeEl = badgeRef.current;
-    // The frame is the badge's own layer, which fills the preview (inset-0).
-    // Not containerRef: on mount a parent's ref is attached only after its
-    // children's layout effects have run, so it is still empty here.
-    const frame = badgeEl?.parentElement;
-    if (!badgeEl || !frame) return undefined;
-    const measure = () => {
-      const next = {
-        width: badgeEl.offsetWidth,
-        height: badgeEl.offsetHeight,
-        frameWidth: frame.clientWidth,
-        frameHeight: frame.clientHeight,
-      };
-      setBadgeBox((prev) =>
-        prev &&
-        prev.width === next.width &&
-        prev.height === next.height &&
-        prev.frameWidth === next.frameWidth &&
-        prev.frameHeight === next.frameHeight
-          ? prev
-          : next
-      );
-    };
-    measure();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(badgeEl);
-    observer.observe(frame);
-    return () => observer.disconnect();
-  }, [insetBadge, badgePlacement?.scale, clubKit?.name]);
-  const badgeAt =
-    insetBadge && badgeBox
-      ? {
-        x: insetCenter(badgePlacement.x, badgeBox.width, badgeBox.frameWidth, badgeBox.frameHeight * 0.04),
-        y: insetCenter(badgePlacement.y, badgeBox.height, badgeBox.frameHeight, badgeBox.frameHeight * 0.04),
-      }
-      : badgePlacement;
+  const badgeAt = useInsetPlacement(insetBadge, badgeRef, badgePlacement, [badgePlacement?.scale, clubKit?.name]);
+  const insetChip = hover && Boolean(readoutPosition);
+  const chipRef = useRef(null);
+  const chipAt = useInsetPlacement(insetChip, chipRef, readoutPosition, [displayTime?.length]);
 
   // This box stands in for the organizer's video tile: dragging the badge
   // within it places the count-up on the pushed background by the same
@@ -132,11 +141,12 @@ export default function VideoPreviewLayer({
     };
   };
 
-  // A drag is followed on window, not on the dragged element. In Zoom's
-  // webview the release goes to whatever is under the pointer, and once the
-  // chip or badge stops short of the pointer (at the preview's edge, or the
-  // badge at its inset) the element never heard it: the drag never ended, and
-  // the next hover moved it again (2026-11-17 Zoom run, NL-10).
+  // A drag is followed on window, not on the dragged element, and it also
+  // ends at the first move with no button held. In Zoom a release near the
+  // panel's left edge never reaches the page at all, while the moves after it
+  // do: the drag never ended, and the next hover dragged the badge again
+  // (2026-11-17 Zoom run, NL-10). It then ends where it was last dragged to;
+  // so does a cancel, which carries no position of its own.
   const latest = useRef({});
   latest.current = { onReadoutPositionChange, onBadgePlacementChange };
   const stopFollowing = useRef(null);
@@ -149,13 +159,23 @@ export default function VideoPreviewLayer({
       // Capture is a nicety here; the window listeners do the work.
     }
     const { pointerId } = event;
+    let last = positionFromEvent(event);
+    const finish = (position) => {
+      stop();
+      onEnd(position);
+    };
     const move = (e) => {
-      if (e.pointerId === pointerId) onMove(positionFromEvent(e));
+      if (e.pointerId !== pointerId) return;
+      if (e.buttons === 0) {
+        finish(last);
+        return;
+      }
+      last = positionFromEvent(e);
+      onMove(last);
     };
     const end = (e) => {
       if (e.pointerId !== pointerId) return;
-      stop();
-      onEnd(positionFromEvent(e));
+      finish(e.type === 'pointercancel' ? last : positionFromEvent(e));
     };
     const stop = () => {
       window.removeEventListener('pointermove', move);
@@ -316,10 +336,12 @@ export default function VideoPreviewLayer({
           // buttons hang off its side out of flow, shifting nothing.
           style={{
             position: 'absolute',
-            left: `${readoutPosition.x * 100}%`,
-            top: `${readoutPosition.y * 100}%`,
+            left: `${chipAt.x * 100}%`,
+            top: `${chipAt.y * 100}%`,
             transform: 'translate(-50%, -50%)',
           }}
+          ref={chipRef}
+          data-testid="count-up-anchor"
           className={hover ? 'group/chip z-10' : undefined}
           onMouseEnter={onChipEngaged}
         >

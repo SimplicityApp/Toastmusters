@@ -71,10 +71,12 @@ Evidence: one `setVirtualBackground` / filter push in the debug log for the drag
 ### NL-04 · auto · The chip's controls show on hover only
 Do: move the pointer away from the preview, then onto the chip. Press +, then the eye. Show it
 again, drag the chip to the bottom right of the preview (over the status line), and press + there.
+Then drag it past the preview's right edge and release outside the preview.
 Expect: − / + / eye are hidden until the pointer is on the chip. + makes the count-up on the
 video larger; the eye hides it from the video (the chip dims). At the bottom right the buttons
 still take clicks (the status line under the clock does not cover them, and its text does not
-show through them) and all three stay inside the panel, to the chip's left.
+show through them) and all three stay inside the panel, to the chip's left. Released outside,
+the drag ends and the chip stays inside the preview, where the video draws the count-up.
 Evidence: screenshots before and after hover; readout scale and visibility in
 `toastmaster_overlay_time_readout`.
 
@@ -116,11 +118,13 @@ Evidence: screenshots.
 
 ### NL-10 · auto · Club badge: hover controls and drag reach the video
 Do: with FLAGS_FORCE "1" on the club device, point at the club badge on the preview, press +,
-then drag it to the bottom left and release; press reset.
+then drag it to the far bottom left, release near the panel's left edge (off the badge), and
+move the pointer away; press reset.
 Expect: − / + / eye / reset appear on hover only; the badge on the video grows, moves on
-release, and returns to the club's position on reset. On the preview the badge shows the club's
-whole name and stays inside the preview, at the top right and at the far bottom left, where the
-video puts it.
+release, and returns to the club's position on reset. The drag ends even though that release
+never reaches the app: moving away does not drag the badge again, and its buttons come back on
+hover. On the preview the badge shows the club's whole name and stays inside the preview, at the
+top right and at the far bottom left, where the video puts it.
 Evidence: screenshots; `toastmaster_club_badge`.
 
 ### NL-11 · auto · The ⋯ menu's help items
@@ -216,6 +220,11 @@ renamed in that build only, so the hint showed again): NL-01, NL-04 (bottom righ
 the chip's left, all take clicks), NL-10 and NL-16 (nothing under the footer) pass. Not run: NL-12
 (human), NL-19 (no prompt due), NL-17's free half (no free device). Logs:
 test-runs/2026-11-16-design-b-new-look-2/run.md, test-runs/2026-11-16-design-b-rerun/run.md.
+Run 2026-11-17 on the cosmetic fixes (FLAGS_FORCE "1"): NL-04's buttons over the status line and
+NL-10's badge at both edges pass; it also found a badge drag released near the panel's left edge
+never ending (the release never reached the app) and the chip hanging off the panel at the right
+edge. Both fixed and rechecked in the same run (626f49fc). Log:
+test-runs/2026-11-16-design-b-cosmetic-fix/run.md.
 
 ## Not covered
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
