@@ -1,7 +1,7 @@
 ---
 id: club-history
 title: Club history meeting view shows the meeting's own day
-status: draft
+status: stale
 covers:
   - packages/ui/BrandedReportHeader.jsx
   - packages/ui/ReportHistoryList.jsx
