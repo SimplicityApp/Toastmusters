@@ -14,6 +14,9 @@ automated:
   - worker/club-cards.test.js
   - packages/shared/__tests__/clubCards.test.js
   - apps/zoom-app/src/components/CardImagesModal.test.jsx
+  - packages/shared/__tests__/club.test.js
+  - worker/club.test.js
+  - e2e/zoom.club-refresh.spec.js
 needs:
   - dev deployed
   - FLAGS_FORCE "1" on dev (the club doors are behind `pro`, and since 2026-11-14 every club
@@ -37,13 +40,15 @@ looks the same as a personal one, and that the image arrives on a second machine
 ## Purpose
 Catches a published set that never reaches another club device, a club card that shows on
 the stage but not on the virtual background, a device whose own chosen cards are silently
-replaced by the club's, and a lapsed or left club whose cards keep showing.
+replaced by the club's, a lapsed or left club whose cards keep showing, and an admin's device
+that loses **Share with my club** after its daily club refresh.
 
 ## Steps
 
 ### CC-01 · auto · A, the publisher, adds a custom set
 Do: on A in Zoom, open the timer, Card Images, upload one image each for blue and red, Add set.
 Expect: "Custom 1" appears selected. The row shows **Share with my club** (A is admin or editor).
+The button follows A's cached club role, which the last app-start club refresh wrote (CC-11).
 Evidence: localStorage `toastmaster_custom_card_images` lists `custom-1` with `["blue","red"]`.
 
 ### CC-02 · auto · A shares the set
@@ -105,8 +110,27 @@ previous set until its next club refresh (see CC-07).
 Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the new hashes and
 `ver` went up by 1; `GET /api/club/cards/<old hash>` with a club token → 404 (pruned).
 
+### CC-11 · auto · An admin keeps the admin role through the app-start club refresh
+Do: on A (admin or editor) in Zoom, open the timer more than 24 h after A's last club refresh
+(`lastRefreshAt` in `toastmaster_club`), so the app-start refresh runs. Zoom's localStorage
+cannot be edited, so time the open. A's club token has expired by then too, so dev must also
+serve the token-grace fix (#145), or A leaves the club on this open. Then open Card Images, then
+the footer's **Pro** button.
+Expect: A's own custom set shows **Share with my club**. For an admin, the Pro sheet shows the
+club code and its link. Before the fix this refresh went out at app start before the Zoom session
+existed. The server could not see who was asking and answered `role: null`, so A lost both until
+its next refresh a day later.
+Evidence: tail: `POST /api/zoom/session` → 200, then `GET /api/club` → 200 with a later
+timestamp and an `authorization` header (the tail shows it as `REDACTED`). Before the fix the same
+open logged `GET /api/club` with no `authorization`, about 0.1 s before the session
+(2026-11-15 02:30:48Z). KV `club-member:<clubId>:zoom:<A's uid>` has role `admin`. The ordering,
+the header and the cached role are also proven in a plain browser by
+`e2e/zoom.club-refresh.spec.js`.
+
 ## Not covered
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
+- The web app's club refresh: it sends the session as a cookie, so it never had the race CC-11
+  checks.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.
 - Card sets are one per club for now (open question 2 in the plan).
 - The club set while `pro` is off (`clubFeaturesOn` in `club.js`, used by `cardImages.js`,

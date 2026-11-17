@@ -50,7 +50,12 @@ try {
 // Re-check the club, at most once a day. A network failure leaves the cache in
 // place and the device stays Pro, so a lapse can only land on a successful
 // refresh at app start — never in the middle of a meeting.
-refreshClub({ getToken: getSessionToken }).catch((error) => {
+//
+// A due refresh waits for the Zoom session first. The session token only exists
+// once POST /api/zoom/session answers, and the server reads the caller's club
+// role from it: sent without one, an admin's device came back as nobody and
+// lost "Share with my club" and the club code until the next day's refresh.
+refreshClub({ getToken: getSessionToken, sessionReady: resolveZoomIdentity() }).catch((error) => {
   console.warn('Failed to refresh the club:', error);
 });
 

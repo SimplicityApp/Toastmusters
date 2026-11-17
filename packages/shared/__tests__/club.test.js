@@ -317,6 +317,101 @@ describe('refreshClub', () => {
   });
 });
 
+// The Zoom app starts its refresh at module load, before POST /api/zoom/session
+// has answered. Sent then, it carried no session, the server could not say whose
+// role to report, and an admin's device cached `role: null` (no Share, no code)
+// until the next day's refresh.
+describe('refreshClub waiting for the session', () => {
+  const DUE = NOW + CLUB_REFRESH_INTERVAL_MS;
+  const adminState = () => clubState({ role: 'admin', code: 'DTSP-7K2QM9', shareUrl: 'https://x/join/DTSP7K2QM9' });
+
+  function deferred() {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('holds a due refresh until the session lands, then sends the token it brought', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ role: 'admin', code: 'DTSP-7K2QM9' })));
+    let token = null;
+    const session = deferred();
+    const fetchImpl = respondWith({ clubToken: 'rotated.sig', ...adminState() });
+
+    const pending = refreshClub({ fetchImpl, getToken: () => token, sessionReady: session.promise, now: DUE });
+    await flush();
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    token = 'session-token';
+    session.resolve();
+    const club = await pending;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0][1].headers).toMatchObject({ 'X-Club': 'tok.sig', Authorization: 'Bearer session-token' });
+    expect(club).toMatchObject({ role: 'admin', code: 'DTSP-7K2QM9', lastRefreshAt: DUE });
+    expect(JSON.parse(localStorage.getItem(CLUB_STORAGE_KEY))).toMatchObject({ role: 'admin' });
+  });
+
+  it('does not wait when no refresh is due', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ lastRefreshAt: NOW })));
+    const fetchImpl = vi.fn();
+
+    const club = await refreshClub({ fetchImpl, sessionReady: new Promise(() => {}), now: NOW + 1 });
+
+    expect(club).toMatchObject({ clubToken: 'tok.sig' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  // A guest, a signed-out Zoom, or a session endpoint that failed: the refresh
+  // still goes out, so a lapse lands and the token is re-minted.
+  it('goes ahead without a session once the session has settled with none', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    const fetchImpl = respondWith(clubState({ ver: 2, role: null }));
+
+    const club = await refreshClub({ fetchImpl, getToken: () => null, sessionReady: Promise.reject(new Error('no')), now: DUE });
+
+    expect(fetchImpl.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
+    expect(club).toMatchObject({ ver: 2, lastRefreshAt: DUE });
+  });
+
+  it('stops waiting after the cap, so a client that never answers still refreshes', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    const fetchImpl = respondWith(clubState({ ver: 3 }));
+
+    const club = await refreshClub({ fetchImpl, sessionReady: new Promise(() => {}), sessionWaitMs: 5, now: DUE });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(club).toMatchObject({ ver: 3 });
+  });
+
+  it('sends nothing for a club the device left while it waited', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    const session = deferred();
+    const fetchImpl = respondWith(clubState());
+
+    const pending = refreshClub({ fetchImpl, sessionReady: session.promise, now: DUE });
+    leaveClub({ fetchImpl: vi.fn(async () => ({ ok: true })) });
+    session.resolve();
+
+    expect(await pending).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('does not ask twice when a fresh answer landed while it waited', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    const session = deferred();
+    const slow = respondWith(clubState({ ver: 9 }));
+
+    const pending = refreshClub({ fetchImpl: slow, sessionReady: session.promise, now: DUE });
+    await refreshClub({ fetchImpl: respondWith({ clubToken: 'new.sig', ...clubState({ ver: 5 }) }), force: true, now: DUE });
+    session.resolve();
+
+    expect(await pending).toMatchObject({ ver: 5, clubToken: 'new.sig' });
+    expect(slow).not.toHaveBeenCalled();
+  });
+});
+
 const DAY = 24 * 60 * 60 * 1000;
 
 describe('grace and lapse', () => {

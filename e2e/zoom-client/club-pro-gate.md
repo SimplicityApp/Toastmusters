@@ -64,3 +64,7 @@ Evidence: screenshots.
   `TimerApp.test.jsx`.
 - A club that lapses while `pro` is on: [club-renewal-reminder](club-renewal-reminder.md) and
   the lapse steps in [club-card-sets](club-card-sets.md).
+- The Zoom app's start-up club refresh waiting for the Zoom session (`refreshClub`'s
+  `sessionReady` in `club.js`, `main.jsx`). Reviewed 2026-11-16: it changes when the refresh goes
+  out and whose role it reports, not the `pro` gate; see
+  [club-card-sets](club-card-sets.md) CC-11. Not rerun for it.

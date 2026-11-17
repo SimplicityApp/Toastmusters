@@ -71,3 +71,6 @@ Evidence: screenshot.
   the same banner earlier the same day.
 - Other club behaviour in `club.js` (joining, refresh, lapse, card sets). See
   [club-card-sets](club-card-sets.md); `pro-club` is not migrated yet.
+- The Zoom app's start-up club refresh waiting for the Zoom session (`refreshClub`'s
+  `sessionReady`). Reviewed 2026-11-16: the refresh lands a second or two later, with the same
+  plan fields the banner reads; see [club-card-sets](club-card-sets.md) CC-11. Not rerun for it.

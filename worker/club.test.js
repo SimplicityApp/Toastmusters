@@ -321,6 +321,26 @@ describe('GET /api/club', () => {
     expect(body).toMatchObject({ plan: 'pro', entitled: true, source: 'subscription' });
   });
 
+  // The role is the caller's, read from the session, never from the uid the
+  // club token was minted with: whoever is signed in now decides it. So a
+  // refresh that goes out before the Zoom session exists comes back as nobody's,
+  // which is why the Zoom app waits for the session before refreshing.
+  it('reports the role, code and link from the session, and none without one', async () => {
+    const { clubToken, claims } = await activated({ uid: 'buyer-uid' });
+    expect(claims.uid).toBe('buyer-uid');
+
+    const withOrigin = { ...env, WEB_ORIGIN: 'https://www.example.test' };
+    const signedIn = await (await handleClubState(stateReq(clubToken, { uid: 'buyer-uid' }), withOrigin)).json();
+    expect(signedIn).toMatchObject({
+      role: 'admin',
+      code: 'DTSP-7K2QM9',
+      shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
+    });
+
+    const noSession = await (await handleClubState(stateReq(clubToken), withOrigin)).json();
+    expect(noSession).toMatchObject({ role: null, code: null, shareUrl: null });
+  });
+
   it('refuses a missing, forged or revoked credential', async () => {
     const { clubId, clubToken, claims } = await activated();
 

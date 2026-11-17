@@ -74,6 +74,15 @@ const LEAVE_ENDPOINT = '/api/club/leave';
 export const CLUB_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * How long a due refresh waits for the session it was told to wait for.
+ *
+ * In Zoom the session usually lands within a second or two. The cap exists for
+ * a client that never answers: the refresh still has to go out, or a lapse
+ * would never land and the club token would never be re-minted.
+ */
+export const CLUB_SESSION_WAIT_MS = 10 * 1000;
+
+/**
  * The server's own grace window, mirrored here so the countdown the device
  * shows and the moment the Worker stops entitling are the same date.
  *
@@ -901,6 +910,15 @@ function guessTimezone() {
   }
 }
 
+/** Settle when `ready` does, or after `ms`, whichever comes first. Never rejects. */
+function waitForSession(ready, ms) {
+  let timer;
+  const capped = new Promise((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([Promise.resolve(ready).catch(() => {}), capped]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Re-check the club, at most once a day, on app start.
  *
@@ -908,16 +926,41 @@ function guessTimezone() {
  * device stays Pro, so a lapse can only land on a *successful* refresh at app
  * start and never mid-meeting.
  *
+ * `sessionReady` is for an app whose session arrives after it starts. The
+ * server works out the caller's role (and so the code, and "Share with my
+ * club") from the session, and a refresh sent before it exists comes back as
+ * nobody's: an admin's device cached `role: null` for a whole day. So a due
+ * refresh waits for it, up to `CLUB_SESSION_WAIT_MS`, before reading the token.
+ * A refresh that is not due does not wait at all.
+ *
  * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch, force?: boolean,
- *   now?: number}} [options]
+ *   now?: number, sessionReady?: Promise<unknown>, sessionWaitMs?: number}} [options]
  * @returns {Promise<Object|null>} the club as it now stands, or null if there is none
  */
-export async function refreshClub({ getToken, fetchImpl, force = false, now = Date.now() } = {}) {
-  const club = loadClub();
+export async function refreshClub({
+  getToken,
+  fetchImpl,
+  force = false,
+  now = Date.now(),
+  sessionReady,
+  sessionWaitMs = CLUB_SESSION_WAIT_MS,
+} = {}) {
+  let club = loadClub();
   if (!club) return null;
 
   const age = now - (club.lastRefreshAt ?? 0);
   if (!force && age >= 0 && age < CLUB_REFRESH_INTERVAL_MS) return club;
+
+  if (sessionReady) {
+    const before = club;
+    await waitForSession(sessionReady, sessionWaitMs);
+    // The club may have moved while we waited: left, joined afresh, or
+    // refreshed by someone else. Send whichever token it holds now, and do not
+    // ask twice for an answer that has just landed.
+    club = loadClub();
+    if (!club) return null;
+    if (!force && club.lastRefreshAt !== before.lastRefreshAt) return club;
+  }
 
   let response;
   try {
