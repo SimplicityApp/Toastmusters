@@ -18,6 +18,7 @@ Read this first. Update it in the same PR as any spec change.
 | [club-renewal-reminder](club-renewal-reminder.md) | stale | 51534f9, 2026-11-14 | amber "<club>'s Pro ends in N days" line: only in the last 60 days of a club that will not renew; a failed payment at once. CR-01 in Zoom; CR-02/CR-03 on the web app as a second club device (the Zoom client can't be made to refresh its club). CR-04 (nothing while `pro` is off) added 2026-11-14, not run yet (needs the club inside the 60-day window in dev KV) |
 | [club-history](club-history.md) | current | a3cd339, 2026-11-16 | the club History's opened meeting: its header (`BrandedReportHeader`) prints the same day as the meeting's row, not the day before west of UTC (#163); the device's own report header shows today |
 | [club-pro-gate](club-pro-gate.md) | current | 32ebeb7, 2026-11-14 | every club feature (badge, club card set, club timings, archive strip / History / share, report branding, renewal line) only while the club is active **and** `pro` is on; nothing deleted while off |
+| [stage-club-badge](stage-club-badge.md) | current | 5cabd42, 2026-11-16 | the club badge on the Full-Screen Timer stage: sized and placed on the 16:9 card band as on the video, kept on the card and off Close / Screenshare / pop-out / the clock and START, in the sidebar and in a wide popped-out window |
 | [pro-coming-soon](pro-coming-soon.md) | current | 4d95d3d, 2026-11-14 | footer Pro button while `pro` is off: grey with a lock; hover or click lists what is coming (sounds, club card sets, voting, and more); the real Pro / Upgrade button once `pro` is on |
 | pro-club | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` P1–P7, plus the internal Club Pro plan (`06-zoom-client-test-plan-club-pro.md`); reference run `test-runs/2026-09-28-club-pro/run.md` |
 | webhooks-lifecycle | **not migrated** | — | source: `docs/ZOOM_TEST_PLAN.md` Steps 4, 5, 6 |
@@ -27,5 +28,5 @@ yet. Migrate one at a time, running each once so `verified_at` is real.
 
 ## Run order for a full pass
 Dependencies between specs, so the skill can batch human steps: `auth-identity` →
-`connection-notice` → `reauth-landing` → `contact-capture` → `announcement-banner` → `pro-coming-soon` → `timer-core` → `timer-sounds` → `agenda-import` → `pro-launch` → `pro-club` → `club-card-sets` → `club-renewal-reminder` → `club-history` → `club-pro-gate` → `webhooks-lifecycle` (deauth
+`connection-notice` → `reauth-landing` → `contact-capture` → `announcement-banner` → `pro-coming-soon` → `timer-core` → `timer-sounds` → `agenda-import` → `pro-launch` → `pro-club` → `club-card-sets` → `club-renewal-reminder` → `club-history` → `club-pro-gate` → `stage-club-badge` → `webhooks-lifecycle` (deauth
 last, it removes the app).

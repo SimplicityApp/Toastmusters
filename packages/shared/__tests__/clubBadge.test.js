@@ -3,6 +3,7 @@ import { setFlags } from '../flags.js';
 import {
   drawClubBadge,
   clubBadgeRect,
+  badgeCentre,
   badgeUnchanged,
   normalizeBadgePlacement,
   clampBadgeScale,
@@ -210,6 +211,21 @@ describe('placement arithmetic', () => {
       scale: 0.2,
       visible: true,
     });
+  });
+
+  it('centres the badge on its placement, pulled in to stay inside the 4% inset', () => {
+    expect(badgeCentre(1280, 720, { x: 0.8, y: 0.12 }, 200, 86)).toEqual({ cx: 1024, cy: 86 });
+    // Dragged into the corner: the right and bottom edges stop 29px (4% of 720) short.
+    expect(badgeCentre(1280, 720, { x: 1, y: 1 }, 200, 86)).toEqual({ cx: 1280 - 29 - 100, cy: 720 - 29 - 43 });
+    expect(badgeCentre(1280, 720, { x: 0, y: 0 }, 200, 86)).toEqual({ cx: 29 + 100, cy: 29 + 43 });
+  });
+
+  it('is the centre drawClubBadge draws at', () => {
+    const { ctx } = stubContext();
+    const rect = clubBadgeRect(ctx, FRAME.width, FRAME.height, KIT, { ...PLACE, x: 0.95, y: 0.9 });
+    const { cx, cy } = badgeCentre(FRAME.width, FRAME.height, { x: 0.95, y: 0.9 }, rect.width, rect.height);
+    expect(rect.x).toBe(Math.round(cx - rect.width / 2));
+    expect(rect.y).toBe(Math.round(cy - rect.height / 2));
   });
 
   it('ellipsizes against the context that will draw the text', () => {
