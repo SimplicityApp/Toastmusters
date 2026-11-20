@@ -6,9 +6,11 @@ covers:
   - packages/shared/timerSounds.js
   - apps/zoom-app/src/components/TimerSounds.jsx
   - apps/zoom-app/src/components/SoundsModal.jsx
+  - apps/zoom-app/src/components/SoundsPanel.jsx
   - apps/zoom-app/src/hooks/useSounds.js
   - apps/zoom-app/src/hooks/useEntitlement.js
   - apps/zoom-app/src/components/LiveTab.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.js
 automated:
   - packages/shared/__tests__/timerSounds.test.js
   - apps/zoom-app/src/components/TimerSounds.test.jsx

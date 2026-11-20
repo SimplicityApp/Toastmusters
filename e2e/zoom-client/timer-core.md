@@ -1,16 +1,18 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: current
+status: stale
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.js
   - apps/zoom-app/src/utils/zoomSdk.js
   - packages/shared/clubBadge.js
 automated:
   - e2e/zoom.timer-flow.spec.js
   - apps/zoom-app/src/utils/zoomSdk.test.js
   - apps/zoom-app/src/components/LiveTab.test.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting
