@@ -17,6 +17,20 @@
 
 const DATE_FORMAT = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' };
 
+/**
+ * The day a report is for. A club meeting's date is a bare `YYYY-MM-DD`, and
+ * `new Date('2026-11-16')` reads that as UTC midnight: the evening before
+ * anywhere west of UTC, so a Monday meeting's header said Sunday in Toronto. A
+ * bare date is read at local noon instead, as ReportHistoryList and
+ * reportImage's `readableReportDate` do. A Date, a timestamp or a full ISO
+ * date-time is an instant and is left alone; no date at all means today.
+ */
+function reportDay(date) {
+  if (date === undefined || date === null) return new Date();
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) return new Date(`${date}T12:00:00`);
+  return new Date(date);
+}
+
 /** Up to two letters, for the placeholder mark a club without a logo gets. */
 function initials(name) {
   return String(name ?? '')
@@ -32,7 +46,8 @@ function initials(name) {
  * @param {string} props.clubName
  * @param {string} [props.primaryColor] - the club's hex colour
  * @param {string|null} [props.logoUrl] - public, immutable club asset URL
- * @param {Date|number|string} [props.date] - the meeting's date
+ * @param {Date|number|string} [props.date] - the meeting's date; a bare
+ *   `YYYY-MM-DD` is that calendar day wherever the reader is
  * @param {string} [props.label] - overrides "Timing report"
  */
 export default function BrandedReportHeader({
@@ -44,7 +59,7 @@ export default function BrandedReportHeader({
 }) {
   if (!clubName) return null;
 
-  const when = date === undefined || date === null ? new Date() : new Date(date);
+  const when = reportDay(date);
   const printed = Number.isNaN(when.getTime()) ? null : when.toLocaleDateString(undefined, DATE_FORMAT);
 
   return (
