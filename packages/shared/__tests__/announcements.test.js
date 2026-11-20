@@ -81,6 +81,18 @@ describe('the shipped pre-launch announcement', () => {
     expect(pick({ pro: true, sounds: true })).toBeNull();
   });
 
+  it('gives way to the new-look note for anyone already on design B', () => {
+    const pick = (flags) => pickAnnouncement({ surface: 'zoom', flags, flagsKnown: true, dismissed: [], now: NOW });
+    const note = pick({ pro: false, sounds: true, new_look: true });
+    expect(note?.id).toBe('new-look-2026-11');
+    expect(`${note.lead} ${note.text}`).toBe(
+      'New look: the timer sits in the middle now, with your settings under Look & sound. Pro is coming soon.',
+    );
+    expect(pick({ pro: true, new_look: true })).toBeNull();
+    // Closing the new-look note does not bring the pre-launch one back.
+    expect(pickAnnouncement({ surface: 'zoom', flags: { pro: false, new_look: true }, flagsKnown: true, dismissed: ['new-look-2026-11'], now: NOW })).toBeNull();
+  });
+
   it('has unique ids across the list', () => {
     const ids = ANNOUNCEMENTS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);

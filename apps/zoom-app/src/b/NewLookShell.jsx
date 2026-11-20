@@ -6,6 +6,7 @@ import PeriodicPrompts from '../components/PeriodicPrompts';
 import TimerSounds from '../components/TimerSounds';
 import ContactCapture from '../components/ContactCapture';
 import TopBar from './TopBar';
+import { LookContext } from './LookContext';
 
 const TimerTab = lazy(() => import('./TimerTab'));
 const AgendaTabB = lazy(() => import('./AgendaTabB'));
@@ -40,6 +41,7 @@ export default function NewLookShell() {
   };
 
   return (
+    <LookContext.Provider value="b">
     <div className="app-container flex h-screen w-full flex-col bg-white" data-look="b">
       <ZoomConnectionNotice />
       <ClubStatusBanner />
@@ -76,5 +78,6 @@ export default function NewLookShell() {
       <TimerSounds />
       <ContactCapture />
     </div>
+    </LookContext.Provider>
   );
 }

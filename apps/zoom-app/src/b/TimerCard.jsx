@@ -145,7 +145,10 @@ export default memo(function TimerCard({
           {displayTime}
         </div>
         {statusLine && (
-          <div data-testid="timer-status" className="mt-1.5 px-2 text-center text-[13px] opacity-95">
+          // No opacity here: a translucent block is its own stacking context,
+          // painted after the chip and badge, and it took their − / + clicks
+          // whenever they sat over it (2026-11-16 Zoom run, NL-04).
+          <div data-testid="timer-status" className="mt-1.5 px-2 text-center text-[13px]">
             {statusLine}
           </div>
         )}
