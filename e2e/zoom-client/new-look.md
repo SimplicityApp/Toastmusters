@@ -155,8 +155,9 @@ Evidence: screenshots; `toastmaster_agenda`.
 Do: finish two short speeches, one past red plus grace. Report tab → Copy report; Clear (cancel,
 then confirm).
 Expect: one row per speech with its colour dot, time and last colour, "OVER TIME" on the long
-one and the grace note under the list; the clipboard holds the tab-separated report; Clear asks
-first and then empties the list.
+one and the grace note under the list; the clipboard holds the tab-separated report, or where
+Zoom refuses the app the clipboard (desktop 7.2.5 does) a "Copy the report" sheet shows that text
+to select; Clear asks first and then empties the list.
 Evidence: screenshots; clipboard text; `toastmaster_reports`.
 
 ### NL-15 · auto · Report for a club with Pro: archive, history, share
@@ -225,6 +226,18 @@ NL-10's badge at both edges pass; it also found a badge drag released near the p
 never ending (the release never reached the app) and the chip hanging off the panel at the right
 edge. Both fixed and rechecked in the same run (626f49fc). Log:
 test-runs/2026-11-16-design-b-cosmetic-fix/run.md.
+Run 2026-11-19 on the final head (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed); FLAGS_FORCE "1,pro=0", then "1" for NL-09's
+second half and NL-17): NL-01–NL-09, NL-11, NL-13, NL-14 (Clear cancelled, not confirmed: it
+would empty the device's 33-speech report), NL-16's device half, NL-18 and NL-20 passed, with
+1min Role (0:30 · 0:45 · 1:00) standing in for Short Roles and ChairToast3 for Table Topics
+Speech. NL-14's copy went to the "Copy the report" sheet (Zoom refused the clipboard). Not run:
+NL-10, NL-15, NL-16's club half and NL-17's club half (the device had dropped out of its club;
+it is now personal Pro), NL-17's free half (no free device), NL-19 (needs a debug build),
+NL-12 (human). Findings, none blocking: after Finish a tab switch puts the finished speaker
+back on the card (useLiveTimer's useState(currentSpeaker?.name); the context never clears
+currentSpeaker), and the idle card shows that snapshot's old times after a rules edit; on a
+personal-Pro device with no club, ⋯ → "Join my club with a code" opens a Pro sheet with no code
+field. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 
 ## Not covered
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".

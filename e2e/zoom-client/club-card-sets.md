@@ -135,3 +135,9 @@ Zoom session existed (`refreshClub` at module load in `main.jsx`), so the server
 name the caller; tracked separately. CC-02 and CC-09 blocked by that; the set was deleted
 again. CC-03, CC-04, CC-06 to CC-08 need B, a member device or the console and were not run;
 CC-10 passed on #145's run the same day. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
+
+Not run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed)): the test device was no longer in Claude Test Club. The daily run
+earlier that day saw GET /api/club → 401 and POST /api/club/leave at start-up (the club token
+was past 24 h; `refreshClub` calls `leaveClub()` on a 401), and the app offers a personal-Pro
+device no code field to rejoin. Rerun once the device is back in the club (or after #167).
+Log: test-runs/2026-11-19-design-b-stack-final/run.md.

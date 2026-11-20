@@ -89,3 +89,10 @@ Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): AB-05 pa
 earlier run, and the Zoom webview has no inspector to clear
 `toastmaster_announcements_dismissed`; it stayed closed through this run's reopenings (AB-04's
 point). Rerun AB-02 to AB-04 on a device that never closed it. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
+
+Run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed)): AB-01 passed with "1,new_look=0"; AB-05 passed in full with
+"1,pro=0" (the note showed, its × closed it, and it stayed closed after Refresh app, with no
+"Coming soon:" notice). AB-02 to AB-04 still not run for the same reason as 2026-11-16: the
+device closed the pre-launch notice long ago and the webview has no inspector to clear
+`toastmaster_announcements_dismissed` (`defaults write ZoomChat webview.context.menu true`
+would give one). Log: test-runs/2026-11-19-design-b-stack-final/run.md.
