@@ -245,3 +245,8 @@ field. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 - The connection and club-renewal banners: unchanged by design B (they already sit at the top
   as the boards draw them); connection-notice and club-renewal-reminder cover them.
 - Dragging agenda rows: the same dnd-kit sorting as today's tab, covered by the e2e and unit tests.
+- The club badge on the full-screen stage: sized against the 16:9 card band and kept clear of
+  the controls by `stageBadgeLayout` (#165), the same code under both looks. See
+  [stage-club-badge](stage-club-badge.md). Reviewed against the dev merge that brought #165 in
+  (9cb4e5f): design B's `TimerStage.jsx` change is only the share button's wording, so no step
+  here moves.
