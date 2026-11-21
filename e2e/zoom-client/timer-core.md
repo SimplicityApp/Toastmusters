@@ -15,8 +15,8 @@ automated:
 needs:
   - dev deployed
   - camera on, in a meeting
-verified_at: 905d8d1
-verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev 3ce801a6)
+verified_at: dea6993
+verified_on: 2026-11-21 (Zoom 7.2.5, macOS 26.7.2, dev 0bcc2458)
 ---
 
 # Core timer in the Zoom client
@@ -182,6 +182,13 @@ Evidence: screenshots of the name field after each switch, and of the Report tab
 from this device: `speech_finished` with `speaker_name: "Spec Speaker"` once, the next with
 `"Unnamed"`.
 Then: if the Report tab held nothing before this step, Clear All; otherwise leave the rows.
+Run 2026-11-21 (fix/finish-clears-speaker dea6993, dev 0bcc2458, Zoom on macOS): TC-01…TC-08,
+TC-10, TC-13 and TC-14 passed (device on Claude Test Club's role list: short role ChairToast1,
+TC-13 lines as in the 11-13 run). TC-14: after FINISH and an Agenda/Live switch the field stayed
+empty; the next speech was reported with no name (one `Spec Speaker` row); after RESET and a
+Report/Live switch the field stayed empty. TC-11 not verified: that deploy was built without
+the PostHog key, so no events reached PostHog. TC-09 and TC-12 not run (human).
+Log: test-runs/2026-11-21-finish-clears-speaker/run.md.
 
 ## Not covered
 - Colour accuracy on every camera/background setting.
