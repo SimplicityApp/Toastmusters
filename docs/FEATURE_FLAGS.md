@@ -54,7 +54,7 @@ Server gates: flagEnabled(env, key, { uid }) → bare 404 when off
 
 ## The flags
 
-There are two flags, `pro` and `contact_capture`, declared in `FLAG_FALLBACKS`
+The flags are `pro`, `contact_capture`, `sounds` and `new_look`, declared in `FLAG_FALLBACKS`
 in `worker/flags.js`, each with a `removeBy` date in a comment. Both fallbacks
 are `false`: the safe value, not the current one. **Both must exist in PostHog
 before they can be turned on in production**; until then the fallback applies.
@@ -114,6 +114,31 @@ server-side only, as `flag off: pro <route>`, so it shows in
 - **Guests never join a partial rollout.** Every uid-less caller shares the one
   `anonymous` id, so a percentage rollout puts all of them in or all of them
   out together. Treat the anonymous position as on only at 100%.
+
+### `new_look` (design B)
+
+`new_look` draws the redesigned Zoom panel (plan 13): one timer card, a "Look &
+sound" section of sheets, the ⋯ menu and no footer. UI only: no endpoint reads it,
+and the code that talks to Zoom is shared with today's panel (`useLiveTimer`), so
+turning it off puts everyone back on today's panel at their next open with nothing
+lost. The Zoom app remembers the last answer per device
+(`toastmaster_new_look_last`) so the new look does not flash the old one while flags
+load.
+
+Rollout, in order:
+
+1. Create `new_look` in PostHog, off.
+2. Target your own `zoom:<uid>` and run `e2e/zoom-client/new-look.md` in production
+   with `pro` still off (the mix most users will get first).
+3. A handful of friendly clubs' uids; watch `tab_viewed` (`look: 'b'`),
+   `more_menu_opened` and support mail for a week.
+4. Everyone. Guests follow the anonymous position, so they move only at 100%.
+5. When it has been at 100% for a release, retire the flag (below): delete today's
+   panel (`ClassicShell`, `LiveTab`, `Footer`, `NavTabs`, the dialogs' classic
+   branches) in the same commit.
+
+While `new_look` is on and `pro` is off, the top note reads "New look: …" instead of
+the pre-launch "Coming soon: …" (`packages/shared/announcements.js`).
 
 ## Finding your uid
 

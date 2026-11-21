@@ -22,14 +22,25 @@
  * - `link`     optional { label, url }, opened outside the app.
  */
 export const ANNOUNCEMENTS = Object.freeze([
+  // Design B is on for this person (plan 13, `new_look`), so the new look is
+  // no longer "coming": say where things went, and keep Pro as what is coming.
+  Object.freeze({
+    id: 'new-look-2026-11',
+    lead: 'New look:',
+    text: 'the timer sits in the middle now, with your settings under Look & sound. Pro is coming soon.',
+    tone: 'info',
+    surfaces: ['zoom'],
+    when: ({ flags }) => flags.new_look === true && !flags.pro,
+  }),
   Object.freeze({
     id: 'pre-launch-2026-11',
     lead: 'Coming soon:',
     text: 'a fresh new look for the timer, and Pro features for your club.',
     tone: 'info',
     surfaces: ['zoom'],
-    // Retires itself at launch, when the Pro launch announcement takes over.
-    when: ({ flags }) => !flags.pro,
+    // Retires itself at launch, when the Pro launch announcement takes over,
+    // and for anyone already on the new look.
+    when: ({ flags }) => !flags.pro && flags.new_look !== true,
   }),
 ]);
 
