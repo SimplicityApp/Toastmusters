@@ -8,6 +8,7 @@ covers:
   - packages/shared/clubArchive.js
   - apps/zoom-app/src/hooks/useClub.js
   - apps/zoom-app/src/components/ReportTab.jsx
+  - apps/zoom-app/src/hooks/useReportView.js
 automated:
   - packages/shared/__tests__/club.test.js
   - apps/zoom-app/src/components/CardImagesModal.test.jsx
@@ -17,8 +18,10 @@ needs:
   - FLAGS_FORCE "0" on dev (`pro` off) for GP-01 and GP-02; "1" for GP-03
   - a club device whose club is active (Claude Test Club on the test Mac), with a club card
     set, club timings and the badge shown on cards
-verified_at: 32ebeb7
-verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev with FLAGS_FORCE "0" then "1")
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
+verified_at: 7e05b9a
+verified_on: 2026-11-16 (Zoom 7.2.5, macOS 26.7.2, dev with FLAGS_FORCE "0" then "1,new_look=0")
 ---
 
 # Club features only while Pro is released
@@ -57,6 +60,9 @@ Expect: the badge is back on the preview and the video where it was; Cards has "
 selected again (unless the device chose its own); the club timings and banner are back;
 the Report tab shows "Saved to <club>" with History. Nothing had to be re-entered.
 Evidence: screenshots.
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): GP-01 and GP-02 passed with FLAGS_FORCE "0", GP-03 with
+"1,new_look=0" (today's panel). Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 
 ## Not covered
 - The web app's copies (`apps/web`): same gate and shared code, covered by

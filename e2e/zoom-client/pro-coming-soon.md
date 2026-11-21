@@ -12,8 +12,10 @@ automated:
 needs:
   - dev deployed
   - FLAGS_FORCE "0" on dev (`pro` off) for PC-01 to PC-03; "1" for PC-04
-verified_at: 4d95d3d
-verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev 3e3f2561 and 2fcb1b39)
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
+verified_at: 61de1d8
+verified_on: 2026-11-19 (Zoom 7.2.5, macOS 26.7.2, dev 0aa7a2d0 with FLAGS_FORCE "0" and 0ac2f458 with "1,new_look=0"; 61de1d8 + dev c42fbbf merged locally)
 ---
 
 # Footer Pro button before the launch (locked, "Pro is coming soon")
@@ -61,3 +63,8 @@ Evidence: screenshot of the footer.
 ## Not covered
 - The web app, whose header has no Pro button of this kind.
 - Touch: the Zoom desktop client is mouse-driven, and a click works the same as a tap.
+
+Run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed)): PC-01, PC-02 and PC-03 passed with FLAGS_FORCE "0"; PC-04 passed
+with "1,new_look=0" on a Pro device (amber "Pro"; the device is personal Pro since it dropped
+out of its club). The free-device half of PC-04 (Upgrade with the dot) not run: no free device.
+Log: test-runs/2026-11-19-design-b-stack-final/run.md.

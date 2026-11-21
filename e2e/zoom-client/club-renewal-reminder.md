@@ -18,6 +18,8 @@ needs:
     that can be made to refresh: a device re-reads its club only once its cache is 24 h old,
     so use the web app in a browser (set `toastmaster_club.lastRefreshAt` to 0, reload)
     rather than the Zoom client, whose localStorage cannot be reached
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: 51534f9
 verified_on: 2026-11-14 (CR-01 in Zoom 7.2.5 on 4d95d3d; CR-02/CR-03 on the web app as a second club device, dev dd1b9ab7 restore)
 ---
