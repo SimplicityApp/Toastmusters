@@ -1,0 +1,192 @@
+---
+id: club-membership
+title: Club membership by Zoom account (invite code, 3 places, leave, remove, block, owner)
+status: stale
+covers:
+  - worker/club.js
+  - worker/club-admin.js
+  - worker/club-admin-routes.js
+  - packages/shared/club.js
+  - apps/zoom-app/src/components/UpgradeModal.jsx
+  - apps/zoom-app/src/main.jsx
+  - apps/zoom-app/src/utils/zoomIdentity.js
+  - apps/web/src/pages/ProActivate.jsx
+  - apps/web/src/components/ClubCodeSection.jsx
+  - apps/web/src/pages/ClubAdmin.jsx
+  - scripts/club-cli.mjs
+automated:
+  - e2e/zoom.club-join.spec.js
+  - e2e/web.club-join.spec.js
+  - worker/club.test.js
+  - worker/club-admin-routes.test.js
+needs:
+  - this branch deployed to dev (`npm run cf:deploy:dev`); the deploy output lists the
+    `ClubPlaces` Durable Object binding
+  - FLAGS_FORCE "1,new_look=0" on dev (the club doors are behind `pro`; these steps are written
+    for today's panel)
+  - after the deploy, `node scripts/club-cli.mjs backfill-club-of --env dev` once (Q7)
+  - a dev club with a code (Claude Test Club, or `club-cli create --env dev --uid <test uid>`);
+    note who its owner is (`club:<id>.ownerUid`)
+  - Zoom account A, the test account on the Mac, approved for the dev app
+  - for the `human` steps that need it, a second Zoom account B (Q6); without one, mark those
+    steps ⏭ with the reason
+  - KV-seeded member rows for CM-03 and CM-14 (`club-member:<id>:zoom:<fake uid>` plus
+    `club-of:zoom:<fake uid>`); save what was there first and restore it at the end
+verified_at: never
+verified_on: never
+---
+
+# Club membership by Zoom account
+
+Issue #167. Club Pro belongs to Zoom accounts, not devices: one code per club, 3 places
+besides the owner (the account that pays), one club per account, and nothing stored per
+device (no `club-device:` rows, no `X-Club` header, no 24 h club token). The place count is
+kept by the `ClubPlaces` Durable Object (one per club), so simultaneous joins can't make a
+4th place.
+
+`covers` will also list `worker/club-places.js` once it exists (the implementer adds it;
+`npm run test:specs` refuses a path that doesn't exist yet).
+
+## Purpose
+Catches a code that still admits a signed-out or guest device, Pro that stays on one webview
+instead of following the account, a 4th account let in, a removed or blocked account that
+keeps Pro, an owner who can leave or be removed, and a club request sent before the Zoom
+session exists (which made the server unable to name the caller, see club-card-sets'
+2026-11-16 run).
+
+## Steps
+
+### CM-01 · auto · A, signed in and approved, joins with the code
+Do: with A not in any club (`club-of:zoom:<A uid>` absent; leave first if needed), open the
+timer in Zoom, Upgrade, type the club code, Activate.
+Expect: the Pro panel reads "You're on Pro through <club>". No "No sign-in needed" and no
+"This device is on Pro" anywhere. The club badge and club features appear without a reload.
+Evidence: `wrangler tail --env dev` shows `POST /api/club/activate` → 200 with an
+`authorization` header and no `x-club`; KV has `club-member:<id>:zoom:<A uid>` (`role:
+member`) and `club-of:zoom:<A uid>`; no `club-device:<id>:` key was written. PostHog
+`club_code_activated` with `places_used`.
+
+### CM-02 · auto · Pro follows the account, not the webview
+Do: on the Mac, clear the Zoom app's storage (⋯ → Debug → clear storage, or the web app at
+`www.timer-dev…/timer/app` signed in as A in a fresh browser profile), then open the timer
+again.
+Expect: club Pro is back with no code typed, once the session has resolved.
+Evidence: tail shows `POST /api/zoom/session` (entitlement `club` set) and then `GET
+/api/club` → 200; `toastmaster_club` holds A's `uid` and no `clubToken`.
+
+### CM-03 · auto · The 4th account is refused with the full message
+Do: seed the club to the owner plus 3 members in KV (fake uids, see needs), then, as A (not
+one of them), enter the code.
+Expect: "This club's Pro is full (3 of 3). Ask the person who shared the code to free a
+place." A is not joined.
+Evidence: tail `POST /api/club/activate` → 409 `full` with `placesUsed: 3`; no member row or
+`club-of` for A. PostHog `club_code_rejected` `reason: full`.
+
+### CM-04 · auto · A freed place admits the next account; admins see the count
+Do: delete one seeded member in the console (Remove, CM-06's flow), then enter the code as A.
+As the club's admin, open the Pro panel and `/club/admin`.
+Expect: A joins. The admin sees "N of 3 places used" next to the code in the Zoom Pro panel and
+in the console; a member or editor sees no count. Re-entering the code as A changes nothing.
+Evidence: `placesUsed` in the activate answer and in `GET /api/club/roster` `counts`.
+
+### CM-05 · auto · A leaves, after a confirm
+Do: as A (a member, not the owner), Pro panel → Leave → confirm.
+Expect: the confirm reads "Leave <club>? You'll lose its Pro on every computer where you're
+signed in." After confirming, club Pro is gone; on reopening the timer it stays gone. The
+console no longer lists A and the place count went down by 1.
+Evidence: tail `POST /api/club/leave` → 200 with `authorization`; KV member row and `club-of`
+for A are gone. PostHog `club_left`.
+
+### CM-06 · auto · An admin removes A in the console; A can rejoin
+Do: with A a member again, open `/club/admin` as the club admin; A's role select → Remove →
+confirm. Reopen the timer as A. Then enter the code again as A.
+Expect: the confirm says the place is freed and mentions Block. A drops off the roster (no
+"Removed" state). A's next open has no club Pro. Entering the code joins A again.
+Evidence: tail `POST /api/club/members/<A uid>/role` (`revoked`) → 200, then A's `GET
+/api/club` → 404 `no_club`, then `POST /api/club/activate` → 200. No `x-club` on any request.
+
+### CM-07 · auto · An account in one club can't join another
+Do: with A in club 1, enter the code of a second dev club (`club-cli create --env dev`, no `--uid`;
+delete it at the end).
+Expect: "You're already in <club 1>. Leave it to join another club."
+Evidence: tail `POST /api/club/activate` → 409 `already_in_club`. PostHog `club_code_rejected`
+`reason: already_in_club`.
+
+### CM-08 · auto · A new code: the old one admits nobody, members keep Pro
+Do: `node scripts/club-cli.mjs rotate --env dev <clubId>`; reopen the timer as A (a member);
+then, as an account outside the club, enter the old code.
+Expect: the CLI prints only the new code. A keeps club Pro. The old code answers "That code
+isn't active. Check with your club officer."
+Evidence: KV `club-by-code:<old>` gone, `club-by-code:<new>` present; A's member row untouched.
+
+### CM-09 · human · Signed out of Zoom, nothing is sent
+Do: sign out of the Zoom client, open the timer from Apps, Upgrade, type the code, submit.
+Expect: "Sign in to Zoom, then open the timer again to join your club". The free timer still
+runs a speech.
+Evidence: tail shows no `POST /api/club/activate`. PostHog `club_code_rejected` `reason:
+sign_in_required`.
+
+### CM-10 · human · Guest mode: Approve, then the typed code is sent
+Do: remove the app's grant (Zoom web → Apps → Manage → Remove, without uninstalling the
+client), open the timer, Upgrade, type the code, submit; press Approve and approve in Zoom.
+Expect: "Approve Toastmusters Timer in Zoom to join your club" with an Approve button; after
+approving (in the panel, or on the next open) A joins without retyping the code.
+Evidence: no activate before approval (PostHog `reason: approve_required`), then
+`POST /api/club/activate` → 200; sessionStorage `toastmaster_pending_club_code` cleared.
+
+### CM-11 · human · The web link, signed out, then signed in
+Do: in a browser with no session cookie, open `https://www.timer-dev.simple-tech.app/pro/<CODE>`;
+press "Sign in with Zoom to join" and sign in.
+Expect: the page shows "Sign in with Zoom to join" and joins nothing; after sign-in it comes
+back to `/pro/<CODE>` and shows "You're on Pro through <club>".
+Evidence: the link's `returnTo` is `/pro/<CODE>`; tail `POST /api/club/activate` → 200 only
+after sign-in.
+
+### CM-12 · auto · No club request before the Zoom session
+Do: quit and reopen the timer as A (a member) while tailing the dev Worker.
+Expect: club Pro appears after the panel has loaded (not before the first paint).
+Evidence: in the tail, `POST /api/zoom/session` comes before every `/api/club*` request
+(`GET /api/club`, any `POST /api/club/meetings/…/speeches`); no request carries `x-club`.
+
+### CM-13 · human · Offline: the saved copy keeps Pro; a finished speech uploads later
+Do: as A (a member, opened once online), turn Wi-Fi off, reopen the timer, time a short speech
+and FINISH; turn Wi-Fi on and reopen.
+Expect: offline, club Pro and the club badge stay on; the speech is listed. Back online, the
+speech reaches the club's History.
+Evidence: `toastmaster_club_outbox` holds the speech while offline and is empty after;
+tail shows `POST /api/club/meetings/<id>/speeches` → 200 after reconnecting.
+
+### CM-14 · auto · Block a member from the console's "…" menu
+Do: with a KV-seeded member in the club, open `/club/admin` as the admin; on that member's row
+press "…" → Block → confirm.
+Expect: the confirm says they lose Pro at their next open, the place is freed and the code
+won't let them back in. The member moves to a **Blocked** section; the place count drops by 1.
+Evidence: tail `POST /api/club/members/<uid>/block` → 200; KV member row is
+`{ blockedAt, blockedBy }` with no role and `club-of:zoom:<uid>` is gone. PostHog
+`club_member_blocked`.
+
+### CM-15 · human · A blocked account is refused; Unblock lets it rejoin
+Do: block B (second account) as in CM-14; as B enter the code. Then Unblock B in the console
+and enter the code as B again.
+Expect: blocked, B sees "That code isn't active. Check with your club officer." and is not
+joined. After Unblock, B leaves the Blocked list, is not put back by itself, and joins with
+the code while a place is free.
+Evidence: activate → 400 `invalid_code`, then after Unblock → 200. PostHog
+`club_member_unblocked`.
+
+### CM-16 · human · The owner can't leave and isn't counted
+Do: as the club's owner (the account that paid), open the Pro panel in Zoom and `/club/admin`.
+Expect: the Pro panel shows the code and "N of 3 places used" and no Leave. In the console the
+owner's row reads "Owner", with no role select and no "…" menu. The owner isn't counted in the
+places. ⏭ with the reason if the test account isn't the dev club's owner.
+Evidence: `GET /api/club` returns `isOwner: true`; a forced `POST /api/club/leave` as the owner
+returns 409 `owner`.
+
+## Not covered
+- The Durable Object's serialisation of simultaneous joins (AC-3's race): unit-tested in
+  `worker/club-places.test.js`; two real accounts can't be made to press at the same instant.
+- Grace, lapse and renewal for members who joined by account: unchanged logic, covered by
+  [club-renewal-reminder](club-renewal-reminder.md) and the lapse step in
+  [club-card-sets](club-card-sets.md).
+- Replaces the `pro-club` plan's P4 (`docs/ZOOM_TEST_PLAN.md`); P1–P3 and P5–P7 are still
+  not migrated.

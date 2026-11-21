@@ -1,7 +1,7 @@
 ---
 id: club-pro-gate
 title: Club features only while Pro is released
-status: current
+status: stale
 covers:
   - packages/shared/club.js
   - packages/shared/clubPresets.js
@@ -16,8 +16,9 @@ automated:
 needs:
   - dev deployed
   - FLAGS_FORCE "0" on dev (`pro` off) for GP-01 and GP-02; "1" for GP-03
-  - a club device whose club is active (Claude Test Club on the test Mac), with a club card
-    set, club timings and the badge shown on cards
+  - the test Zoom account signed in and a member of an active club (Claude Test Club), with a
+    club card set, club timings and the badge shown on cards; since #167 club Pro follows the
+    account, so any computer signed in as that account is a "club device"
   - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
     today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: 7e05b9a
@@ -30,7 +31,7 @@ Every club feature reads one gate, `clubFeaturesOn` in `packages/shared/club.js`
 is active (the server says entitled) **and** the `pro` flag is known and on. While `pro` is
 off, a club device behaves as a lapsed one: no badge, no club card set, no club timings, no
 archive strip, History or End meeting & share, no club branding on reports, no renewal line.
-Nothing is deleted. The device stays in its club and everything is back once `pro` is on.
+Nothing is deleted. The account stays in its club and everything is back once `pro` is on.
 
 ## Purpose
 Catches a club surface that still shows (or still uploads) while Pro is unreleased, and one
@@ -39,7 +40,7 @@ that does not come back when it is released, or comes back only after a reload.
 ## Steps
 
 ### GP-01 · auto · A club device shows no club features while `pro` is off
-Do: with FLAGS_FORCE "0" on dev, open the app on the club device. Look at the Live tab
+Do: with FLAGS_FORCE "0" on dev, open the app signed in as the club member account. Look at the Live tab
 preview and your video, open Cards, open Edit timing rules, open the Report tab.
 Expect: no club badge on the preview or on the video; Cards lists Classic, Modern and the
 device's own sets but not "<club> cards", and the device's own set is the one in use; Edit

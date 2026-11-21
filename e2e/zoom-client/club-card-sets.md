@@ -22,7 +22,10 @@ needs:
     feature is too: with `pro` off the club set is not listed; see club-pro-gate)
   - a dev club with a code, made with `node scripts/club-cli.mjs create --env dev`
   - Zoom account A, an admin or editor of that club (club-member record)
-  - a second computer or browser profile, B, with no cards of its own
+  - Zoom account B, a second Zoom account that is a member of the club (since #167 a club
+    belongs to accounts, not devices), signed in on a second computer or in the web app in a
+    browser profile, with no cards of its own; without a second account, CC-03 and the steps
+    that use B are ⏭ with the reason
   - ENTITLEMENT_ENFORCE "1" on dev for CC-08 only (ask first; revert after)
   - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
     today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
@@ -33,7 +36,7 @@ verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev 3ce801a6)
 # Club card sets (share card artwork with the club)
 
 Phase 1 of `docs/plans/10-pro-is-the-club-plan.md`. An admin or editor publishes one of
-their own custom card sets to the club; every device holding the club code downloads it
+their own custom card sets to the club; every account in the club downloads it
 and shows it on real video. Unit tests prove the server checks, the switch logic and the
 download. Only the real client proves that a club image pushed through the SDK bridge
 looks the same as a personal one, and that the image arrives on a second machine.
@@ -60,12 +63,14 @@ Evidence: `wrangler tail --env dev` shows two `PUT /api/club/cards/<hash>` → 2
 went up by 1. R2 has `club-card/<clubId>/<hash>` for each, and nothing under `club/<clubId>/`.
 
 ### CC-03 · human · B joins the club and gets the set
-Do: on B (no cards of its own), open the app in Zoom and enter the club code (or open
-`/pro/<CODE>` first). Start the timer in Timer + Camera mode with video on.
+Do: on B (no cards of its own), signed in to Zoom as account B with the app approved, open the
+app in Zoom and enter the club code (or open `/pro/<CODE>` on the web signed in as B; it then
+needs no code in Zoom). Start the timer in Timer + Camera mode with video on.
 Expect: within a few seconds B's picker lists the club's set, selected. The blue card on B's
 video is A's blue image; green and yellow are the Classic cards (the set skips them).
-Evidence: tail shows `GET /api/club/cards/<hash>` → 200 from B, once per image. B's
-localStorage has `toastmaster_club_cards`; `toastmaster_card_source` is absent (derived).
+Evidence: tail shows `GET /api/club/cards/<hash>` → 200 from B, once per image, with B's
+session and no `x-club` header. B's localStorage has `toastmaster_club_cards`;
+`toastmaster_card_source` is absent (derived).
 
 ### CC-04 · auto · The club card reaches red on real video
 Do: on B, run a speech past red.
@@ -80,23 +85,23 @@ the club's set shows it; choosing Modern again goes back.
 Evidence: `toastmaster_card_source` is `club`, then `own`.
 
 ### CC-06 · auto · Members cannot publish
-Do: on a device signed in as a club member (not editor or admin), open Card Images.
+Do: as account B, a club member (not editor or admin), open Card Images.
 Expect: no **Share with my club** button on any custom set.
-Evidence: a forced `PUT /api/club/cards` from that device returns 403. From a guest club device
-with no Zoom session (the web app as B), the same request returns 401 before the role check.
+Evidence: a forced `PUT /api/club/cards` with B's session returns 403. The same request with no
+session at all returns 401 before the role check (there are no guest club devices any more).
 
 ### CC-07 · human · An admin removes the set from the console
 Do: on the web, open `/club/admin` as the club admin. Under Card set, press **Remove card set**.
-Expect: the section says there is no card set. On B's next club refresh, the club's set leaves
-the picker and B shows its own choice (Classic on a device that never chose). A club refresh runs at app start only when the last one is
-over 24 h old (`CLUB_REFRESH_INTERVAL_MS`); to see it now, set `lastRefreshAt` to 0 in B's
-`toastmaster_club` and reload.
+Expect: the section says there is no card set. The next time B opens the timer, the club's set
+leaves the picker and B shows its own choice (Classic on a device that never chose). Since #167
+the club is re-read on every open once the session exists (no 24 h wait), so closing and
+reopening the app as B is enough.
 Evidence: tail shows `DELETE /api/club/cards` → 200; KV `club-cards:<clubId>` is gone and
 `ver` went up by 1.
 
 ### CC-08 · human · A lapsed club stops showing its set
 Do: with ENTITLEMENT_ENFORCE "1", republish a set from A, then set the club record to
-`canceled` with `currentPeriodEnd` in the past. Force B's refresh (`lastRefreshAt` 0) and reload.
+`canceled` with `currentPeriodEnd` in the past. Close and reopen the app as B.
 Expect: B shows its own choice (Classic) and the picker no longer lists the club's set. A's
 **Share with my club** is gone. Revert the club record and ENTITLEMENT_ENFORCE afterwards.
 Evidence: `GET /api/club` returns `entitled: false`; B's `toastmaster_club_cards` remains.
@@ -104,12 +109,13 @@ Evidence: `GET /api/club` returns `entitled: false`; B's `toastmaster_club_cards
 ### CC-09 · auto · A republishes; the old image is pruned
 Do: on A, add a second custom set and press **Share with my club** on it, at least 15 minutes
 after the first share.
-Expect: the club row at the top of A's picker shows the new set. Another club device keeps the
-previous set until its next club refresh (see CC-07).
+Expect: the club row at the top of A's picker shows the new set. B keeps the previous set until
+it next opens the timer (see CC-07).
 Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the new hashes and
-`ver` went up by 1; `GET /api/club/cards/<old hash>` with a club token → 404 (pruned).
+`ver` went up by 1; `GET /api/club/cards/<old hash>` with B's session → 404 (pruned).
 
 ## Not covered
+- Joining, leaving and removal themselves (#167): see [club-membership](club-membership.md).
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.
 - Card sets are one per club for now (open question 2 in the plan).

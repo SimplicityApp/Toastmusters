@@ -184,7 +184,7 @@ Do: with FLAGS_FORCE "1" on a free device, look at the top row; press the Pro ch
 Expect: a blue "Pro" chip with the red launch dot; Upgrade opens as a sheet from the bottom edge
 with the PRO tag, the prices and the club code field; ⋯ starts with "Your plan · Free · See Pro"
 and "Join my club with a code". On the club Pro device the chip is amber; it opens the Pro sheet
-("This device is on Pro through Claude Test Club", Manage billing), and ⋯ starts with "Your plan ·
+("You're on Pro through Claude Test Club", Manage billing; no "Leave" for the club's owner), and ⋯ starts with "Your plan ·
 Pro · Manage" with no "Join my club" row.
 Evidence: screenshots.
 
