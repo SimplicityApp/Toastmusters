@@ -15,6 +15,7 @@ import { formatTime, getPhaseInfo, formatPhaseTextFor, getDisplaySeconds } from 
 import ClubBadge, { ClubBadgeLayer } from '@toastmaster-timer/ui/ClubBadge';
 import { getBackgroundUrl } from '../utils/zoomSdk';
 import StageSpeakerPicker from './StageSpeakerPicker';
+import { useLook } from '../b/LookContext';
 
 // Shown underneath the branded PNG, so the color signal is already correct while
 // the image loads and stays correct if it fails to load at all.
@@ -80,6 +81,7 @@ export default memo(function TimerStage({
   clubKit,
   badgePlacement,
 }) {
+  const look = useLook();
   const phaseInfo = rules ? getPhaseInfo(elapsedTime, rules, status) : null;
   const phaseText = phaseInfo ? formatPhaseTextFor(phaseInfo, rules) : '';
   const bgColor = STATUS_COLORS[status] || STATUS_COLORS.blue;
@@ -185,7 +187,7 @@ export default memo(function TimerStage({
               className={`flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 isSharing ? 'bg-white text-blue-700 hover:bg-white/90' : 'bg-black/25 text-white hover:bg-black/35'
               }`}
-              aria-label={isSharing ? 'Stop sharing the timer' : 'Screenshare the timer'}
+              aria-label={isSharing ? 'Stop sharing the timer' : look === 'b' ? 'Share the timer to the meeting' : 'Screenshare the timer'}
               aria-pressed={isSharing}
             >
               {isSharing ? (
@@ -193,7 +195,8 @@ export default memo(function TimerStage({
               ) : (
                 <ScreenShare className="h-4 w-4 flex-shrink-0" />
               )}
-              {isSharing ? 'Stop sharing' : 'Screenshare'}
+              {/* Design B (board B-T16) names what the meeting will see. */}
+              {isSharing ? 'Stop sharing' : look === 'b' ? 'Share to the meeting' : 'Screenshare'}
             </button>
 
             {/* Desktop only, and never while sharing: Zoom refuses to undock an
