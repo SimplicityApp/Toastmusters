@@ -8,7 +8,9 @@ covers:
   - packages/shared/cardImages.js
   - packages/shared/club.js
   - apps/zoom-app/src/components/CardImagesModal.jsx
+  - apps/zoom-app/src/components/CardSetsPanel.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.js
   - apps/zoom-app/src/main.jsx
 automated:
   - worker/club-cards.test.js
@@ -22,6 +24,8 @@ needs:
   - Zoom account A, an admin or editor of that club (club-member record)
   - a second computer or browser profile, B, with no cards of its own
   - ENTITLEMENT_ENFORCE "1" on dev for CC-08 only (ask first; revert after)
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: 905d8d1
 verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev 3ce801a6)
 ---
@@ -118,7 +122,7 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the card artwork or its push; no step here
   loads an agenda row. See [timer-core](timer-core.md) TC-13.
-- RESET clearing the speaker's name in the shared timer state too (`LiveTab.jsx`,
+- RESET clearing the speaker's name in the shared timer state too (`useLiveTimer.js`,
   2026-11-21). Reviewed: a name-only update, which pushes nothing to the video; no step here
   depends on the name. See [timer-core](timer-core.md) TC-14. Not rerun for it.
 
@@ -126,3 +130,17 @@ Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6, A = Zoom desktop, B = web app in 
 profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards" (null label in
 KV). CC-06 only from B, a guest with no Zoom session: 401, not the member 403. CC-07 (console
 sign-in) and CC-08 (lapsing the club) not run. Log: test-runs/2026-11-13-pre-master-specs/run.md.
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,new_look=0", A = Zoom desktop): CC-05
+passed. CC-01 added and selected "Custom 1" but showed no **Share with my club**: A's cached
+club role was null although its member row says admin. Its last refresh went out before the
+Zoom session existed (`refreshClub` at module load in `main.jsx`), so the server could not
+name the caller; tracked separately. CC-02 and CC-09 blocked by that; the set was deleted
+again. CC-03, CC-04, CC-06 to CC-08 need B, a member device or the console and were not run;
+CC-10 passed on #145's run the same day. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
+
+Not run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed)): the test device was no longer in Claude Test Club. The daily run
+earlier that day saw GET /api/club → 401 and POST /api/club/leave at start-up (the club token
+was past 24 h; `refreshClub` calls `leaveClub()` on a 401), and the app offers a personal-Pro
+device no code field to rejoin. Rerun once the device is back in the club (or after #167).
+Log: test-runs/2026-11-19-design-b-stack-final/run.md.

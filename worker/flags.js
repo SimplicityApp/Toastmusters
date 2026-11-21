@@ -39,6 +39,11 @@ export const FLAG_FALLBACKS = Object.freeze({
   // (packages/shared/timerSounds.js).
   // removeBy: 2027-03-31
   sounds: false,
+  // Design B, the redesigned Zoom side panel (apps/zoom-app/src/b/): one timer
+  // card, a "Look & sound" section of sheets, the ⋯ More menu, no footer. Off,
+  // the panel is the one shipped today.
+  // removeBy: 2027-03-31
+  new_look: false,
 });
 
 // The ingestion host, called directly rather than through the browser's
@@ -71,15 +76,41 @@ export function flagCacheKey(distinctId) {
 
 /**
  * The per-environment short circuit, set in wrangler.jsonc like
- * ENTITLEMENT_ENFORCE: '1' → every flag on, '0' → every flag off, anything
- * else (including unset) → ask PostHog.
+ * ENTITLEMENT_ENFORCE. A comma-separated list, read left to right:
+ *
+ *   "1" / "0"        every declared flag on / off, PostHog not asked
+ *   "<key>=1|0"      that one flag on / off
+ *   "1,new_look=0"   everything on except new_look
+ *   "pro=0"          pro off; every other flag asked of PostHog as usual
+ *
+ * Anything else, including unset, an unknown key or a malformed entry, forces
+ * nothing. Per-key entries exist so a test run can pick the mix production has
+ * (one feature on, another still dark) instead of everything at once.
+ *
+ * @returns {{all: boolean|null, keys: Object<string, boolean>}}
+ */
+export function parseFlagsForce(env) {
+  const parsed = { all: null, keys: {} };
+  const raw = env?.FLAGS_FORCE;
+  if (typeof raw !== 'string') return parsed;
+  for (const entry of raw.split(',').map((part) => part.trim()).filter(Boolean)) {
+    if (entry === '1' || entry === '0') {
+      parsed.all = entry === '1';
+      continue;
+    }
+    const match = /^([a-z0-9_]+)=([01])$/.exec(entry);
+    if (match && Object.hasOwn(FLAG_FALLBACKS, match[1])) parsed.keys[match[1]] = match[2] === '1';
+  }
+  return parsed;
+}
+
+/**
+ * The all-flags part of FLAGS_FORCE: true, false, or null for "ask PostHog".
  *
  * @returns {boolean|null}
  */
 export function flagOverride(env) {
-  if (env?.FLAGS_FORCE === '1') return true;
-  if (env?.FLAGS_FORCE === '0') return false;
-  return null;
+  return parseFlagsForce(env).all;
 }
 
 const allFlags = (value) => Object.fromEntries(Object.keys(FLAG_FALLBACKS).map((key) => [key, value]));
@@ -154,8 +185,19 @@ async function askPostHog(env, distinctId) {
  * @returns {Promise<Object<string, boolean>>}
  */
 export async function resolveFlags(env, { uid } = {}, ctx) {
-  const override = flagOverride(env);
-  if (override !== null) return allFlags(override);
+  const forced = parseFlagsForce(env);
+  if (forced.all !== null) return withForcedKeys(allFlags(forced.all), forced.keys);
+  const resolved = await resolveUnforced(env, { uid }, ctx);
+  return withForcedKeys(resolved, forced.keys);
+}
+
+/** The flags as resolved, with any FLAGS_FORCE per-key entries laid over them. */
+function withForcedKeys(flags, keys) {
+  return Object.keys(keys).length === 0 ? flags : { ...flags, ...keys };
+}
+
+/** PostHog's answer (cached per distinct id), or the fallbacks. */
+async function resolveUnforced(env, { uid }, ctx) {
   if (!env?.POSTHOG_API_KEY) return FLAG_FALLBACKS;
 
   const distinctId = uid ? `zoom:${uid}` : ANONYMOUS_DISTINCT_ID;

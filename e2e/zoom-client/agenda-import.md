@@ -6,6 +6,7 @@ covers:
   - packages/shared/simpleFormatParser.js
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/AgendaTab.jsx
+  - apps/zoom-app/src/hooks/useAgendaEditor.js
 automated:
   - packages/shared/__tests__/simpleFormatParser.test.js
   - apps/zoom-app/src/context/TimerContext.test.jsx
@@ -17,8 +18,10 @@ needs:
   - club presets not live on this device (not in a club, or "Mine" in Edit Timing Rules)
   - no custom role on the device shares a name with a role or bracket text below (note the device's custom roles in the run log; leave the rest, they are the user's own list)
   - built-in roles not hidden on this device (Standard Speech, Ice Breaker and Table Topics Speech in the role dropdown); a hidden one is highlighted as "not one of your roles" in IM-02, IM-05 and IM-06. Then IM-03, IM-05 and IM-06 use a listed role with the same thresholds where possible in its place (see the 2026-11-13 run under IM-06)
-verified_at: b029a29
-verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev a249d5d7)
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
+verified_at: 7e05b9a
+verified_on: 2026-11-16 (Zoom 7.2.5, macOS 26.7.2, dev with FLAGS_FORCE "1,new_look=0")
 ---
 
 # Simple Format import takes exact role names and asks for the rest in the Zoom client
@@ -163,6 +166,10 @@ and 1-2min Role for Bob; IM-05 used "Tim Timer (Tech Tip)" (Live tab: Tech Tip, 
 IM-06 used "David Kim (1-2min Role)" (1:00/1:30/2:00) and picked 1-2min Role for Alex and
 1min Role for Bob, so `agenda_role_picked` carried `is_custom: true`. Inspector off: on-screen
 rows stood in for the page script. Log: test-runs/2026-11-13-91-zoom-specs/run.md.
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,new_look=0"): IM-01…IM-06 passed on today's panel
+with the 11-13 substitutions (the device still runs its copy of the club list, built-ins
+hidden). Lines were typed with `cliclick`, not pasted, to leave the clipboard alone.
+Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 
 ## Not covered
 - Custom roles that come from Club Pro presets, or from older saved rules with no role

@@ -20,6 +20,8 @@ needs:
   - authorize and onAuthorized in the dev app's API list
   - wrangler access to the PROFILES KV namespace (dev)
   - in a meeting, an account that has not approved the updated scopes
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: never
 verified_on: never
 ---

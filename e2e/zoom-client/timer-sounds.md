@@ -6,9 +6,11 @@ covers:
   - packages/shared/timerSounds.js
   - apps/zoom-app/src/components/TimerSounds.jsx
   - apps/zoom-app/src/components/SoundsModal.jsx
+  - apps/zoom-app/src/components/SoundsPanel.jsx
   - apps/zoom-app/src/hooks/useSounds.js
   - apps/zoom-app/src/hooks/useEntitlement.js
   - apps/zoom-app/src/components/LiveTab.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.js
 automated:
   - packages/shared/__tests__/timerSounds.test.js
   - apps/zoom-app/src/components/TimerSounds.test.jsx
@@ -16,11 +18,13 @@ automated:
   - e2e/web.timer-sounds.spec.js
 needs:
   - dev deployed
-  - FLAGS_FORCE "1" on dev (`pro` and `sounds` on); "0" for TS-09 only; cleared, with `pro` on
-    and `sounds` off for your uid in PostHog, for TS-08 only
+  - FLAGS_FORCE "1" on dev (`pro` and `sounds` on); "0" for TS-09 only; "1,new_look=0,sounds=0"
+    (per-key, plan 13 Phase 0) for TS-08 only
   - a free account, then a Pro one (club code via /pro/<CODE>, or a subscription)
   - speakers or headphones on the test computer
   - a second participant on another computer, for TS-07 only
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: never
 verified_on: never
 ---
@@ -51,9 +55,9 @@ Evidence: screenshot; `localStorage.toastmaster_sound_settings` is absent or has
 `"cues":false`.
 
 ### TS-08 · auto · Locked for Pro while only the `sounds` flag is off
-Do: on a Pro account, with `pro` on and `sounds` off (FLAGS_FORCE cleared on dev and the
-flags targeted at your uid in PostHog; FLAGS_FORCE "0" turns `pro` off too, which is TS-09),
-open the Live tab and click the speaker icon.
+Do: on a Pro account, with `pro` on and `sounds` off (since plan 13 Phase 0, FLAGS_FORCE
+"1,new_look=0,sounds=0" on dev; FLAGS_FORCE "0" turns `pro` off too, which is TS-09), open the
+Live tab and click the speaker icon.
 Expect: the icon is shown, grey with a lock. The modal opens with "Hold tight! Sounds are
 coming soon." and no Upgrade link, and its controls cannot be used.
 Evidence: screenshot.
@@ -127,6 +131,18 @@ log.
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the sounds; no step here loads an agenda
   row. See [timer-core](timer-core.md) TC-13. Not rerun for it.
-- RESET clearing the speaker's name in the shared timer state too (`LiveTab.jsx`,
+- RESET clearing the speaker's name in the shared timer state too (`useLiveTimer.js`,
   2026-11-21). Reviewed: it changes the name, not the status the chime follows; no step here
   depends on the name. See [timer-core](timer-core.md) TC-14. Not rerun for it.
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): TS-09 passed with FLAGS_FORCE "0" on the club Pro device
+(the footer now shows the locked "Pro" coming-soon button, as on dev since 2026-11-14), and
+TS-05 with "1,new_look=0" after several closes, reopens and a Refresh app. Not run: TS-01 (no
+free account on the test Mac), TS-08 (needs FLAGS_FORCE cleared and `sounds` targeted off in
+PostHog), and the human steps. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
+
+Run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed); today's panel): TS-05 passed with FLAGS_FORCE "1,new_look=0" (Music
+unticked, survived a close and reopen, re-ticked); TS-08 passed with "1,new_look=0,sounds=0"
+(grey locked icon, "Hold tight! Sounds are coming soon.", no Upgrade link, amber Pro in the
+footer); TS-09 passed with "0". TS-01 not run (needs a free account); TS-02/03/04/06/07 human
+(audio). Still stale for TS-01 only. Log: test-runs/2026-11-19-design-b-stack-final/run.md.

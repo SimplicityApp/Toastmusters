@@ -10,6 +10,7 @@ import {
 } from '@toastmaster-timer/shared';
 import { publishCardSet } from '@toastmaster-timer/shared';
 import CardImagesModal from './CardImagesModal';
+import CardSetsPanel from './CardSetsPanel';
 import { ToastProvider } from '../context/ToastContext';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
@@ -190,5 +191,22 @@ describe('the card images storage note', () => {
     expect(screen.getByText(/stored only in this browser/)).toBeInTheDocument();
     expect(screen.queryByText(/backed up and follow you/)).toBeNull();
     expect(upgradeLink()).toBeNull();
+  });
+});
+
+// The dialog's card picker on its own, as design B's Cards sheet shows it: the
+// sets only, with the own-background picker left to its own sheet.
+describe('the card set panel', () => {
+  it('shows the sets and the storage note, and nothing about the background', async () => {
+    render(
+      <ToastProvider>
+        <CardSetsPanel />
+      </ToastProvider>
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(screen.getByRole('radiogroup', { name: 'Card set' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /classic/i })).toBeInTheDocument();
+    expect(storageNote()).toBeInTheDocument();
+    expect(screen.queryByText(/background/i)).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 ---
 id: announcement-banner
 title: Announcement banner (currently the pre-launch notice)
-status: current
+status: stale
 covers:
   - packages/shared/announcements.js
   - packages/ui/AnnouncementBanner.jsx
@@ -14,6 +14,8 @@ automated:
 needs:
   - dev deployed
   - FLAGS_FORCE "1" on dev (`pro` on) for AB-01; "0" (`pro` off) for AB-02 to AB-04
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: cb49176
 verified_on: 2026-11-14 (Zoom 7.2.5, macOS 26.7.2, dev b5efb7d2 and fcf1ed01)
 ---
@@ -64,6 +66,14 @@ Expect: the banner disappears at once and is not back after reopening.
 Evidence: `localStorage.toastmaster_announcements_dismissed` holds its id; PostHog
 `announcement_dismissed`.
 
+### AB-05 · auto · On the new look, the note says it is here
+Do: with FLAGS_FORCE "1,pro=0" on dev (`new_look` on, `pro` off), open the app on a device that
+never closed it.
+Expect: the strip above the top row reads "New look: the timer sits in the middle now, with your
+settings under Look & sound. Pro is coming soon." and the "Coming soon:" notice does not show.
+Closing it keeps both closed after reopening.
+Evidence: screenshot; `toastmaster_announcements_dismissed` holds `new-look-2026-11`.
+
 ## Not covered
 - The web app (`apps/web`). The shared banner and the list support `surfaces: ['web']`, but
   only the Zoom app renders it so far.
@@ -71,3 +81,18 @@ Evidence: `localStorage.toastmaster_announcements_dismissed` holds its id; PostH
   yet; unit and e2e tests cover them. Run AB-02 against the first entry that does.
 - What replaces the pre-launch notice at launch: the one-time Pro announcement, on its own
   branch (`feat/pro-launch-announcement`) with its own spec.
+- Design B's panel (`new_look` on, plan 13): AB-05 covers its note. AB-01 to AB-04 describe
+  today's panel; run them with `new_look` off (`FLAGS_FORCE "1,new_look=0"` or `"0"`).
+
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): AB-05 passed with "1,pro=0"; AB-01 passed with
+"1,new_look=0". AB-02 and AB-03 not run: the test device closed the "Coming soon:" notice in an
+earlier run, and the Zoom webview has no inspector to clear
+`toastmaster_announcements_dismissed`; it stayed closed through this run's reopenings (AB-04's
+point). Rerun AB-02 to AB-04 on a device that never closed it. Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
+
+Run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed)): AB-01 passed with "1,new_look=0"; AB-05 passed in full with
+"1,pro=0" (the note showed, its × closed it, and it stayed closed after Refresh app, with no
+"Coming soon:" notice). AB-02 to AB-04 still not run for the same reason as 2026-11-16: the
+device closed the pre-launch notice long ago and the webview has no inspector to clear
+`toastmaster_announcements_dismissed` (`defaults write ZoomChat webview.context.menu true`
+would give one). Log: test-runs/2026-11-19-design-b-stack-final/run.md.

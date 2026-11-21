@@ -5,18 +5,22 @@ status: current
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.js
   - apps/zoom-app/src/utils/zoomSdk.js
   - packages/shared/clubBadge.js
 automated:
   - e2e/zoom.timer-flow.spec.js
   - apps/zoom-app/src/utils/zoomSdk.test.js
   - apps/zoom-app/src/components/LiveTab.test.jsx
+  - apps/zoom-app/src/hooks/useLiveTimer.test.jsx
   - apps/zoom-app/src/context/TimerContext.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting
-verified_at: dea6993
-verified_on: 2026-11-21 (Zoom 7.2.5, macOS 26.7.2, dev 0bcc2458)
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
+verified_at: 61de1d8
+verified_on: 2026-11-19 (Zoom 7.2.5, macOS 26.7.2, dev 0ac2f458 with FLAGS_FORCE "1,new_look=0"; 61de1d8 + dev c42fbbf merged locally)
 ---
 
 # Core timer in the Zoom client
@@ -162,6 +166,16 @@ second click (the first focused the panel). Log: test-runs/2026-11-13-91-live-ta
 Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6 with `FLAGS_FORCE` "1", Zoom on macOS): TC-01…TC-08,
 TC-10, TC-11 and TC-13 passed with the same substitutions; TC-09 and TC-12 not run (human).
 Log: test-runs/2026-11-13-pre-master-specs/run.md.
+Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,new_look=0", Zoom on macOS): TC-01…TC-08, TC-10,
+TC-11 and TC-13 passed on today's panel with the same substitutions; TC-09 and TC-12 not run
+(human). TC-06's resume toast had faded before the shot; elapsed and colour were right.
+Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
+Run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed); FLAGS_FORCE "1,new_look=0", dev 0ac2f458, Zoom on macOS): TC-01…TC-08,
+TC-10, TC-11 and TC-13 passed on today's panel with the same substitutions; TC-06's toast
+'Timer resumed from where it was' was caught this time. TC-09 and TC-12 not run (human). The
+device had dropped out of Claude Test Club (expired club token → GET /api/club 401 → leaveClub),
+so the card set was its own 'Custom 1' (CLUB BLUE / CLUB RED art) and no club badge drew; no
+step here needs the club. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 
 ### TC-14 · auto · FINISH and RESET clear the speaker for good
 Seen in the Zoom client on 2026-11-19: after FINISH, switching tabs and back put the speaker
@@ -216,8 +230,8 @@ Log: test-runs/2026-11-21-finish-clears-speaker/run.md.
   edit made while nobody is speaking (2026-11-21; START already used the edited times).
   `TimerContext.test.jsx`, `LiveTab.test.jsx` and `e2e/zoom.timer-flow.spec.js` cover it; the
   client adds nothing.
-- The Design B panel (`new_look`) has the same FINISH/RESET behaviour once it is merged with
-  this change: it reads the same shared speaker. Its spec lives with that stack.
+- The Design B panel (`new_look`) reads the same shared speaker; its FINISH, RESET and rules
+  line after a tab switch are [new-look](new-look.md) NL-21.
 - The web timer (`apps/web`) still keeps the finished speaker in its shared state; not
   changed here.
 - The club badge on the Full-Screen Timer stage. See [stage-club-badge](stage-club-badge.md).
