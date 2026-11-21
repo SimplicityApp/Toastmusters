@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { ToastProvider } from './ToastContext';
 import { TimerProvider, useTimer, useTimerTick, restoreTimerSession } from './TimerContext';
 import { applyOverlay, removeOverlay, isOverlayActive, setOverlayTimeLabel, getBackgroundUrl } from '../utils/zoomSdk';
-import { BREAK_ROLE, deriveBreakRules } from '@toastmaster-timer/shared';
+import { BREAK_ROLE, DEFAULT_ROLE_RULES, deriveBreakRules } from '@toastmaster-timer/shared';
 import { trackEvent } from '../utils/posthog';
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
@@ -354,6 +354,129 @@ describe('Take a Break and the agenda', () => {
     act(() => { result.current.timer.finishCurrentSpeech(); });
     expect(result.current.timer.agenda.find((i) => i.id === aliceId).completed).toBe(true);
     expect(result.current.timer.agenda.find((i) => i.id === bobId).completed).toBe(false);
+  });
+});
+
+describe('the speaker the timer sits on once a speech is over', () => {
+  // Real timers cannot drive the rAF tick, and the finish flow refuses to
+  // record a session that never accumulated time.
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function speak(result, ms = 2000) {
+    act(() => { result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(ms); });
+    act(() => { result.current.timer.finishCurrentSpeech(); });
+  }
+
+  it('FINISH keeps the role and drops the name, so nobody is timed twice', () => {
+    // The Live tab seeds its name field from this speaker when it remounts
+    // after a tab switch. A name left here put Ann back on the card, and the
+    // next START timed her again under her name: a second report row.
+    const { result } = renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+    act(() => {
+      result.current.timer.setCurrentSpeaker({ name: 'Ann', role: 'Table Topics Speech' });
+    });
+
+    speak(result);
+
+    expect(result.current.timer.reports.at(-1)).toMatchObject({ name: 'Ann', role: 'Table Topics Speech' });
+    expect(result.current.timer.currentSpeaker).toEqual({
+      name: '',
+      role: 'Table Topics Speech',
+      rules: DEFAULT_ROLE_RULES['Table Topics Speech'],
+    });
+
+    // The next START is somebody new, not Ann a second time.
+    speak(result);
+    expect(result.current.timer.reports.map((r) => r.name)).toEqual(['Ann', '']);
+  });
+
+  it('FINISH on an agenda speaker clears the name and the agenda link', () => {
+    const { result } = renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+    let aliceId;
+    act(() => {
+      aliceId = result.current.timer.addToAgenda({ name: 'Alice', role: 'Ice Breaker' }, { activate: true });
+    });
+
+    speak(result);
+
+    expect(result.current.timer.agenda.find((i) => i.id === aliceId).completed).toBe(true);
+    expect(result.current.timer.activeSpeakerId).toBeNull();
+    expect(result.current.timer.currentSpeaker).toMatchObject({ name: '', role: 'Ice Breaker' });
+  });
+
+  it('a next agenda speaker loaded straight after FINISH is the one left on the timer', () => {
+    // What the Live tab does on FINISH: finishCurrentSpeech, then load the
+    // next uncompleted row. The clear must not win over the load.
+    const { result } = renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+    act(() => {
+      result.current.timer.addToAgenda({ name: 'Alice', role: 'Standard Speech' }, { activate: true });
+    });
+    act(() => { vi.advanceTimersByTime(10); });
+    let bobId;
+    act(() => {
+      bobId = result.current.timer.addToAgenda({ name: 'Bob', role: 'Ice Breaker' });
+    });
+
+    act(() => { result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    act(() => {
+      result.current.timer.finishCurrentSpeech();
+      result.current.timer.loadSpeakerFromAgenda(bobId);
+    });
+
+    expect(result.current.timer.activeSpeakerId).toBe(bobId);
+    expect(result.current.timer.currentSpeaker).toMatchObject({ name: 'Bob', role: 'Ice Breaker' });
+  });
+
+  it('FINISH keeps the rules a Custom speaker typed and the length a break was given', () => {
+    const custom = { green: 5, yellow: 10, red: 15, graceAfterRed: 5 };
+    const { result } = renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+
+    act(() => { result.current.timer.setCurrentSpeaker({ name: 'Cy', role: 'Custom', rules: custom }); });
+    speak(result);
+    expect(result.current.timer.currentSpeaker).toEqual({ name: '', role: 'Custom', rules: custom });
+
+    act(() => { result.current.timer.setCurrentSpeaker({ name: '', role: BREAK_ROLE, rules: deriveBreakRules(180) }); });
+    speak(result);
+    expect(result.current.timer.currentSpeaker).toEqual({ name: '', role: BREAK_ROLE, rules: deriveBreakRules(180) });
+  });
+
+  it('an idle speaker follows a rules edit; a speech under way or paused keeps its own', () => {
+    // START looks the role's rules up again, so the copy an idle speaker
+    // carries is only ever shown. Shown stale after an edit, the idle card
+    // read the old times right up to the press.
+    const edited = { green: 240, yellow: 270, red: 300, graceAfterRed: 30 };
+    const { result } = renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+    act(() => { result.current.timer.setCurrentSpeaker({ name: 'Dee', role: 'Standard Speech' }); });
+    speak(result);
+
+    act(() => { result.current.timer.updateRoleRules('Standard Speech', edited); });
+    expect(result.current.timer.currentSpeaker.rules).toEqual(edited);
+
+    act(() => { result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    act(() => { result.current.timer.updateRoleRules('Standard Speech', DEFAULT_ROLE_RULES['Standard Speech']); });
+    expect(result.current.timer.currentSpeaker.rules).toEqual(edited);
+
+    act(() => { result.current.timer.stopTimer(); });
+    act(() => { result.current.timer.updateRoleRules('Standard Speech', { green: 60, yellow: 90, red: 120 }); });
+    expect(result.current.timer.currentSpeaker.rules).toEqual(edited);
+
+    // Once that speech is over, the idle speaker picks up the latest edit.
+    act(() => { result.current.timer.finishCurrentSpeech(); });
+    expect(result.current.timer.currentSpeaker).toEqual({
+      name: '',
+      role: 'Standard Speech',
+      rules: { green: 60, yellow: 90, red: 120 },
+    });
   });
 });
 

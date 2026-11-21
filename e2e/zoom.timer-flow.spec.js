@@ -155,6 +155,74 @@ test.describe('Zoom App — Functional Checks', () => {
     await expect(page.getByText('Report Speaker')).toBeVisible();
   });
 
+  // Seen in the Zoom client on 2026-11-19: a tab switch after FINISH put the
+  // speaker who had just finished back in the name field, and START timed them
+  // a second time under their name.
+  test('FINISH, then a tab switch, does not bring the finished speaker back', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    const nameInput = page.getByPlaceholder('Type speaker name...');
+    await nameInput.fill('Finished Speaker');
+    await page.getByRole('button', { name: /START/i }).click();
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: /FINISH/i }).click();
+    await expect(nameInput).toHaveValue('');
+
+    // Wait for the Agenda tab to show: it loads lazily, and a LIVE click before
+    // it renders never unmounts the Live tab, which is the whole point here.
+    await page.getByRole('button', { name: /AGENDA/i }).click();
+    await expect(page.getByText(/No speakers in agenda/i)).toBeVisible();
+    await page.getByRole('button', { name: /LIVE/i }).click();
+    await expect(nameInput).toHaveValue('');
+
+    // The next START is somebody new: one report row for Finished Speaker, not two.
+    await page.getByRole('button', { name: /START/i }).click();
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: /FINISH/i }).click();
+    await page.getByRole('button', { name: /REPORT/i }).click();
+    await expect(page.getByText('Finished Speaker')).toHaveCount(1);
+  });
+
+  test('RESET, then a tab switch, leaves the name field empty', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    const nameInput = page.getByPlaceholder('Type speaker name...');
+    await nameInput.fill('Reset Speaker');
+    await page.getByRole('button', { name: /START/i }).click();
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: /STOP/i }).click();
+    // Its accessible name starts with the tooltip text, so match the label at the end.
+    await page.getByRole('button', { name: /RESET$/ }).click();
+    await expect(nameInput).toHaveValue('');
+
+    // Wait for the Report tab to show, so the Live tab really unmounts.
+    await page.getByRole('button', { name: /REPORT/i }).click();
+    await expect(page.getByText(/No reports yet/i)).toBeVisible();
+    await page.getByRole('button', { name: /LIVE/i }).click();
+    await expect(nameInput).toHaveValue('');
+  });
+
+  test('after FINISH, the idle card follows a timing-rules edit', async ({ page }) => {
+    await page.goto('/zoom/');
+
+    await page.getByRole('button', { name: /START/i }).click();
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: /FINISH/i }).click();
+    await expect(page.getByText('Blue phase (ends at 05:00)')).toBeVisible();
+
+    // Standard Speech's green moves from 5:00 to 4:00
+    await page.getByRole('link', { name: 'Edit timing rules' }).click();
+    await page.getByRole('button', { name: 'seconds', exact: true }).click();
+    const card = page.locator('.border.rounded-lg.p-4').filter({
+      has: page.getByRole('heading', { name: 'Standard Speech', exact: true }),
+    });
+    await card.locator('input[type="number"]').nth(0).fill('240');
+    await page.getByRole('button', { name: 'Save Changes' }).click();
+    await expect(page.getByRole('heading', { name: 'Edit Timing Rules' })).toBeHidden();
+
+    await expect(page.getByText('Blue phase (ends at 04:00)')).toBeVisible();
+  });
+
   test('Simple Format import assigns custom roles', async ({ page }) => {
     await page.goto('/zoom/');
 

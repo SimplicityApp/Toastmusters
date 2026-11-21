@@ -11,6 +11,7 @@ automated:
   - e2e/zoom.timer-flow.spec.js
   - apps/zoom-app/src/utils/zoomSdk.test.js
   - apps/zoom-app/src/components/LiveTab.test.jsx
+  - apps/zoom-app/src/context/TimerContext.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting
@@ -162,6 +163,26 @@ Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6 with `FLAGS_FORCE` "1", Zoom on ma
 TC-10, TC-11 and TC-13 passed with the same substitutions; TC-09 and TC-12 not run (human).
 Log: test-runs/2026-11-13-pre-master-specs/run.md.
 
+### TC-14 · auto · FINISH and RESET clear the speaker for good
+Seen in the Zoom client on 2026-11-19: after FINISH, switching tabs and back put the speaker
+who had just finished back in the name field, and START timed them again under their name (a
+second report row). RESET had the same hole.
+Do: Live tab, any short role (as TC-02). Click the speaker name field and type
+`Spec Speaker` (no Enter, so it is not added to the agenda). Press Start, let it run about
+5 s, press Finish (answer Zoom's reset prompt and the PostHog survey as the skill describes).
+Switch to Agenda, wait until it shows, then back to Live. Press Start, about 3 s, Finish.
+Then type `Reset Speaker`, Start, about 3 s, Stop, Reset, switch to Report and back to Live.
+Expect:
+- After the first Finish the name field is empty and the role dropdown stays on the short
+  role. After the Agenda/Live switch the field is still empty, the role unchanged.
+- The second speech has no name: the Report tab shows one `Spec Speaker` row, then a row with
+  an empty name. No second `Spec Speaker` row.
+- After Reset the field is empty, and still empty after the Report/Live switch.
+Evidence: screenshots of the name field after each switch, and of the Report tab. PostHog
+from this device: `speech_finished` with `speaker_name: "Spec Speaker"` once, the next with
+`"Unnamed"`.
+Then: if the Report tab held nothing before this step, Clear All; otherwise leave the rows.
+
 ## Not covered
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).
@@ -184,6 +205,14 @@ Log: test-runs/2026-11-13-pre-master-specs/run.md.
   Unit tests in both `LiveTab.test.jsx` files cover both; the client adds nothing.
 - The web timer (`apps/web`) refuses the same rows from its suggestions and after FINISH.
   Unit tests in `apps/web/src/components/LiveTab.test.jsx`.
+- The idle card's phase line ("Blue phase (ends at …)") following a Roles & timing rules
+  edit made while nobody is speaking (2026-11-21; START already used the edited times).
+  `TimerContext.test.jsx`, `LiveTab.test.jsx` and `e2e/zoom.timer-flow.spec.js` cover it; the
+  client adds nothing.
+- The Design B panel (`new_look`) has the same FINISH/RESET behaviour once it is merged with
+  this change: it reads the same shared speaker. Its spec lives with that stack.
+- The web timer (`apps/web`) still keeps the finished speaker in its shared state; not
+  changed here.
 - The club badge on the Full-Screen Timer stage. See [stage-club-badge](stage-club-badge.md).
   Reviewed against its fix (2026-11-16): `clubBadge.js` only moved the keep-on-the-frame
   clamp into the exported `badgeCentre`, with the same arithmetic, so the badge on the video

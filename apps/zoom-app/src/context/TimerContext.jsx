@@ -63,6 +63,30 @@ function floorToTenth(seconds) {
 }
 
 /**
+ * Custom's rules are typed in by hand and Break's derive from the length
+ * picked, so both travel on the speaker. Every other role is timed by the
+ * role's own rules: START looks them up again whatever the speaker carried.
+ */
+function carriesOwnRules(speaker) {
+  return speaker.role === 'Custom' || speaker.role === BREAK_ROLE || Boolean(speaker.rules?.countdown);
+}
+
+/**
+ * The speaker with the role's current rules in place of the copy taken when
+ * they were picked. The same object back when nothing would change, so a
+ * state update with it renders nothing.
+ *
+ * @param {Object|null} speaker
+ * @param {Object} roleRules
+ * @returns {Object|null}
+ */
+function withRoleRules(speaker, roleRules) {
+  if (!speaker || carriesOwnRules(speaker)) return speaker;
+  const rules = roleRules[speaker.role];
+  return rules && rules !== speaker.rules ? { ...speaker, rules } : speaker;
+}
+
+/**
  * Turn the saved session, if any, into the state the timer boots with.
  *
  * @param {Array} agenda - Already-loaded agenda, so a saved link to an item
@@ -583,8 +607,27 @@ export function TimerProvider({ children }) {
       if (activeSpeakerId) markCompleted(activeSpeakerId);
       resetTimer();
       setActiveSpeakerId(null);
+      // Whoever just spoke is done, so their name goes here and not only from
+      // the Live tab's field. The tab unmounts on a tab switch and seeds its
+      // field from this speaker when it comes back: a name left here put the
+      // speaker who had finished back on the card, and the next START timed
+      // them again under their name (a second report row). The role stays, as
+      // the field always kept it, so a run of Table Topics needs no re-pick.
+      // A next agenda speaker loaded right after this replaces it outright.
+      setCurrentSpeaker(withRoleRules({ ...currentSpeaker, name: '' }, roleRules));
     }
-  }, [currentSpeaker, elapsedTime, currentStatus, activeSpeakerId, addReport, markCompleted, resetTimer, formatPassedRedComment, formatBeforeGreenComment]);
+  }, [currentSpeaker, elapsedTime, currentStatus, activeSpeakerId, roleRules, addReport, markCompleted, resetTimer, formatPassedRedComment, formatBeforeGreenComment]);
+
+  // An idle speaker shows the rules START will use. Their copy of the role's
+  // rules was taken when they were picked, and START looks the role up again,
+  // so after a Roles & timing rules edit the idle card read the old times right
+  // up to the press. Every way the rules change lands here: an edit, an added or
+  // removed role, a reset to defaults, a club's list arriving. A speech under
+  // way, or paused, keeps the rules it started with.
+  useEffect(() => {
+    if (isRunning || liveElapsedRef.current > 0) return;
+    setCurrentSpeaker((prev) => withRoleRules(prev, roleRules));
+  }, [roleRules, isRunning]);
 
   const updateRoleRules = useCallback((role, rules) => {
     setRoleRules(prev => {

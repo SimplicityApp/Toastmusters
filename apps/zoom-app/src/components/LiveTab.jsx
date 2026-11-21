@@ -744,7 +744,11 @@ export default memo(function LiveTab() {
     // it: two removals in flight at once is a confirmation dialog for a
     // background that has already gone.
     resetTimer({ skipVideo: true });
+    // The shared speaker too, not just the field: this tab unmounts on a tab
+    // switch and seeds the field from the shared speaker when it comes back,
+    // so a name left there reappeared and the next START timed them under it.
     setSpeakerName('');
+    updateSpeakerName('');
     // Track timer reset
     (window.requestIdleCallback || setTimeout)(() => trackEvent('timer_reset', {
       previous_elapsed_time: previousElapsedTime,
@@ -808,7 +812,8 @@ export default memo(function LiveTab() {
     // next speaker still waiting for a role. Clear the field rather than leaving
     // the speaker who just finished sitting there, which reads as though nothing
     // happened. On the stage this is all the organizer sees, so a stale name is
-    // the whole display being wrong.
+    // the whole display being wrong. finishCurrentSpeech has already cleared the
+    // shared speaker's name, which is what the field reads after a tab switch.
     setSpeakerName('');
   };
 

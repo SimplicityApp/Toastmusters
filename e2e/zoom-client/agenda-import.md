@@ -179,3 +179,7 @@ rows stood in for the page script. Log: test-runs/2026-11-13-91-zoom-specs/run.m
 - The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
   `apps/web/src/context/TimerContext.test.jsx`, and `e2e/web.agenda-flow.spec.js` runs this
   import (IM-01, IM-02) in a plain browser.
+- FINISH and RESET clearing the current speaker, and an idle speaker taking edited role
+  rules (`TimerContext.jsx`, 2026-11-21). Reviewed: it touches `finishCurrentSpeech` and the
+  current speaker's rules, not `importBulkSpeakers` or the rows it makes. See
+  [timer-core](timer-core.md) TC-14. Not rerun for it.

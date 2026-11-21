@@ -127,3 +127,6 @@ log.
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the sounds; no step here loads an agenda
   row. See [timer-core](timer-core.md) TC-13. Not rerun for it.
+- RESET clearing the speaker's name in the shared timer state too (`LiveTab.jsx`,
+  2026-11-21). Reviewed: it changes the name, not the status the chime follows; no step here
+  depends on the name. See [timer-core](timer-core.md) TC-14. Not rerun for it.
