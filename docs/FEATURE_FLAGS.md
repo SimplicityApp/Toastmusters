@@ -54,7 +54,7 @@ Server gates: flagEnabled(env, key, { uid }) → bare 404 when off
 
 ## The flags
 
-There are two flags, `pro` and `contact_capture`, declared in `FLAG_FALLBACKS`
+The flags are `pro`, `contact_capture`, `sounds` and `new_look`, declared in `FLAG_FALLBACKS`
 in `worker/flags.js`, each with a `removeBy` date in a comment. Both fallbacks
 are `false`: the safe value, not the current one. **Both must exist in PostHog
 before they can be turned on in production**; until then the fallback applies.
@@ -115,6 +115,31 @@ server-side only, as `flag off: pro <route>`, so it shows in
   `anonymous` id, so a percentage rollout puts all of them in or all of them
   out together. Treat the anonymous position as on only at 100%.
 
+### `new_look` (design B)
+
+`new_look` draws the redesigned Zoom panel (plan 13): one timer card, a "Look &
+sound" section of sheets, the ⋯ menu and no footer. UI only: no endpoint reads it,
+and the code that talks to Zoom is shared with today's panel (`useLiveTimer`), so
+turning it off puts everyone back on today's panel at their next open with nothing
+lost. The Zoom app remembers the last answer per device
+(`toastmaster_new_look_last`) so the new look does not flash the old one while flags
+load.
+
+Rollout, in order:
+
+1. Create `new_look` in PostHog, off.
+2. Target your own `zoom:<uid>` and run `e2e/zoom-client/new-look.md` in production
+   with `pro` still off (the mix most users will get first).
+3. A handful of friendly clubs' uids; watch `tab_viewed` (`look: 'b'`),
+   `more_menu_opened` and support mail for a week.
+4. Everyone. Guests follow the anonymous position, so they move only at 100%.
+5. When it has been at 100% for a release, retire the flag (below): delete today's
+   panel (`ClassicShell`, `LiveTab`, `Footer`, `NavTabs`, the dialogs' classic
+   branches) in the same commit.
+
+While `new_look` is on and `pro` is off, the top note reads "New look: …" instead of
+the pre-launch "Coming soon: …" (`packages/shared/announcements.js`).
+
 ## Finding your uid
 
 - **PostHog → Persons**, search `zoom:`. The Zoom app identifies as
@@ -164,11 +189,19 @@ declared in both blocks, because `vars` are not inherited.
 |---|---|
 | `"1"` | Every declared flag on. No PostHog request. |
 | `"0"` | Every declared flag off. No PostHog request. |
+| `"<key>=1"` / `"<key>=0"` | That one flag on / off; every other flag asked of PostHog as usual. |
+| `"1,new_look=0"` | A base and per-key entries, comma-separated, read left to right: here every flag on except `new_look`. No PostHog request. |
 | `""` or unset | Ask PostHog (or the fallbacks, if `POSTHOG_API_KEY` is missing). |
+
+An unknown key or a malformed entry forces nothing. Per-key entries let a test run
+pick the mix production has, for example `"1,pro=0"` (Pro still dark, everything
+else on), or keep the shipped panel while `new_look` is on elsewhere
+(`"1,new_look=0"`). `worker/flags.test.js` fails if production's value forces any
+flag on.
 
 | Where | Value | Why |
 |---|---|---|
-| Production (top-level `vars`) | `""` | Always asks PostHog. `worker/flags.test.js` fails if this is ever `"1"`, which would light up every dark feature at once. |
+| Production (top-level `vars`) | `""` | Always asks PostHog. `worker/flags.test.js` fails if this ever forces a flag on (`"1"`, or any `<key>=1`), which would light dark features up for everyone. |
 | Dev (`env.dev.vars`) | `"1"` | Dev works with everything on and spends none of the free quota. Set `"0"` to see the dark path, or `""` to test the real PostHog round trip. Restore `"1"` and redeploy afterwards. |
 | Local (`npm run cf:dev`) | set in `.dev.vars` | `wrangler dev` runs **without** `--env dev`, so it reads the production block (`""`). With no `POSTHOG_API_KEY` in `.dev.vars` every flag is at its fallback, so every gated feature is hidden. Put `FLAGS_FORCE=1` in `.dev.vars` to see them, or `FLAGS_FORCE=0` to check the dark path. `.dev.vars` overrides `vars`. |
 

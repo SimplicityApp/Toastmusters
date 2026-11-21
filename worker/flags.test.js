@@ -8,6 +8,7 @@ import {
   ANONYMOUS_DISTINCT_ID,
   flagCacheKey,
   flagOverride,
+  parseFlagsForce,
   resolveFlags,
   flagEnabled,
 } from './flags.js';
@@ -67,6 +68,47 @@ describe('flagOverride', () => {
       expect(flagOverride({ FLAGS_FORCE: value })).toBeNull();
     }
     expect(flagOverride(undefined)).toBeNull();
+  });
+});
+
+describe('parseFlagsForce', () => {
+  it('reads a base and per-key entries, left to right', () => {
+    expect(parseFlagsForce({ FLAGS_FORCE: '1,new_look=0' })).toEqual({ all: true, keys: { new_look: false } });
+    expect(parseFlagsForce({ FLAGS_FORCE: ' 0 , pro=1 ' })).toEqual({ all: false, keys: { pro: true } });
+    expect(parseFlagsForce({ FLAGS_FORCE: 'pro=0,sounds=1' })).toEqual({ all: null, keys: { pro: false, sounds: true } });
+    expect(parseFlagsForce({ FLAGS_FORCE: 'pro=1,pro=0' })).toEqual({ all: null, keys: { pro: false } });
+  });
+
+  it('forces nothing for an unknown key or a malformed entry', () => {
+    for (const value of ['nope=1', 'pro=true', 'pro', 'PRO=1', '=1', ',', 'pro = 1']) {
+      expect(parseFlagsForce({ FLAGS_FORCE: value }), value).toEqual({ all: null, keys: {} });
+    }
+  });
+});
+
+describe('FLAGS_FORCE per-key entries', () => {
+  it('lay one flag over an all-on or all-off base, without asking PostHog', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await resolveFlags({ ...env, FLAGS_FORCE: '1,new_look=0' }, { uid: 'abc' }, ctx))
+      .toEqual({ ...allOn, new_look: false });
+    expect(await resolveFlags({ ...env, FLAGS_FORCE: '0,sounds=1' }, { uid: 'abc' }, ctx))
+      .toEqual({ ...allOff, sounds: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('without a base, still ask PostHog for every other flag', async () => {
+    vi.stubGlobal('fetch', respondWith(flagsAnswer(allOn)));
+
+    expect(await resolveFlags({ ...env, FLAGS_FORCE: 'pro=0' }, { uid: 'abc' }, ctx))
+      .toEqual({ ...allOn, pro: false });
+  });
+
+  it('apply over the fallbacks when PostHog cannot be asked', async () => {
+    expect(await resolveFlags({ FLAGS_FORCE: 'new_look=1' }, { uid: 'abc' }, ctx))
+      .toEqual({ ...FLAG_FALLBACKS, new_look: true });
+    expect(await flagEnabled({ FLAGS_FORCE: '1,pro=0' }, 'pro')).toBe(false);
   });
 });
 
@@ -851,6 +893,8 @@ describe('the declared flags', () => {
     // App-only: the Worker endpoint it feeds is not gated, because the
     // browser doors save the same record unflagged.
     ['contact_capture', [join('apps', 'zoom-app')]],
+    // UI only: design B redraws the Zoom panel and calls no endpoint of its own.
+    ['new_look', [join('apps', 'zoom-app')]],
   ])('sees the server gate and the UI gates for %s', (key, places) => {
     const files = [...(referencedFlags().get(key) ?? [])];
     for (const place of places) {
@@ -878,7 +922,10 @@ describe('FLAGS_FORCE in wrangler.jsonc', () => {
     expect(config.env.dev.vars).toHaveProperty('FLAGS_FORCE');
   });
 
-  it('is never "1" in production, which would light up every dark feature at once', () => {
+  it('never forces a flag on in production, which would light up dark features for everyone', () => {
     expect(config.vars.FLAGS_FORCE).not.toBe('1');
+    const forced = parseFlagsForce(config.vars);
+    expect(forced.all).not.toBe(true);
+    expect(Object.values(forced.keys)).not.toContain(true);
   });
 });

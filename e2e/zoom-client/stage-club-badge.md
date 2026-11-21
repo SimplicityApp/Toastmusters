@@ -12,7 +12,8 @@ automated:
   - e2e/zoom.stage-badge.spec.js
 needs:
   - dev deployed
-  - FLAGS_FORCE "1" on dev (`pro` on: the badge is a club feature, see club-pro-gate)
+  - FLAGS_FORCE "1,new_look=0" on dev (`pro` on: the badge is a club feature, see
+    club-pro-gate; `new_look` off for today's panel)
   - a club device whose club is active (Claude Test Club on the test Mac), with "Show on
     cards" on, and the badge at the club position (Live tab preview → "Reset to club
     position" if it was moved)
@@ -92,6 +93,10 @@ Evidence: snaps.
 - The badge on the video (canvas): [club-pro-gate](club-pro-gate.md) GP-03 and the club Pro
   plan (`pro-club`, not migrated yet).
 - The preview tile's own badge proportions (`TimerDisplay`): not part of this spec.
+- The stage under design B (`new_look` on). Reviewed against the merge that brought design B
+  in (9cb4e5f): there `TimerStage.jsx` only renames the share button "Share to the meeting".
+  The badge keeps clear of the whole controls row (`topInset`), not of the button's width, so
+  the longer label moves nothing here. [new-look](new-look.md) NL-18 opens that stage.
 - A custom card wider than 16:9. Uploads keep their aspect (scaled to fit 1280×720), and the
   stage contains the artwork, while the badge sits on the stage's 16:9 band. For a 16:9 or a
   taller card that is the part of the artwork the video shows; for a wider card the badge sits

@@ -4,6 +4,7 @@ title: Pro launch announcement
 status: stale
 covers:
   - apps/zoom-app/src/components/ProLaunchModal.jsx
+  - apps/zoom-app/src/components/UpgradeModal.jsx
   - apps/zoom-app/src/components/PeriodicPrompts.jsx
   - apps/zoom-app/src/components/Footer.jsx
   - packages/shared/promptScheduler.js
@@ -17,6 +18,8 @@ needs:
   - FLAGS_FORCE "1" on dev (the announcement is behind `pro`)
   - camera on, in a meeting
   - PL-04 only, a Zoom account on the Free plan with no club on the device
+  - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
+    today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: eeaa840
 verified_on: 2026-11-13 (Zoom 7.2.5, macOS 26.7.2, dev c8774483)
 ---
@@ -75,6 +78,15 @@ Human because it needs a second, Free Zoom account signed in on the test compute
 Run 2026-11-13 (eeaa840, Zoom on macOS, device Pro through its own subscription): PL-02 and
 PL-03 passed; PL-01 only its Pro half (no dot on "Pro"); PL-04 not run (needs a Free account).
 Log: test-runs/2026-11-13-pro-launch/run.md.
+
+### PL-05 · auto · On the new look: the dot is on the Pro chip, the window is a card
+Do: with FLAGS_FORCE "1" on a free device (`new_look` and `pro` on), open the app; FINISH a speech.
+Expect: the red dot sits on the top row's Pro chip (there is no footer). 2.5 s after FINISH the
+window shows the four timing cards over "NEW · Pro for your club" with the same words as PL-02;
+"See what's in Pro" opens Upgrade as a sheet from the bottom edge.
+Evidence: screenshots; `pro_launch_learn_more` in PostHog.
+Not run 2026-11-16 (design B pass): the only test device is in Claude Test Club, so it has no
+free plan to show the window to.
 
 ## Not covered
 - The footer while `pro` is off: since the merge with dev (2026-11-14) it shows the locked

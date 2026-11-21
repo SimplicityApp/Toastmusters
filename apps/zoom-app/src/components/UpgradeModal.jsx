@@ -19,6 +19,8 @@ import { openExternalUrl } from '../utils/zoomSdk';
 import { getSessionToken, resolveZoomIdentity } from '../utils/zoomIdentity';
 import { useEntitlement } from '../hooks/useEntitlement';
 import { useFlag } from '../hooks/useFlag';
+import { useLook } from '../b/LookContext';
+import Sheet from '../b/Sheet';
 
 /**
  * Buying Pro from inside Zoom, and joining a club that already bought it.
@@ -94,6 +96,7 @@ async function openPortal() {
 
 export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUpgraded }) {
   const { entitlement, isPro } = useEntitlement();
+  const look = useLook();
   // Sounds join the pitch only once released; while `sounds` is off they are
   // locked as "coming soon" even for Pro.
   const { enabled: soundsReleased } = useFlag('sounds');
@@ -533,6 +536,22 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     );
   };
 
+  const title = isPro || phase === 'done' ? 'Toastmasters Timer Pro' : 'One Pro account for your whole club';
+
+  // Design B (plan 13) opens every setting as a sheet from the bottom edge.
+  if (look === 'b') {
+    return (
+      <Sheet
+        open
+        onClose={onClose}
+        title={title}
+        badge={<span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">PRO</span>}
+      >
+        {renderBody()}
+      </Sheet>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg p-6 w-full max-w-md">
@@ -542,7 +561,7 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
             {/* The pitch that passes the 30-second test: a treasurer who never
                 times a meeting has to see what their whole club gets, not what
                 one laptop gets. */}
-            {isPro || phase === 'done' ? 'Toastmasters Timer Pro' : 'One Pro account for your whole club'}
+            {title}
           </h3>
           <button
             onClick={onClose}

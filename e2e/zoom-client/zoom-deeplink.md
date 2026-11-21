@@ -67,3 +67,5 @@ Evidence: `appLinks.test.js`; curl 302.
 - The "Open in Zoom" / "Open Zoom app" buttons on `/oauth/redirect` and `/billing/success` (they need a real
   install and a Stripe return); they share `zoomAppDeeplink()` with the landing page.
 - Where Zoom shows its "Open Zoom?" browser prompt, which depends on the browser.
+- `TUTORIALS_URL` in `packages/shared/appLinks.js` (added for design B's ⋯ menu, plan 13) is a
+  plain web link, not a deeplink; `new-look` NL-11 opens it.
