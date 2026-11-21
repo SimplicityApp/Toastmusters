@@ -198,3 +198,8 @@ step here needs the club. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
   Unit tests in both `LiveTab.test.jsx` files cover both; the client adds nothing.
 - The web timer (`apps/web`) refuses the same rows from its suggestions and after FINISH.
   Unit tests in `apps/web/src/components/LiveTab.test.jsx`.
+- The club badge on the Full-Screen Timer stage. See [stage-club-badge](stage-club-badge.md).
+  Reviewed against its fix (2026-11-16): `clubBadge.js` only moved the keep-on-the-frame
+  clamp into the exported `badgeCentre`, with the same arithmetic, so the badge on the video
+  is unchanged and no step here moves (`clubBadge.test.js` checks the canvas still draws at
+  `badgeCentre`).

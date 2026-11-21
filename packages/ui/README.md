@@ -45,6 +45,13 @@ installed at the root first.
 Both apps' `tailwind.config.js` files list `../../packages/ui/**/*.{js,jsx}` in
 `content`. Without it every class in this package is purged from both builds.
 
+## Tests
+
+`*.test.jsx` beside the component, run by `npm test` as the `@toastmaster-timer/ui`
+project (`vitest.config.js` here). They use `react`, `react-dom`, `jsdom` and
+`@testing-library/react` from the repo root; the components themselves still import
+nothing but React.
+
 ## Resolution
 
 Both apps alias `@toastmaster-timer/ui` to this directory in `vite.config.js`
