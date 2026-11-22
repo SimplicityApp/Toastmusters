@@ -70,6 +70,9 @@ Evidence: screenshot.
 - Reviewed against the #167 implementation: the club is re-read on every open once the
   session exists (`syncClubWithIdentity` → `GET /api/club`), which is what CR-02/CR-03's
   close-and-reopen relies on. The reminder's own logic is unchanged.
+- Reviewed against #167's verify fixes: `refreshClub` now also replaces the copy when the
+  answer is another club, and a 5xx on activate or leave reads as a network error. The
+  reminder and CR-02/CR-03's reopen are unchanged.
 - CR-02 and CR-03 ran 2026-11-14 on the web app as a second club device, because the Zoom
   client then re-read its club only once a day. Since #167 they run in Zoom (reopen the timer);
   not rerun yet.

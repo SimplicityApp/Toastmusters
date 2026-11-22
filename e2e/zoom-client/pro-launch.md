@@ -98,6 +98,9 @@ free plan to show the window to.
   right after the first paint so the code field is there on the click, and the Review button's
   accessible name starts with its visible "Review" ("Review Toastmusters Timer on the Zoom App
   Marketplace"). Nothing a step looks at moves.
+- Reviewed against #167's verify fixes: the Footer keeps the open Upgrade dialog's component
+  until it closes, so `upgrade_prompt_shown` fires once per open even when the preload lands
+  after the click (it fired twice). PL-02's evidence is unchanged.
 - The web timer: it has no Pro announcement. Its prompts are unchanged.
 - The 28-day end of the footer dot (`PRO_LAUNCH_BADGE_DAYS`): unit-tested with a pinned clock.
 - A link for club officers: there is no page about Pro on the website to point at yet.

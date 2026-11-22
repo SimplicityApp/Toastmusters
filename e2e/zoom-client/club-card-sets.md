@@ -118,6 +118,9 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 - Reviewed against the #167 implementation: card downloads and publishes carry the session
   (Bearer in Zoom, the cookie on the web) and wait for it, and the club comes from the account,
   as CC-03, CC-06 and CC-07 now say. No step moves.
+- Reviewed against #167's verify fixes: the card-set sync now starts once the club sync after
+  the session has settled (not at module load), and a copy of another club is forgotten before
+  the new club's set lands. CC-03's evidence (B's downloads carry B's session) is unchanged.
 - Joining, leaving and removal themselves (#167): see [club-membership](club-membership.md).
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.

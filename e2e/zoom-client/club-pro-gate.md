@@ -70,6 +70,9 @@ Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): GP-01 an
   only after the session has answered (for the same account), and GET /api/club still answers
   while `pro` is off, so GP-01's "nothing is deleted" and GP-03's return need no new step.
   Speech uploads carry the session, not `X-Club`.
+- Reviewed against #167's verify fixes: a queued speech now carries its club id and is
+  dropped unsent if the device is in another club by then; the logo warm-up waits for the club
+  sync. Nothing the gate shows moves.
 - The web app's copies (`apps/web`): same gate and shared code, covered by
   `apps/web/src/components/ReportTab.test.jsx`, `ClubStatusBanner.test.jsx` and
   `TimerApp.test.jsx`.
