@@ -260,10 +260,11 @@ Zoom keeps the app running when you go back to **My Apps** (the back arrow), so 
 New in this submission. The free timer above is unchanged and nothing that was
 free has moved behind the paywall — Pro adds a **club** layer on top.
 
-The unit of Pro is a club, not a person: one subscription, a short code the club
-shares, and every device that enters it gets the club's timing presets, branding,
-meeting archive and share links. A timer entering a code needs no Zoom account
-and no sign-in at all, which is Step P4 and the claim most worth checking.
+The unit of Pro is a club: one subscription, and a short code the buyer shares
+with up to 3 other Zoom accounts. Each account that enters it gets the club's
+timing presets, branding, meeting archive and share links on every computer it
+signs in on, with nothing stored per device. Joining needs a Zoom account that
+approved the app; that is Step P4.
 
 > **On the dev app `ENTITLEMENT_ENFORCE` is `0`**, so paid features are open to
 > everyone and a refusal (HTTP 402) never fires. That is deliberate — it lets a
@@ -353,7 +354,7 @@ Stripe is in test mode on the dev app. Use card `4242 4242 4242 4242`.
 2. Tap **Upgrade**.
    - Expected: the pitch is the club — shared presets, branding, archive — with
      **Monthly** and **Yearly**, an optional club-name field, and below them
-     *"Already on Pro through your club?"* with a code field.
+     *"Already on Pro with your club?"* with a code field.
 3. Type a club name (optional) and tap **Monthly**.
    - Expected: Stripe Checkout opens in the **system browser**. Zoom's webview
      does not run payment forms, so checkout never happens inside the sidebar.
@@ -363,14 +364,14 @@ Stripe is in test mode on the dev app. Use card `4242 4242 4242 4242`.
 
 ## Step P3: Set up the club, and get the code to share
 
-The club itself is created by the purchase. This step puts *this device* on it
-and shows you the code.
+The club itself is created by the purchase, with the buyer as its owner. This
+step shows you the code.
 
 1. Still in the Upgrade modal after Step P2, find the **Set up my club** card
    and tap the button. (A name field is offered; it is optional.)
    - Expected: the card becomes the club **code** (`DTSP-7K2QM9` shape) and an
-     **invite link** (`/pro/<code>`), each with a **Copy** button, plus
-     **Manage your club**.
+     **invite link** (`/pro/<code>`), each with a **Copy** button, *"0 of 3
+     places used"*, plus **Manage your club**.
    - The same button is what a subscriber who bought Pro *before* this version
      presses — for them it mints the club as well. Either way it is safe to
      press twice: you get the same club back, never a second one.
@@ -380,29 +381,33 @@ and shows you the code.
      design — an officer reading a roster is not in a meeting.
 3. The same card appears on the website at `/account`. Confirm the code matches.
 
-## Step P4: Join a club with the code — no sign-in
+## Step P4: Join a club with the code, signed in to Zoom
 
-This is the path most club members take, and it needs no Zoom account at all.
+This is the path most club members take: a Zoom account, signed in with the app
+approved, enters the code once, and the club follows that account.
 
-1. On a second machine, join the meeting with a different Zoom account and open
-   the app **without** adding it (open it from the App Launcher, so it runs as a
-   guest).
-2. **Upgrade** → *"Already on Pro through your club?"* → enter the code → **Activate**.
+1. On a second machine, sign in to Zoom with a different account, join the
+   meeting and open the app (added and approved).
+2. **Upgrade** → *"Already on Pro with your club?"* → enter the code → **Activate**.
    - Enter it in lower case and without the dash. Expected: accepted — a code
      read out over a phone call has to work.
-   - Expected: the footer switches to **Pro**, naming the club.
-3. Confirm this device is **not** shown the club code or the invite link.
+   - Expected: the panel reads *"You're on Pro through <club>"* and the footer
+     switches to **Pro**. The buyer's panel now reads *"1 of 3 places used"*.
+3. Confirm this account is **not** shown the club code or the invite link.
    - Expected: only an admin sees them. The code is the club's password.
 4. Enter a code that does not exist.
    - Expected: *"That code isn't active. Check with your club officer."*
-     Unknown, revoked and lapsed codes all answer the same way on purpose.
-5. Open the invite link from Step P3 in a browser instead.
-   - Expected: it activates that browser on load and then tells a Zoom timer
-     where to type the same code.
+     Unknown, rotated and lapsed codes all answer the same way on purpose.
+5. Open the invite link from Step P3 in a browser that is not signed in.
+   - Expected: it sends nothing and offers **Sign in with Zoom to join**; after
+     signing in with the same account it comes back to the link and shows
+     *"You're on Pro through <club>"*.
+6. Signed out of Zoom, or in guest mode (the app not approved), the code field
+   asks to sign in to Zoom, or to **Approve** the app, before anything is sent.
 
 ## Step P5: What Pro adds
 
-On a club device, in a meeting with the camera on:
+Signed in as a club member, in a meeting with the camera on:
 
 1. **Branding** — start a speech. Expected: the club's logo and colour appear on
    the timing card, in all three overlay modes, and never cover the time readout.

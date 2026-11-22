@@ -23,14 +23,23 @@ club lapse. Flipping it for a spec's `needs` is pre-approved (CLAUDE.md "Standin
 revert + redeploy at the end — while `"1"`, other dev testers without Pro are refused sync.
 
 ## Club tooling
-- `node scripts/club-cli.mjs pending|create|show|rotate --env dev …` (`create` also takes
-  `--customer cus_…` to link Stripe).
-- Useful keys: `club:<id>`, `club-by-code:<CODE>`, `club-member:<id>:zoom:<uid>`,
-  `club-device:<id>:<deviceId>`, `club-pending:<cus>`.
-- Device state lives in `localStorage`: `toastmaster_club` (token, ver, plan, role…),
-  `toastmaster_club_presets`, `toastmaster_club_outbox` (speeches not yet uploaded).
-- The admin console only recognises a Zoom sign-in in a browser that has also activated the
-  club code (open `/pro/<CODE>` first) — see `docs/plans/08-club-pro-bugfix-plan.md` #1.
+- `node scripts/club-cli.mjs pending|create|show|rotate|backfill-club-of --env dev …`
+  (`create` also takes `--customer cus_…` to link Stripe; `rotate --club <id>`;
+  `backfill-club-of` is dry until `--apply`).
+- Since #167 a club belongs to Zoom accounts: a signed-in, approved account joins with the
+  code (3 places besides the owner, the count kept by the `ClubPlaces` Durable Object), and
+  the club follows that account. There is no club token, no `X-Club` header and no
+  `club-device:` row; every club request carries the session (Bearer in Zoom, cookie on the
+  web).
+- Useful keys: `club:<id>` (`ownerUid`), `club-by-code:<CODE>`, `club-member:<id>:zoom:<uid>`
+  (`{role,…}`, or `{blockedAt,…}` when blocked), `club-of:zoom:<uid>` (`{clubId, at}`),
+  `club-pending:<cus>`.
+- Device state lives in `localStorage`: `toastmaster_club` (the account's copy: uid, ver,
+  plan, role, isOwner…), `toastmaster_club_presets`, `toastmaster_club_outbox` (speeches not
+  yet uploaded); sessionStorage `toastmaster_pending_club_code` holds a code a guest typed
+  before approving the app.
+- The admin console's Zoom door is the account's own club (`club-of`), so signing in with
+  Zoom in any browser is enough; the billing-address link is the other door.
 
 ## Test plans and past runs
 - `e2e/zoom-client/` — **versioned specs, the source of truth** (see its README and INDEX).
