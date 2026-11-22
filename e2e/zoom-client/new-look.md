@@ -240,6 +240,11 @@ personal-Pro device with no club, ⋯ → "Join my club with a code" opens a Pro
 field. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 
 ## Not covered
+- Reviewed against the #167 implementation: the Pro sheet's code field now reads "Already on Pro
+  with your club?" (its accessible name still starts "Already on Pro through your club?"), the
+  joined sheet reads "You're on Pro through <club>" with Leave behind an in-sheet confirm, and
+  guests are asked to sign in or approve before a code is sent ([club-membership](club-membership.md)).
+  NL-17 already says so; no step moves.
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
 - Audio of the sounds: timer-sounds.
 - The connection and club-renewal banners: unchanged by design B (they already sit at the top

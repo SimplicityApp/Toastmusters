@@ -66,6 +66,10 @@ Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): GP-01 an
 "1,new_look=0" (today's panel). Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 
 ## Not covered
+- Reviewed against the #167 implementation: the gate is unchanged. The club copy is now applied
+  only after the session has answered (for the same account), and GET /api/club still answers
+  while `pro` is off, so GP-01's "nothing is deleted" and GP-03's return need no new step.
+  Speech uploads carry the session, not `X-Club`.
 - The web app's copies (`apps/web`): same gate and shared code, covered by
   `apps/web/src/components/ReportTab.test.jsx`, `ClubStatusBanner.test.jsx` and
   `TimerApp.test.jsx`.

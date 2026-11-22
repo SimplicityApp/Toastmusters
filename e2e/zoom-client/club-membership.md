@@ -6,10 +6,14 @@ covers:
   - worker/club.js
   - worker/club-admin.js
   - worker/club-admin-routes.js
+  - worker/club-places.js
   - packages/shared/club.js
+  - packages/ui/ClubSetupCard.jsx
   - apps/zoom-app/src/components/UpgradeModal.jsx
   - apps/zoom-app/src/main.jsx
   - apps/zoom-app/src/utils/zoomIdentity.js
+  - apps/zoom-app/src/utils/pendingClubCode.js
+  - apps/web/src/utils/webIdentity.js
   - apps/web/src/pages/ProActivate.jsx
   - apps/web/src/components/ClubCodeSection.jsx
   - apps/web/src/pages/ClubAdmin.jsx
@@ -17,14 +21,22 @@ covers:
 automated:
   - e2e/zoom.club-join.spec.js
   - e2e/web.club-join.spec.js
+  - worker/club-places.test.js
+  - worker/club-membership.test.js
+  - worker/club-membership-admin.test.js
   - worker/club.test.js
   - worker/club-admin-routes.test.js
+  - packages/shared/__tests__/clubAccount.test.js
+  - packages/shared/__tests__/clubOutbox.test.js
+  - apps/zoom-app/src/components/UpgradeModal.clubJoin.test.jsx
+  - apps/web/src/pages/ClubAdmin.members.test.jsx
 needs:
   - this branch deployed to dev (`npm run cf:deploy:dev`); the deploy output lists the
     `ClubPlaces` Durable Object binding
   - FLAGS_FORCE "1,new_look=0" on dev (the club doors are behind `pro`; these steps are written
     for today's panel)
-  - after the deploy, `node scripts/club-cli.mjs backfill-club-of --env dev` once (Q7)
+  - after the deploy, `node scripts/club-cli.mjs backfill-club-of --env dev --apply` once (Q7;
+    without `--apply` it only lists what it would write)
   - a dev club with a code (Claude Test Club, or `club-cli create --env dev --uid <test uid>`);
     note who its owner is (`club:<id>.ownerUid`)
   - Zoom account A, the test account on the Mac, approved for the dev app
@@ -42,10 +54,8 @@ Issue #167. Club Pro belongs to Zoom accounts, not devices: one code per club, 3
 besides the owner (the account that pays), one club per account, and nothing stored per
 device (no `club-device:` rows, no `X-Club` header, no 24 h club token). The place count is
 kept by the `ClubPlaces` Durable Object (one per club), so simultaneous joins can't make a
-4th place.
-
-`covers` will also list `worker/club-places.js` once it exists (the implementer adds it;
-`npm run test:specs` refuses a path that doesn't exist yet).
+4th place. It reads its club id from `ctx.id.name` and seeds itself once from the club's live
+member rows (owner left out) the first time it is used, so the dev clubs need no extra step.
 
 ## Purpose
 Catches a code that still admits a signed-out or guest device, Pro that stays on one webview
@@ -58,7 +68,7 @@ session exists (which made the server unable to name the caller, see club-card-s
 
 ### CM-01 · auto · A, signed in and approved, joins with the code
 Do: with A not in any club (`club-of:zoom:<A uid>` absent; leave first if needed), open the
-timer in Zoom, Upgrade, type the club code, Activate.
+timer in Zoom, Upgrade, type the club code under "Already on Pro with your club?", Activate.
 Expect: the Pro panel reads "You're on Pro through <club>". No "No sign-in needed" and no
 "This device is on Pro" anywhere. The club badge and club features appear without a reload.
 Evidence: `wrangler tail --env dev` shows `POST /api/club/activate` → 200 with an
@@ -90,10 +100,10 @@ in the console; a member or editor sees no count. Re-entering the code as A chan
 Evidence: `placesUsed` in the activate answer and in `GET /api/club/roster` `counts`.
 
 ### CM-05 · auto · A leaves, after a confirm
-Do: as A (a member, not the owner), Pro panel → Leave → confirm.
-Expect: the confirm reads "Leave <club>? You'll lose its Pro on every computer where you're
-signed in." After confirming, club Pro is gone; on reopening the timer it stays gone. The
-console no longer lists A and the place count went down by 1.
+Do: as A (a member, not the owner), Pro panel → "Leave <club>" → Leave.
+Expect: the panel asks in place (Cancel / Leave): "Leave <club>? You'll lose its Pro on every
+computer where you're signed in." After Leave, club Pro is gone; on reopening the timer it
+stays gone. The console no longer lists A and the place count went down by 1.
 Evidence: tail `POST /api/club/leave` → 200 with `authorization`; KV member row and `club-of`
 for A are gone. PostHog `club_left`.
 
@@ -113,10 +123,11 @@ Evidence: tail `POST /api/club/activate` → 409 `already_in_club`. PostHog `clu
 `reason: already_in_club`.
 
 ### CM-08 · auto · A new code: the old one admits nobody, members keep Pro
-Do: `node scripts/club-cli.mjs rotate --env dev <clubId>`; reopen the timer as A (a member);
-then, as an account outside the club, enter the old code.
-Expect: the CLI prints only the new code. A keeps club Pro. The old code answers "That code
-isn't active. Check with your club officer."
+Do: `node scripts/club-cli.mjs rotate --env dev --club <clubId>`; reopen the timer as A (a
+member); then, as an account outside the club, enter the old code.
+Expect: the CLI prints the club with its new code and says every member keeps access (no
+device count any more). A keeps club Pro. The old code answers "That code isn't active.
+Check with your club officer."
 Evidence: KV `club-by-code:<old>` gone, `club-by-code:<new>` present; A's member row untouched.
 
 ### CM-09 · human · Signed out of Zoom, nothing is sent
@@ -130,7 +141,8 @@ sign_in_required`.
 Do: remove the app's grant (Zoom web → Apps → Manage → Remove, without uninstalling the
 client), open the timer, Upgrade, type the code, submit; press Approve and approve in Zoom.
 Expect: "Approve Toastmusters Timer in Zoom to join your club" with an Approve button; after
-approving (in the panel, or on the next open) A joins without retyping the code.
+approving A joins without retyping the code: in the panel when Zoom reports the approval while
+it is open (it watches for 2 minutes), otherwise on the next open.
 Evidence: no activate before approval (PostHog `reason: approve_required`), then
 `POST /api/club/activate` → 200; sessionStorage `toastmaster_pending_club_code` cleared.
 

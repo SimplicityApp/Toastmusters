@@ -115,6 +115,9 @@ Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the
 `ver` went up by 1; `GET /api/club/cards/<old hash>` with B's session → 404 (pruned).
 
 ## Not covered
+- Reviewed against the #167 implementation: card downloads and publishes carry the session
+  (Bearer in Zoom, the cookie on the web) and wait for it, and the club comes from the account,
+  as CC-03, CC-06 and CC-07 now say. No step moves.
 - Joining, leaving and removal themselves (#167): see [club-membership](club-membership.md).
 - Sharing from the web timer: same shared module and endpoints, proven by unit tests.
 - Two publishers racing: the prune grace window and the client's retry are unit-tested.

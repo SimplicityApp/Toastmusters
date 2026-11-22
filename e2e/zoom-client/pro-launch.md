@@ -57,7 +57,7 @@ Evidence: screenshots; PostHog from this device: `pro_launch_learn_more`, then
 `upgrade_prompt_shown` with `source: "pro_launch"`.
 
 ### PL-03 · auto · A Pro device is not told about Pro
-Do: on a device that is Pro (a club code or a subscription), debug panel → Reset history, then
+Do: signed in with an account that is Pro (in a club, or a subscription), debug panel → Reset history, then
 time one short speech and press FINISH. Wait 5 s.
 Expect: no announcement. The debug panel reads "Pro launch: 0/1 asks". No other prompt is due
 after a single speech.
@@ -65,7 +65,7 @@ Evidence: screenshot after the wait; PostHog has no `periodic_prompt_shown` with
 `prompt: "pro_launch"` from this device for the run.
 
 ### PL-04 · human · A free device sees it once, after FINISH
-Do: sign in to Zoom with a Free account that has no club on the device. With prompt history
+Do: sign in to Zoom with a Free account that is in no club. With prompt history
 reset (debug panel), START a speech, wait for green, FINISH. Answer Zoom's background prompt if
 it shows. Wait 3 s. Close the window with "Not now". Time and finish another speech.
 Expect: nothing appears while the timer runs or on the FINISH click itself; about 2.5 s after
@@ -91,8 +91,13 @@ free plan to show the window to.
 ## Not covered
 - The footer while `pro` is off: since the merge with dev (2026-11-14) it shows the locked
   "Pro (coming soon)" button instead of nothing. See [pro-coming-soon](pro-coming-soon.md).
-- The purchase and club-code flows inside the Upgrade dialog (the pro-club area is not
-  migrated to a spec yet; see `INDEX.md`).
+- The purchase flow inside the Upgrade dialog (the pro-club area is not migrated to a spec yet;
+  see `INDEX.md`). Joining a club with its code there is
+  [club-membership](club-membership.md).
+- Reviewed against #167 (club Pro by Zoom account): the footer now fetches the Upgrade dialog
+  right after the first paint so the code field is there on the click, and the Review button's
+  accessible name starts with its visible "Review" ("Review Toastmusters Timer on the Zoom App
+  Marketplace"). Nothing a step looks at moves.
 - The web timer: it has no Pro announcement. Its prompts are unchanged.
 - The 28-day end of the footer dot (`PRO_LAUNCH_BADGE_DAYS`): unit-tested with a pinned clock.
 - A link for club officers: there is no page about Pro on the website to point at yet.
