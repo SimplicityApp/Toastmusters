@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ExternalLink, ShieldCheck, LogOut, Upload, Trash2, RotateCcw, Pencil } from 'lucide-react'
-import { clubHeaders, refreshClub } from '@toastmaster-timer/shared'
+import { Users, ExternalLink, ShieldCheck, LogOut, Upload, Trash2, Pencil, MoreHorizontal } from 'lucide-react'
+import { refreshClub } from '@toastmaster-timer/shared'
 import { signInUrl } from '../utils/webIdentity'
 import { trackEvent } from '../utils/posthog'
 
@@ -13,10 +13,15 @@ import { trackEvent } from '../utils/posthog'
  * cannot open inside the Zoom sidebar at all, so nothing in the Zoom app needs
  * to know this page exists.
  *
- * Two doors land here. Signing in with Zoom is the everyday path and needs the
- * club token this browser already holds; the mailed link names its own club, so
- * it works in a browser that never typed a code. Both reach one permission
- * check in the Worker, and differ only in the actor they carry.
+ * Two doors land here. Signing in with Zoom is the everyday path: the club is
+ * the one that account is in. The mailed link names its own club, so it works
+ * for whoever holds the billing mailbox. Both reach one permission check in the
+ * Worker, and differ only in the actor they carry.
+ *
+ * The roster is people, not devices (#167): the owner, who pays and is fixed,
+ * then up to 3 accounts the code let in. Remove frees a place and lets the
+ * account rejoin with the code; Block, tucked in a row's "…" menu because it
+ * is rare, frees it and keeps the code from letting them back in.
  */
 
 const ROLE_LABELS = { admin: 'Admin', editor: 'Editor', member: 'Member' }
@@ -25,16 +30,18 @@ const DATE_FORMAT = { day: 'numeric', month: 'short' }
 const shortDate = (value) =>
   typeof value === 'number' && value > 0 ? new Date(value).toLocaleDateString(undefined, DATE_FORMAT) : '—'
 
-/** Every console call carries whatever credentials this browser happens to hold. */
+const removeCopy = (name) =>
+  `Remove ${name}? They lose the club's Pro at their next open and the place is freed. They can rejoin with the code; to keep them out, use Block.`
+const blockCopy = (name) =>
+  `Block ${name}? They lose the club's Pro at their next open, the place is freed, and the code won't let them back in until you unblock them.`
+
+/** Every console call carries the cookie: the Zoom sign-in, or the billing link's. */
 async function api(path, { method = 'GET', body, form } = {}) {
   const response = await fetch(path, {
     method,
     credentials: 'same-origin',
     cache: 'no-store',
-    headers: {
-      ...clubHeaders(),
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
+    headers: body ? { 'Content-Type': 'application/json' } : {},
     ...(form ? { body: form } : body ? { body: JSON.stringify(body) } : {}),
   })
   const json = await response.json().catch(() => ({}))
@@ -114,7 +121,7 @@ function DoorsPanel({ reason }) {
 }
 
 /**
- * One person, and the laptops they time from.
+ * One person in the club.
  *
  * The label is the one piece of this page that had nothing to show. Zoom's
  * `screenName` is reachable through `getUserContext` and would fill the roster
@@ -122,11 +129,14 @@ function DoorsPanel({ reason }) {
  * until that is a decision somebody has made, an officer looking at their own
  * club sees "You", and anyone else is whatever an admin typed. A raw uid is the
  * fallback, not the answer.
+ *
+ * The owner's row says "Owner" where the role select would be, with no "…":
+ * nobody can remove, block or demote the account that pays.
  */
-function MemberRow({ member, isYou, busy, onRole, onDevice, onName }) {
-  const revoked = Boolean(member.revokedAt)
+function MemberRow({ member, isYou, busy, onRole, onBlock, onName }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(member.displayName || '')
+  const [menuOpen, setMenuOpen] = useState(false)
   const label = member.displayName || (isYou ? 'You' : member.uid)
 
   const saveName = async (event) => {
@@ -161,7 +171,7 @@ function MemberRow({ member, isYou, busy, onRole, onDevice, onName }) {
           <>
             <span
               title={member.uid}
-              className={`font-semibold ${revoked ? 'text-gray-500 line-through' : 'text-white'} ${member.displayName || isYou ? '' : 'font-mono text-sm break-all'}`}
+              className={`font-semibold text-white ${member.displayName || isYou ? '' : 'font-mono text-sm break-all'}`}
             >
               {label}
             </span>
@@ -176,58 +186,54 @@ function MemberRow({ member, isYou, busy, onRole, onDevice, onName }) {
             </button>
           </>
         )}
-        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-gray-300">
-          {revoked ? 'No access' : ROLE_LABELS[member.role] ?? member.role}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          <label className="sr-only" htmlFor={`role-${member.uid}`}>
-            Role for {label}
-          </label>
-          <select
-            id={`role-${member.uid}`}
-            value={revoked ? 'revoked' : member.role}
-            disabled={busy}
-            onChange={(event) => onRole(member.uid, event.target.value)}
-            className="rounded-md border border-white/20 bg-black/40 px-2 py-1 text-sm text-white disabled:opacity-50"
-          >
-            <option value="admin">Admin</option>
-            <option value="editor">Editor</option>
-            <option value="member">Member</option>
-            <option value="revoked">No access</option>
-          </select>
-        </div>
-      </div>
-      <ul className="mt-2 space-y-1">
-        {member.devices.length === 0 && (
-          <li className="text-sm text-gray-500">No device has activated under this person yet.</li>
+        {member.isOwner ? (
+          <span className="ml-auto rounded-full bg-amber-400/20 px-2 py-0.5 text-xs font-medium text-amber-200">Owner</span>
+        ) : (
+          <div className="relative ml-auto flex items-center gap-2">
+            <label className="sr-only" htmlFor={`role-${member.uid}`}>
+              Role for {label}
+            </label>
+            <select
+              id={`role-${member.uid}`}
+              value={member.role}
+              disabled={busy}
+              onChange={(event) => onRole(member, label, event.target.value)}
+              className="rounded-md border border-white/20 bg-black/40 px-2 py-1 text-sm text-white disabled:opacity-50"
+            >
+              <option value="admin">Admin</option>
+              <option value="editor">Editor</option>
+              <option value="member">Member</option>
+              <option value="revoked">Remove</option>
+            </select>
+            <button
+              type="button"
+              aria-label={`More options for ${label}`}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              disabled={busy}
+              onClick={() => setMenuOpen((open) => !open)}
+              className="rounded-md p-1 text-gray-400 hover:bg-white/10 hover:text-gray-100 disabled:opacity-50"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {menuOpen && (
+              <div role="menu" className="absolute right-0 top-full z-10 mt-1 rounded-md border border-white/10 bg-gray-800 py-1 shadow-lg">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onBlock(member, label)
+                  }}
+                  className="block w-full px-4 py-1.5 text-left text-sm text-red-300 hover:bg-white/10"
+                >
+                  Block
+                </button>
+              </div>
+            )}
+          </div>
         )}
-        {member.devices.map((device) => (
-          <DeviceRow key={device.deviceId} device={device} busy={busy} onRevoke={onDevice} />
-        ))}
-      </ul>
-    </li>
-  )
-}
-
-function DeviceRow({ device, busy, onRevoke }) {
-  const revoked = Boolean(device.revokedAt)
-  return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-      <span className={revoked ? 'text-gray-500 line-through' : 'text-gray-200'}>{device.label}</span>
-      <span className="text-gray-500">
-        first seen {shortDate(device.activatedAt)} · last seen {shortDate(device.lastSeenAt)}
-      </span>
-      {onRevoke && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onRevoke(device.deviceId, !revoked)}
-          className="ml-auto inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-100 disabled:opacity-50"
-        >
-          {revoked ? <RotateCcw className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
-          {revoked ? 'Restore' : 'Revoke'}
-        </button>
-      )}
+      </div>
     </li>
   )
 }
@@ -276,8 +282,8 @@ function KitEditor({ kit, clubName, onSaved }) {
     setSaved(true)
     onSaved?.(result.body)
     // The admin is usually looking at their own timer in the next tab, so pull
-    // the new kit down here rather than making them wait for tomorrow.
-    refreshClub({ force: true }).catch(() => {})
+    // the new kit down here rather than making them wait for the next open.
+    refreshClub().catch(() => {})
   }
 
   return (
@@ -394,10 +400,7 @@ function ClubCards({ cards, clubName, onRemoved }) {
     Promise.all(
       Object.entries(cards.images).map(async ([color, hash]) => {
         try {
-          const response = await fetch(`/api/club/cards/${hash}`, {
-            credentials: 'same-origin',
-            headers: { ...clubHeaders() },
-          })
+          const response = await fetch(`/api/club/cards/${hash}`, { credentials: 'same-origin' })
           if (!response.ok) return null
           const url = URL.createObjectURL(await response.blob())
           minted.push(url)
@@ -485,6 +488,7 @@ const KIT_ERRORS = {
 
 const ROLE_ERRORS = {
   last_admin: 'A club needs at least one admin. Promote somebody else first.',
+  owner: 'The club’s owner pays for it, so nobody can remove, block or demote them.',
   forbidden: 'Only a club admin can change roles.',
 }
 
@@ -532,10 +536,12 @@ export default function ClubAdmin() {
     })
   }, [load])
 
-  const handleRole = async (uid, role) => {
+  const handleRole = async (member, label, role) => {
+    // Remove asks first; a role change is undone with the same select.
+    if (role === 'revoked' && !window.confirm(removeCopy(label))) return
     setBusy(true)
     setError(null)
-    const result = await api(`/api/club/members/${encodeURIComponent(uid)}/role`, { method: 'POST', body: { role } })
+    const result = await api(`/api/club/members/${encodeURIComponent(member.uid)}/role`, { method: 'POST', body: { role } })
     setBusy(false)
     if (!result.ok) {
       setError(ROLE_ERRORS[result.body?.error] || 'Could not change that role. Please try again.')
@@ -550,6 +556,24 @@ export default function ClubAdmin() {
     await load()
   }
 
+  /** Block asks first; Unblock loses nothing, so it doesn't. */
+  const handleBlock = async (uid, blocked, label) => {
+    if (blocked && !window.confirm(blockCopy(label))) return
+    setBusy(true)
+    setError(null)
+    const result = await api(`/api/club/members/${encodeURIComponent(uid)}/block`, { method: 'POST', body: { blocked } })
+    setBusy(false)
+    if (!result.ok) {
+      setError(ROLE_ERRORS[result.body?.error] || 'Could not change that. Please try again.')
+      return
+    }
+    trackEvent(blocked ? 'club_member_blocked' : 'club_member_unblocked', {
+      surface: 'web',
+      club_id: roster?.club?.id ?? null,
+    })
+    await load()
+  }
+
   const handleName = async (uid, name) => {
     setBusy(true)
     setError(null)
@@ -558,24 +582,6 @@ export default function ClubAdmin() {
     if (!result.ok) {
       setError('Could not save that name. Please try again.')
       return
-    }
-    await load()
-  }
-
-  const handleDevice = async (deviceId, revoked) => {
-    setBusy(true)
-    setError(null)
-    const result = await api(`/api/club/devices/${encodeURIComponent(deviceId)}/revoke`, {
-      method: 'POST',
-      body: { revoked },
-    })
-    setBusy(false)
-    if (!result.ok) {
-      setError('Could not change that device. Please try again.')
-      return
-    }
-    if (revoked) {
-      trackEvent('club_access_revoked', { surface: 'web', club_id: roster?.club?.id ?? null, scope: 'device' })
     }
     await load()
   }
@@ -627,8 +633,8 @@ export default function ClubAdmin() {
               <Users className="h-6 w-6 text-amber-300" />
               <h2 className="text-2xl font-bold">{roster.club?.name || 'Your club'}</h2>
               <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-gray-300">
-                {roster.counts?.devices ?? 0} device{roster.counts?.devices === 1 ? '' : 's'} ·{' '}
-                {roster.counts?.people ?? 0} {roster.counts?.people === 1 ? 'person' : 'people'}
+                {roster.counts?.people ?? 0} {roster.counts?.people === 1 ? 'person' : 'people'} ·{' '}
+                {roster.counts?.placesUsed ?? 0} of {roster.counts?.placesTotal ?? 3} places used
               </span>
             </div>
             <p className="mt-2 text-sm text-gray-400">
@@ -641,6 +647,10 @@ export default function ClubAdmin() {
 
             <section className="mt-8 rounded-2xl border border-white/10 bg-black/30 px-6 py-6">
               <h3 className="text-sm uppercase tracking-wide text-gray-400">Who is in the club</h3>
+              <p className="mt-1 text-xs text-gray-400">
+                The code lets in up to {roster.counts?.placesTotal ?? 3} Zoom accounts besides the owner. Each has the
+                club&apos;s Pro wherever they sign in.
+              </p>
               <ul className="mt-3">
                 {roster.members.map((member) => (
                   <MemberRow
@@ -649,25 +659,41 @@ export default function ClubAdmin() {
                     isYou={roster.actor?.type === 'zoom' && roster.actor.uid === member.uid}
                     busy={busy}
                     onRole={handleRole}
-                    onDevice={handleDevice}
+                    onBlock={(person, label) => handleBlock(person.uid, true, label)}
                     onName={handleName}
                   />
                 ))}
               </ul>
 
-              {roster.guestDevices?.length > 0 && (
+              {roster.blocked?.length > 0 && (
                 <div className="mt-6 border-t border-white/10 pt-4">
-                  <p className="font-semibold text-white">Guest devices</p>
-                  {/* A device that activated with no Zoom identity is the only
-                      handle an admin has on whoever is using their code. */}
+                  <p className="font-semibold text-white">Blocked</p>
                   <p className="mt-1 text-xs text-gray-400">
-                    These activated with the code and never signed in with Zoom. They can use the club and change
-                    nothing.
+                    The code won&apos;t let these accounts in. Unblocking doesn&apos;t put them back; they can join
+                    with the code again.
                   </p>
                   <ul className="mt-2 space-y-1">
-                    {roster.guestDevices.map((device) => (
-                      <DeviceRow key={device.deviceId} device={device} busy={busy} onRevoke={handleDevice} />
-                    ))}
+                    {roster.blocked.map((person) => {
+                      const label = person.displayName || person.uid
+                      return (
+                        <li key={person.uid} className="flex items-center gap-3 text-sm">
+                          <span
+                            title={person.uid}
+                            className={`text-gray-200 ${person.displayName ? '' : 'font-mono break-all'}`}
+                          >
+                            {label}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleBlock(person.uid, false, label)}
+                            className="ml-auto text-xs text-gray-400 hover:text-gray-100 disabled:opacity-50"
+                          >
+                            Unblock
+                          </button>
+                        </li>
+                      )
+                    })}
                   </ul>
                 </div>
               )}
@@ -691,8 +717,8 @@ export default function ClubAdmin() {
                 clubName={roster.club?.name}
                 onRemoved={() => {
                   load()
-                  // This browser may be a club device too; let it drop the set now.
-                  refreshClub({ force: true }).catch(() => {})
+                  // This browser's account is usually in the club too; let it drop the set now.
+                  refreshClub().catch(() => {})
                 }}
               />
             </section>

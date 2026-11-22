@@ -13,7 +13,7 @@ import FlagGate from './FlagGate';
  */
 
 const CLUB = {
-  clubToken: 'tok.sig',
+  uid: 'u-1',
   ver: 1,
   club: { id: 'club-1', name: 'Downtown Speakers' },
   kit: null,
@@ -29,11 +29,12 @@ const CLUB = {
   source: 'club',
 };
 
-/** The identity call answers "signed out"; activation answers with the club. */
+/** The identity call answers "signed in"; activation answers with the club. */
 function stubApi() {
   const fetchMock = vi.fn(async (url) => {
     const path = String(url).split('?')[0];
     if (path === '/api/club/activate') return { ok: true, status: 200, json: async () => CLUB };
+    if (path === '/api/me') return { ok: true, status: 200, json: async () => ({ uid: 'u-1', entitlement: null }) };
     return { ok: false, status: 401, json: async () => ({ error: 'Unauthorized' }) };
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -67,9 +68,9 @@ describe('FlagGate', () => {
     const activations = stubApi();
     renderAt('/pro/DTSP-7K2QM9');
 
-    expect(await screen.findByText(/You're on Pro in this browser/)).toBeInTheDocument();
+    expect(await screen.findByText(/You're on Pro through Downtown Speakers/)).toBeInTheDocument();
     expect(activations()).toHaveLength(1);
-    expect(JSON.parse(activations()[0][1].body)).toEqual({ code: 'DTSP-7K2QM9', deviceId: expect.any(String) });
+    expect(JSON.parse(activations()[0][1].body)).toEqual({ code: 'DTSP-7K2QM9' });
   });
 
   it('shows the fallback and activates nothing while the flags are still unknown, then activates once they land', async () => {
@@ -81,7 +82,7 @@ describe('FlagGate', () => {
     expect(activations()).toHaveLength(0);
 
     act(() => { setFlags({ pro: true }); });
-    expect(await screen.findByText(/You're on Pro in this browser/)).toBeInTheDocument();
+    expect(await screen.findByText(/You're on Pro through Downtown Speakers/)).toBeInTheDocument();
     expect(activations()).toHaveLength(1);
   });
 

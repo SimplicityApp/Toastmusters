@@ -20,7 +20,7 @@ import { trackEvent } from '../utils/posthog';
 
 /** A club this device has joined, as the cache holds it. */
 const cachedClub = (over = {}) => ({
-  clubToken: 'club.tok',
+  uid: 'u-1',
   ver: 1,
   club: { id: 'club-1', name: 'Downtown Speakers' },
   kit: { name: 'Downtown Speakers', logoUrl: null, primaryColor: '#772432', showOnCards: true, showOnReports: true },
@@ -291,7 +291,8 @@ describe('ReportTab', () => {
       expect(screen.getByText('Contest night')).toBeInTheDocument();
       expect(screen.getByText(/2 meetings · 10 speeches/)).toBeInTheDocument();
       expect(global.fetch.mock.calls[0][0]).toBe('/api/club/meetings');
-      expect(global.fetch.mock.calls[0][1].headers['X-Club']).toBe('club.tok');
+      // The web's session is its cookie: nothing club-shaped rides along.
+      expect(global.fetch.mock.calls[0][1].headers).not.toHaveProperty('X-Club');
       expect(trackEvent).toHaveBeenCalledWith('report_history_viewed', { meetings: 2, surface: 'web' });
     });
 

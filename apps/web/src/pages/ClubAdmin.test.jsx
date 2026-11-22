@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { resetClubForTests } from '@toastmaster-timer/shared';
@@ -21,29 +21,14 @@ const ROSTER = {
   role: 'admin',
   plan: 'pro',
   entitled: true,
-  counts: { devices: 4, people: 2, guestDevices: 1 },
+  counts: { people: 2, placesUsed: 1, placesTotal: 3 },
+  // A club with no known owner (minted by hand), so the last-admin rule is
+  // what guards it; the owner's row is in ClubAdmin.members.test.jsx.
   members: [
-    {
-      uid: 'sarah',
-      role: 'admin',
-      displayName: 'Sarah Chen',
-      revokedAt: null,
-      devices: [
-        { deviceId: 'd1', label: 'Chrome · Windows', activatedAt: 1_700_000_000_000, lastSeenAt: 1_700_100_000_000, revokedAt: null },
-        { deviceId: 'd2', label: 'Safari · iPad', activatedAt: 1_700_000_000_000, lastSeenAt: 1_700_050_000_000, revokedAt: null },
-      ],
-    },
-    {
-      uid: 'james',
-      role: 'editor',
-      displayName: 'James Okoro',
-      revokedAt: null,
-      devices: [{ deviceId: 'd3', label: 'Chrome · macOS', activatedAt: 1, lastSeenAt: 2, revokedAt: null }],
-    },
+    { uid: 'sarah', role: 'admin', displayName: 'Sarah Chen', addedAt: 1, isOwner: false },
+    { uid: 'james', role: 'editor', displayName: 'James Okoro', addedAt: 2, isOwner: false },
   ],
-  guestDevices: [
-    { deviceId: 'd4', label: 'Firefox · Windows', activatedAt: 1, lastSeenAt: 2, revokedAt: null },
-  ],
+  blocked: [],
 };
 
 /** A fetch stub keyed by path, recording every call. */
@@ -117,21 +102,16 @@ describe('ClubAdmin — the two doors', () => {
 });
 
 describe('ClubAdmin — the roster', () => {
-  it('renders every device grouped under its person, with guests on their own', async () => {
+  it('renders the people in the club and the places they use', async () => {
     stubApi({ '/api/club/roster': { status: 200, body: ROSTER } });
     renderConsole();
 
     expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
     expect(screen.getByText('DTSP-7K2QM9')).toBeInTheDocument();
-    expect(screen.getByText(/4 devices · 2 people/)).toBeInTheDocument();
+    expect(screen.getByText(/2 people · 1 of 3 places used/)).toBeInTheDocument();
 
     expect(screen.getByText('Sarah Chen')).toBeInTheDocument();
-    expect(screen.getByText('Chrome · Windows')).toBeInTheDocument();
-    expect(screen.getByText('Safari · iPad')).toBeInTheDocument();
     expect(screen.getByText('James Okoro')).toBeInTheDocument();
-
-    const guests = screen.getByText('Guest devices').closest('div');
-    expect(within(guests).getByText('Firefox · Windows')).toBeInTheDocument();
   });
 
   // The roster used to label anyone without a `displayName` — which was
@@ -199,23 +179,6 @@ describe('ClubAdmin — the roster', () => {
     await userEvent.selectOptions(screen.getByLabelText('Role for Sarah Chen'), 'member');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('at least one admin');
-  });
-
-  it('revokes a guest device', async () => {
-    const calls = stubApi({
-      '/api/club/roster': { status: 200, body: ROSTER },
-      '/api/club/devices/d4/revoke': { status: 200, body: { deviceId: 'd4' } },
-    });
-    renderConsole();
-
-    await screen.findByText('Guest devices');
-    const guests = screen.getByText('Guest devices').closest('div');
-    await userEvent.click(within(guests).getByRole('button', { name: /Revoke/ }));
-
-    await waitFor(() => {
-      const call = calls.find((c) => c.path === '/api/club/devices/d4/revoke');
-      expect(JSON.parse(call.body)).toEqual({ revoked: true });
-    });
   });
 });
 

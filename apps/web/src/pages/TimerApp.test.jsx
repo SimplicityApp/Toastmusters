@@ -13,7 +13,7 @@ import TimerApp from './TimerApp';
  */
 
 const club = (over = {}) => ({
-  clubToken: 'club.tok',
+  uid: 'u-1',
   ver: 1,
   club: { id: 'club-1', name: 'Claude Test Club' },
   kit: {

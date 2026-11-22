@@ -4016,7 +4016,7 @@ describe('reading who Zoom says this is', () => {
  */
 describe("the club's badge", () => {
   const CLUB = {
-    clubToken: 'club-token',
+    uid: 'u-1',
     ver: 2,
     club: { id: 'club-1', name: 'Downtown Speakers' },
     kit: {
@@ -4639,7 +4639,7 @@ describe('one card push per color change', () => {
 
   describe('across a whole speech', () => {
     const CLUB = {
-      clubToken: 'club-token',
+      uid: 'u-1',
       ver: 2,
       club: { id: 'club-1', name: 'Downtown Speakers' },
       kit: {

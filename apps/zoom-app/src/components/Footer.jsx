@@ -17,7 +17,12 @@ import { openExternalUrl } from '../utils/zoomSdk';
 import { useToast } from '../context/ToastContext';
 import ProComingSoon from './ProComingSoon';
 const FeedbackModal = lazy(() => import('./FeedbackModal'));
-const UpgradeModal = lazy(() => import('./UpgradeModal'));
+// The Pro panel is where a club code is typed, so it opens on the click itself
+// rather than a chunk-load later: kept out of the first paint, fetched right
+// after it, and rendered directly once it has arrived.
+const loadUpgradeModal = () => import('./UpgradeModal');
+const LazyUpgradeModal = lazy(loadUpgradeModal);
+let LoadedUpgradeModal = null;
 
 export default memo(function Footer() {
   const { showToast } = useToast();
@@ -29,6 +34,14 @@ export default memo(function Footer() {
   // marks the Pro announcement answered.
   const [promptState, setPromptState] = useState(loadPromptState);
   useEffect(() => subscribeToPromptState(setPromptState), []);
+  useEffect(() => {
+    loadUpgradeModal()
+      .then((module) => {
+        LoadedUpgradeModal = module.default;
+      })
+      .catch(() => {});
+  }, []);
+  const UpgradeModal = LoadedUpgradeModal ?? LazyUpgradeModal;
   const showNewBadge = !isPro && isProLaunchBadgeDue(promptState);
 
   const handleFeedbackClick = () => {
@@ -80,7 +93,7 @@ export default memo(function Footer() {
         <button
           onClick={handleReviewClick}
           className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors duration-150"
-          aria-label="Leave a review on the Zoom App Marketplace"
+          aria-label="Review Toastmusters Timer on the Zoom App Marketplace"
         >
           <Star className="w-4 h-4 flex-shrink-0" />
           <span>Review</span>
