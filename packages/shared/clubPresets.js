@@ -14,7 +14,6 @@ import {
   readPresetSource,
   writePresetSource,
   rememberPublishedPresets,
-  clubHeaders,
 } from './club.js';
 
 /**
@@ -251,7 +250,7 @@ export async function ensureForked(confirm) {
  */
 export async function publishPresets(presets, { getToken, fetchImpl } = {}) {
   const club = loadClub();
-  if (!club?.clubToken) return { ok: false, error: 'no_club' };
+  if (!club?.club?.id) return { ok: false, error: 'no_club' };
 
   let response;
   try {
@@ -260,7 +259,6 @@ export async function publishPresets(presets, { getToken, fetchImpl } = {}) {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...clubHeaders(),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       credentials: 'same-origin',

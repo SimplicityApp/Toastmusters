@@ -9,7 +9,6 @@
  * asked, and inside any 402 the sync layer receives.
  */
 
-import { clubHeaders } from './club.js';
 
 const ME_ENDPOINT = '/api/me';
 
@@ -87,9 +86,9 @@ export async function refreshEntitlement({ getToken, fetchImpl, cookieSession = 
   if (!token && !cookieSession) return null;
   try {
     const response = await (fetchImpl ?? fetch)(ME_ENDPOINT, {
-      // The club rides along so the answer is the combined one; without it a
-      // club member polling after a purchase would read back "free".
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...clubHeaders() },
+      // The answer is the combined one: the server finds the account's club
+      // from the session, so a club member polling reads back their club.
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       credentials: 'same-origin',
       cache: 'no-store',
     });

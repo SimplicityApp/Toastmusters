@@ -5,9 +5,7 @@ import {
   CLUB_STORAGE_KEY,
   CLUB_PRESETS_STORAGE_KEY,
   PRESET_SOURCE_STORAGE_KEY,
-  CLUB_REFRESH_INTERVAL_MS,
   loadClub,
-  clubHeaders,
   clubLifecycle,
   clubGraceReminder,
   GRACE_REMINDER_WINDOW_DAYS,
@@ -19,11 +17,11 @@ import {
   PAST_DUE_GRACE_MS,
   CLUB_GRACE_DISMISSED_STORAGE_KEY,
   initClubFromCache,
-  clubDeviceId,
   activateClub,
   createClub,
   refreshClub,
-  leaveClub,
+  forgetClub,
+  syncClubWithIdentity,
   subscribeClub,
   resetClubForTests,
 } from '../club.js';
@@ -53,7 +51,11 @@ const clubState = (over = {}) => ({
   ...over,
 });
 
-const cached = (over = {}) => ({ clubToken: 'tok.sig', lastRefreshAt: NOW, ...clubState(), ...over });
+const cached = (over = {}) => ({ uid: 'u-1', lastRefreshAt: NOW, ...clubState(), ...over });
+
+/** Apply the cached club the one way a device does without the server: offline, authorized. */
+const applyCached = () =>
+  syncClubWithIdentity({ identified: false, uid: null, authStatus: 'authorized', reachable: false, entitlement: null });
 
 const respondWith = (body, { ok = true, status = 200 } = {}) =>
   vi.fn(async () => ({ ok, status, json: async () => body }));
@@ -68,44 +70,39 @@ beforeEach(() => {
 });
 
 describe('the cached club', () => {
-  // Without this the device would take `known = true` from the session
-  // response and flash "Upgrade" before the club refresh landed.
-  it('seeds the entitlement store synchronously, before anything async starts', () => {
+  // The copy belongs to an account, and which account is signed in is only
+  // known once identity resolves (clubAccount.test.js covers that).
+  it('is read, but not applied, before the first paint', () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
 
-    expect(isEntitlementKnown()).toBe(false);
     const club = initClubFromCache();
 
-    expect(club).toMatchObject({ club: { name: 'Downtown Speakers' } });
-    expect(isEntitlementKnown()).toBe(true);
-    expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true, source: 'club' });
+    expect(club).toMatchObject({ uid: 'u-1', club: { name: 'Downtown Speakers' } });
+    expect(isEntitlementKnown()).toBe(false);
   });
 
-  // A lapsed cached club says nothing: the session response answers for a
-  // buyer who still has their own plan.
-  it('says nothing when the cached club is not entitled', () => {
-    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ plan: 'free', entitled: false })));
+  it('applies the plan when it is applied, and says nothing when the club is not entitled', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    await applyCached();
+    expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true, source: 'club' });
 
-    initClubFromCache();
+    resetClubForTests();
+    resetEntitlementForTests();
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ plan: 'free', entitled: false })));
+    await applyCached();
     expect(isEntitlementKnown()).toBe(false);
   });
 
   it('is a no-op with nothing cached, and tolerates junk', () => {
     expect(initClubFromCache()).toBeNull();
-    expect(clubHeaders()).toEqual({});
 
     localStorage.setItem(CLUB_STORAGE_KEY, 'not json');
     resetClubForTests();
     expect(loadClub()).toBeNull();
 
-    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ club: { name: 'No token' } }));
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ club: { name: 'No id' } }));
     resetClubForTests();
     expect(loadClub()).toBeNull();
-  });
-
-  it('carries the token in X-Club once there is one', () => {
-    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
-    expect(clubHeaders()).toEqual({ 'X-Club': 'tok.sig' });
   });
 });
 
@@ -113,13 +110,13 @@ describe('activateClub', () => {
   it('caches the club, sets the plan and tells subscribers', async () => {
     const seen = [];
     subscribeClub((club) => seen.push(club));
-    const fetchImpl = respondWith({ clubToken: 'fresh.sig', ...clubState() });
+    const fetchImpl = respondWith({ ...clubState(), placesUsed: 2 });
 
-    const result = await activateClub('dtsp-7k2qm9', { fetchImpl, getToken: () => 'bearer-token' });
+    const result = await activateClub('dtsp-7k2qm9', { fetchImpl, getToken: () => 'bearer-token', uid: 'u-1' });
 
-    expect(result).toMatchObject({ ok: true });
+    expect(result).toMatchObject({ ok: true, placesUsed: 2 });
     expect(JSON.parse(localStorage.getItem(CLUB_STORAGE_KEY))).toMatchObject({
-      clubToken: 'fresh.sig',
+      uid: 'u-1',
       ver: 1,
       club: { name: 'Downtown Speakers' },
     });
@@ -127,15 +124,14 @@ describe('activateClub', () => {
     expect(seen).toHaveLength(1);
 
     const [, init] = fetchImpl.mock.calls[0];
-    // The device id rides along so leaving and rejoining reuses one roster row
-    // rather than adding another.
-    expect(JSON.parse(init.body)).toEqual({ code: 'dtsp-7k2qm9', deviceId: clubDeviceId() });
+    // The code and nothing else: the account is the session's.
+    expect(JSON.parse(init.body)).toEqual({ code: 'dtsp-7k2qm9' });
     expect(init.headers.Authorization).toBe('Bearer bearer-token');
   });
 
-  // The activating browser may have no Zoom identity at all.
-  it('activates without a session token', async () => {
-    const fetchImpl = respondWith({ clubToken: 'fresh.sig', ...clubState() });
+  // The web app's session is its cookie: no header of its own.
+  it('sends no Authorization header without a token', async () => {
+    const fetchImpl = respondWith(clubState());
 
     expect(await activateClub('DTSP-7K2QM9', { fetchImpl })).toMatchObject({ ok: true });
     expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBeUndefined();
@@ -154,9 +150,12 @@ describe('activateClub', () => {
     expect(await activateClub('DTSP-7K2QM9', { fetchImpl })).toEqual({ ok: false, error: 'too_many_attempts' });
   });
 
-  it('blames the network rather than the code when offline', async () => {
+  it('blames the network rather than the code when offline, or when the server cannot count', async () => {
     const fetchImpl = vi.fn(async () => { throw new Error('offline'); });
     expect(await activateClub('DTSP-7K2QM9', { fetchImpl })).toEqual({ ok: false, error: 'network' });
+
+    const down = respondWith(null, { ok: false, status: 503 });
+    expect(await activateClub('DTSP-7K2QM9', { fetchImpl: down })).toEqual({ ok: false, error: 'network' });
   });
 
   it('refuses an empty code without asking the server', async () => {
@@ -168,26 +167,26 @@ describe('activateClub', () => {
 
 describe('createClub', () => {
   const created = (over = {}) => ({
-    clubToken: 'fresh.sig',
     created: true,
     code: 'DTSP-7K2QM9',
     shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
-    ...clubState({ role: 'admin' }),
+    ...clubState({ role: 'admin', isOwner: true }),
     ...over,
   });
 
   // The creator must land exactly where a timer who typed the code lands, or
   // they would be shown a code and asked to type it back into their own app.
-  it('caches the club and puts this device on it', async () => {
+  it('caches the club for the creator, as its owner', async () => {
     const fetchImpl = respondWith(created());
 
-    const result = await createClub({ clubName: 'Downtown Speakers' }, { fetchImpl, getToken: () => 'bearer-token' });
+    const result = await createClub({ clubName: 'Downtown Speakers' }, { fetchImpl, getToken: () => 'bearer-token', uid: 'u-1' });
 
     expect(result).toMatchObject({ ok: true, created: true, code: 'DTSP-7K2QM9' });
     expect(JSON.parse(localStorage.getItem(CLUB_STORAGE_KEY))).toMatchObject({
-      clubToken: 'fresh.sig',
+      uid: 'u-1',
       club: { name: 'Downtown Speakers' },
       role: 'admin',
+      isOwner: true,
     });
     expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true });
 
@@ -200,10 +199,7 @@ describe('createClub', () => {
     const fetchImpl = respondWith(created());
     await createClub({ timezone: 'America/Toronto' }, { fetchImpl });
 
-    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
-      timezone: 'America/Toronto',
-      deviceId: clubDeviceId(),
-    });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ timezone: 'America/Toronto' });
   });
 
   it('keeps the code and the link an admin has to share', async () => {
@@ -232,44 +228,39 @@ describe('createClub', () => {
 });
 
 describe('refreshClub', () => {
-  it('is a no-op inside 24 hours', async () => {
+  it('asks the server with the session, and its answer replaces the copy', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ lastRefreshAt: NOW })));
-    const fetchImpl = vi.fn();
-
-    const club = await refreshClub({ fetchImpl, now: NOW + CLUB_REFRESH_INTERVAL_MS - 1 });
-
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(club).toMatchObject({ club: { name: 'Downtown Speakers' } });
-  });
-
-  it('asks again once a day, and carries both credentials', async () => {
-    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached({ lastRefreshAt: NOW })));
-    const later = NOW + CLUB_REFRESH_INTERVAL_MS;
-    const fetchImpl = respondWith({ clubToken: 'rotated.sig', ...clubState({ ver: 4 }) });
+    const later = NOW + 1000;
+    const fetchImpl = respondWith(clubState({ ver: 4 }));
 
     const club = await refreshClub({ fetchImpl, getToken: () => 'bearer-token', now: later });
 
-    expect(club).toMatchObject({ ver: 4, clubToken: 'rotated.sig', lastRefreshAt: later });
-    const [, init] = fetchImpl.mock.calls[0];
-    expect(init.headers).toMatchObject({ 'X-Club': 'tok.sig', Authorization: 'Bearer bearer-token' });
+    expect(club).toMatchObject({ ver: 4, uid: 'u-1', lastRefreshAt: later });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('/api/club');
+    expect(init.headers).toEqual({ Authorization: 'Bearer bearer-token' });
   });
 
-  it('does nothing at all when no club was ever joined', async () => {
-    const fetchImpl = vi.fn();
-    expect(await refreshClub({ fetchImpl })).toBeNull();
-    expect(fetchImpl).not.toHaveBeenCalled();
+  // A new computer for the account has no copy yet: the server's is the whole club.
+  it('takes the whole club, list included, when this device had none', async () => {
+    const fetchImpl = respondWith(clubState({ presets: { rules: { Speech: { green: 1, yellow: 2, red: 3 } } } }));
+
+    const club = await refreshClub({ fetchImpl, uid: 'u-1', now: NOW });
+
+    expect(club).toMatchObject({ uid: 'u-1', club: { id: 'club-1' } });
+    expect(JSON.parse(localStorage.getItem(CLUB_PRESETS_STORAGE_KEY))).toMatchObject({ rules: { Speech: { green: 1 } } });
   });
 
   // Offline is a non-event: a lapse can only land on a *successful* refresh at
   // app start, never mid-meeting.
   it('leaves the cache and the plan intact when the network fails', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
-    initClubFromCache();
+    await applyCached();
     const fetchImpl = vi.fn(async () => { throw new Error('offline'); });
 
-    const club = await refreshClub({ fetchImpl, force: true });
+    const club = await refreshClub({ fetchImpl });
 
-    expect(club).toMatchObject({ clubToken: 'tok.sig' });
+    expect(club).toMatchObject({ uid: 'u-1' });
     expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeTruthy();
     expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true });
   });
@@ -277,18 +268,18 @@ describe('refreshClub', () => {
   it('keeps the cache on a 500 and on an unreadable body', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
 
-    expect(await refreshClub({ fetchImpl: respondWith(null, { ok: false, status: 500 }), force: true }))
-      .toMatchObject({ clubToken: 'tok.sig' });
-    expect(await refreshClub({ fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new Error('bad json'); } })), force: true }))
-      .toMatchObject({ clubToken: 'tok.sig' });
+    expect(await refreshClub({ fetchImpl: respondWith(null, { ok: false, status: 500 }) }))
+      .toMatchObject({ uid: 'u-1' });
+    expect(await refreshClub({ fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new Error('bad json'); } })) }))
+      .toMatchObject({ uid: 'u-1' });
   });
 
   it('turns Pro off when the club has lapsed', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
-    initClubFromCache();
+    await applyCached();
     const fetchImpl = respondWith(clubState({ plan: 'free', entitled: false, status: 'canceled', source: 'none' }));
 
-    const club = await refreshClub({ fetchImpl, force: true });
+    const club = await refreshClub({ fetchImpl });
 
     expect(club).toMatchObject({ entitled: false });
     expect(getEntitlement()).toMatchObject({ plan: 'free', entitled: false });
@@ -296,22 +287,22 @@ describe('refreshClub', () => {
     expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeTruthy();
   });
 
-  // The buyer who also typed their own club's code must not be talked down.
+  // The buyer who is also in their own club must not be talked down.
   it('never downgrades a personal subscription', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
     setEntitlement({ plan: 'pro', entitled: true, status: 'active', source: 'subscription' });
     const fetchImpl = respondWith(clubState({ plan: 'free', entitled: false, source: 'none' }));
 
-    await refreshClub({ fetchImpl, force: true });
+    await refreshClub({ fetchImpl });
 
     expect(getEntitlement()).toMatchObject({ plan: 'pro', entitled: true, source: 'subscription' });
   });
 
-  it('forgets a credential the server has revoked', async () => {
+  it('forgets a club the server says this account is no longer in', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
-    initClubFromCache();
+    await applyCached();
 
-    expect(await refreshClub({ fetchImpl: respondWith({ error: 'club_access_revoked' }, { ok: false, status: 403 }), force: true })).toBeNull();
+    expect(await refreshClub({ fetchImpl: respondWith({ error: 'no_club' }, { ok: false, status: 404 }) })).toBeNull();
     expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
     expect(getEntitlement()).toEqual(FREE_ENTITLEMENT);
   });
@@ -438,7 +429,6 @@ describe('grace and lapse', () => {
   it('goes grace → lapsed → renewed, keeping the cache and the club\'s list throughout', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
     localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, '{"rules":{"Evaluator":{"green":120}}}');
-    initClubFromCache();
 
     await refreshClub({
       fetchImpl: respondWith(clubState({ status: 'past_due', currentPeriodEnd: NOW - DAY })),
@@ -523,23 +513,22 @@ describe('club features and the pro flag', () => {
   });
 });
 
-describe('leaveClub', () => {
-  it('clears the club and its presets, and returns the device to free', () => {
+describe('forgetClub', () => {
+  it('clears the club and its presets, and returns the device to free', async () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
     localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, '{"rules":{}}');
     localStorage.setItem(PRESET_SOURCE_STORAGE_KEY, 'club');
     localStorage.setItem(CLUB_GRACE_DISMISSED_STORAGE_KEY, '2026-09-27');
     localStorage.setItem('toastmaster_role_rules', '{"Evaluator":{}}');
-    initClubFromCache();
+    await applyCached();
 
-    expect(leaveClub()).toBe(true);
+    expect(forgetClub()).toBe(true);
 
     expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(CLUB_PRESETS_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(PRESET_SOURCE_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(CLUB_GRACE_DISMISSED_STORAGE_KEY)).toBeNull();
     expect(getEntitlement()).toEqual(FREE_ENTITLEMENT);
-    expect(clubHeaders()).toEqual({});
     // The device's own presets were never written over, so there is nothing to
     // restore — and nothing that may be taken away.
     expect(localStorage.getItem('toastmaster_role_rules')).toBe('{"Evaluator":{}}');
@@ -549,7 +538,7 @@ describe('leaveClub', () => {
     localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
     setEntitlement({ plan: 'pro', entitled: true, status: 'active', source: 'subscription' });
 
-    leaveClub();
+    forgetClub();
 
     expect(getEntitlement()).toMatchObject({ plan: 'pro', source: 'subscription' });
   });

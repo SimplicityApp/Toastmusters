@@ -33,7 +33,7 @@ import { resetEntitlementForTests } from '../entitlement.js';
 const EVENING = Date.UTC(2026, 8, 29, 23, 30);
 
 const club = (over = {}) => ({
-  clubToken: 'club.tok',
+  uid: 'u-1',
   ver: 1,
   club: { id: 'club-1', name: 'Downtown Speakers' },
   kit: null,
@@ -163,7 +163,7 @@ describe('queueing a finished speech', () => {
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe('/api/club/meetings/20260929/speeches');
     expect(init.method).toBe('POST');
-    expect(init.headers['X-Club']).toBe('club.tok');
+    expect(init.headers).not.toHaveProperty('X-Club');
     expect(JSON.parse(init.body)).toMatchObject({ speechId: entry.speechId, name: 'Alice', duration: '5:50' });
   });
 
@@ -336,7 +336,7 @@ describe('reading the archive back', () => {
     const result = await fetchHistory({ fetchImpl });
 
     expect(fetchImpl.mock.calls[0][0]).toBe('/api/club/meetings');
-    expect(fetchImpl.mock.calls[0][1].headers['X-Club']).toBe('club.tok');
+    expect(fetchImpl.mock.calls[0][1].headers).not.toHaveProperty('X-Club');
     expect(result).toEqual({ ok: true, meetings: [{ meetingId: '20260929', speeches: 4, overtime: 1 }] });
   });
 
@@ -453,7 +453,7 @@ describe('ending a meeting and sharing it', () => {
     expect(init.method).toBe('POST');
     // No Content-Type: the boundary is generated with the body.
     expect(init.headers['Content-Type']).toBeUndefined();
-    expect(init.headers['X-Club']).toBe('club.tok');
+    expect(init.headers).not.toHaveProperty('X-Club');
     expect(init.body.get('title')).toBe('Humorous Speech Contest');
     expect(init.body.get('png')).toBeTruthy();
     expect(init.body.get('previewPng')).toBeTruthy();

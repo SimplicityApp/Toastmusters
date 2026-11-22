@@ -8,7 +8,7 @@ import {
   loadClubPresets,
   refreshClub,
   activateClub,
-  leaveClub,
+  forgetClub,
   resetClubForTests,
 } from '../club.js';
 import {
@@ -76,7 +76,7 @@ const publishedList = (over = {}) => ({
 
 /** A device that has joined the club and holds its published list. */
 function seedClubDevice({ club = {}, presets = publishedList() } = {}) {
-  localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ clubToken: 'tok.sig', lastRefreshAt: NOW, ...clubState(club) }));
+  localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ uid: 'u-1', lastRefreshAt: NOW, ...clubState(club) }));
   if (presets) localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, JSON.stringify(presets));
   resetClubForTests();
 }
@@ -257,14 +257,14 @@ describe('a publish arriving on a device', () => {
     await refreshClub({
       force: true,
       now: NOW,
-      fetchImpl: respondWith({ clubToken: 'tok.sig', ...clubState({ ver: 1, presets: nextList }) }),
+      fetchImpl: respondWith({ ...clubState({ ver: 1, presets: nextList }) }),
     });
     expect(loadClubPresets().rules).toEqual(CLUB_RULES);
 
     await refreshClub({
       force: true,
       now: NOW,
-      fetchImpl: respondWith({ clubToken: 'tok.sig', ...clubState({ ver: 2, presets: nextList }) }),
+      fetchImpl: respondWith({ ...clubState({ ver: 2, presets: nextList }) }),
     });
     expect(loadClubPresets().rules).toEqual(nextList.rules);
     expect(loadClub().ver).toBe(2);
@@ -279,7 +279,7 @@ describe('a publish arriving on a device', () => {
     await refreshClub({
       force: true,
       now: NOW,
-      fetchImpl: respondWith({ clubToken: 'tok.sig', ...clubState({ ver: 9, presets: publishedList({ rules: { Speech: { green: 1, yellow: 2, red: 3 } } }) }) }),
+      fetchImpl: respondWith({ ...clubState({ ver: 9, presets: publishedList({ rules: { Speech: { green: 1, yellow: 2, red: 3 } } }) }) }),
     });
 
     expect(presetSource()).toBe('personal');
@@ -289,7 +289,7 @@ describe('a publish arriving on a device', () => {
   // Activation is the one moment a device has no list at all.
   it('takes the club\'s list on activation', async () => {
     const result = await activateClub('DTSP-7K2QM9', {
-      fetchImpl: respondWith({ clubToken: 'tok.sig', ...clubState({ presets: publishedList() }) }),
+      fetchImpl: respondWith({ ...clubState({ presets: publishedList() }) }),
     });
 
     expect(result.ok).toBe(true);
@@ -302,7 +302,7 @@ describe('a publish arriving on a device', () => {
     usePersonalPresets();
     localStorage.setItem('toastmaster_role_rules', JSON.stringify({ Mine: { green: 1, yellow: 2, red: 3 } }));
 
-    leaveClub();
+    forgetClub();
 
     expect(localStorage.getItem(CLUB_PRESETS_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(PRESET_SOURCE_STORAGE_KEY)).toBeNull();
@@ -312,7 +312,7 @@ describe('a publish arriving on a device', () => {
 });
 
 describe('publishing', () => {
-  it('sends the club token and takes the answer as the new list', async () => {
+  it('sends the session and takes the answer as the new list', async () => {
     seedClubDevice({ club: { role: 'admin' } });
     const nextRules = { Speech: { green: 1, yellow: 2, red: 3 } };
     const fetchImpl = respondWith({ ver: 7, presets: publishedList({ rules: nextRules }) });
@@ -323,7 +323,7 @@ describe('publishing', () => {
     const [path, init] = fetchImpl.mock.calls[0];
     expect(path).toBe('/api/club/presets');
     expect(init.method).toBe('PUT');
-    expect(init.headers['X-Club']).toBe('tok.sig');
+    expect(init.headers).not.toHaveProperty('X-Club');
     expect(init.headers.Authorization).toBe('Bearer sess');
     expect(JSON.parse(init.body)).toEqual({ rules: nextRules, order: [], hiddenBuiltins: [] });
 

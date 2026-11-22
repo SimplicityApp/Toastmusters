@@ -1,4 +1,4 @@
-import { clubFeaturesOn, loadClub, clubHeaders, clubKit, getClubLogoImage } from './club.js';
+import { clubFeaturesOn, loadClub, clubKit, getClubLogoImage } from './club.js';
 import { renderReportPng, reportImageFilename, isOvertime } from './reportImage.js';
 
 /**
@@ -280,7 +280,7 @@ function newSpeechId() {
  */
 export function recordSpeech(speech, { getToken, fetchImpl, now = Date.now() } = {}) {
   const club = loadClub();
-  if (!club?.clubToken || !clubFeaturesOn(club) || !speech) return null;
+  if (!club?.club?.id || !clubFeaturesOn(club) || !speech) return null;
 
   const entry = {
     speechId: typeof speech.speechId === 'string' && speech.speechId ? speech.speechId : newSpeechId(),
@@ -353,7 +353,6 @@ async function uploadOne(entry, { getToken, fetchImpl }) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...clubHeaders(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     credentials: 'same-origin',
@@ -446,11 +445,19 @@ function stopListeningForWake() {
 }
 
 /**
- * Hand over everything queued, oldest first, one request at a time.
+ * Hand over everything queued, oldest first, one request at a time, with the
+ * session: the server credits the speech to the club the account is in.
  *
- *   200       → drop from the outbox
- *   4xx       → drop from the outbox; the server will never accept this entry
- *   5xx / net → keep it, and stop draining; the next trigger tries again
+ *   200             → drop from the outbox
+ *   401             → keep it, and stop: the session is not there yet, the
+ *                     speech is fine
+ *   other 4xx       → drop from the outbox; the server will never accept this
+ *                     entry (403: the account is in no club any more)
+ *   5xx / net       → keep it, and stop draining; the next trigger tries again
+ *
+ * A caller that passes `getToken` (the Zoom app) sends nothing until it
+ * returns a token, which is how a speech finished before the Zoom session
+ * existed waits for it. The web app passes none: its session is the cookie.
  *
  * Stopping on the first retryable failure rather than pushing on keeps the
  * order the speeches were timed in, and keeps an offline device from making one
@@ -476,7 +483,9 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
       const queue = readOutbox();
       if (!queue.length) break;
       const entry = queue[0];
-      if (!loadClub()?.clubToken) break;
+      if (!loadClub()?.club?.id) break;
+      // No session yet: the speech waits for one rather than being refused.
+      if (getToken && !getToken()) break;
 
       let response;
       try {
@@ -492,6 +501,12 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
       // A 5xx is the club's problem, not this entry's: keep it and stop.
       if (response.status >= 500) {
         reportFailure('http_5xx');
+        break;
+      }
+      // So is a 401: the session expired or has not been minted yet. The
+      // next drain with a session sends it.
+      if (response.status === 401) {
+        reportFailure('http_401');
         break;
       }
       // Anything else — accepted, or refused in a way a retry cannot fix —
@@ -530,16 +545,13 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
 
 async function getJson(path, { getToken, fetchImpl }) {
   const club = loadClub();
-  if (!club?.clubToken) return { ok: false, error: 'no_club' };
+  if (!club?.club?.id) return { ok: false, error: 'no_club' };
 
   let response;
   try {
     const token = getToken?.();
     response = await (fetchImpl ?? fetch)(path, {
-      headers: {
-        ...clubHeaders(),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       credentials: 'same-origin',
       cache: 'no-store',
     });
@@ -603,7 +615,7 @@ export async function fetchMeeting(meetingId, { getToken, fetchImpl } = {}) {
  */
 export async function shareMeeting(meetingId, { title, png, previewPng, getToken, fetchImpl } = {}) {
   const club = loadClub();
-  if (!club?.clubToken) return { ok: false, error: 'no_club' };
+  if (!club?.club?.id) return { ok: false, error: 'no_club' };
   if (!meetingId) return { ok: false, error: 'not_found' };
 
   const form = new FormData();
@@ -621,11 +633,8 @@ export async function shareMeeting(meetingId, { title, png, previewPng, getToken
     const token = getToken?.();
     response = await (fetchImpl ?? fetch)(`${MEETINGS_ENDPOINT}/${encodeURIComponent(meetingId)}/share`, {
       method: 'POST',
-      headers: {
-        // Deliberately no Content-Type: the boundary is generated with the body.
-        ...clubHeaders(),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      // Deliberately no Content-Type: the boundary is generated with the body.
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       credentials: 'same-origin',
       cache: 'no-store',
       body: form,
