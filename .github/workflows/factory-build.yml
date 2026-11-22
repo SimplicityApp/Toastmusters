@@ -76,6 +76,13 @@ jobs:
           # The trust check is this workflow's gate: state.mjs only lets a station run after a
           # factory actor opened the human gate (.factory/README.md), and fork PRs get no secrets.
           restrict_untrusted_prs: "false"
+          # The job's own token, not the Claude App token. The App token expires after 60
+          # minutes and a build runs longer: past that hour every push, label and PR comment
+          # fails, so the station ends silently (#80 on 2026-11-15, #167 on 2026-11-21).
+          # This token lasts the whole job, with the permissions above, and labels it adds come
+          # from github-actions[bot], never a factory actor. Pushes made with it don't start
+          # CI, so the PR's checks stay on the last human or Mac push until the Zoom station.
+          github_token: ${{ github.token }}
       - name: Check the station ran
         if: steps.gate.outputs.issue
         env:
