@@ -292,6 +292,7 @@ describe('ReportTab', () => {
       expect(screen.getByText(/2 meetings · 10 speeches/)).toBeInTheDocument();
       expect(global.fetch.mock.calls[0][0]).toBe('/api/club/meetings');
       // The web's session is its cookie: nothing club-shaped rides along.
+      expect(global.fetch.mock.calls[0][1].credentials).toBe('same-origin');
       expect(global.fetch.mock.calls[0][1].headers).not.toHaveProperty('X-Club');
       expect(trackEvent).toHaveBeenCalledWith('report_history_viewed', { meetings: 2, surface: 'web' });
     });

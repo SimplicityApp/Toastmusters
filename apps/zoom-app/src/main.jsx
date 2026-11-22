@@ -34,22 +34,11 @@ Promise.all([sdkReady, initCardImages()]).then(() => preloadBackgroundImages()).
   console.warn('Failed to pre-load background images:', error);
 });
 
-// The club's logo, decoded once here rather than inside the compositor. Card
-// switching is held to a 25 ms warm budget, and an image decode in that path
-// would not fit in it. Never awaited, and a failure leaves a name-only badge —
-// which is the same badge a club without a logo gets.
-warmClubLogo();
-
 try {
   initPostHog();
 } catch (error) {
   console.warn('Failed to initialize PostHog:', error);
 }
-
-// The club's card set: fetched where this device lacks it, whenever the club
-// changes and once the session exists. Never awaited; a card that has not
-// arrived shows Classic.
-startClubCardSync({ getToken: getSessionToken });
 
 // An upload that does not go out is invisible from here — the device keeps its
 // own copy and the timer sees nothing wrong — so it has to report itself.
@@ -84,6 +73,18 @@ resolveZoomIdentity()
     // the club and the session both.
     syncClubWithIdentity({ identified, uid, authStatus, reachable, entitlement, getToken: getSessionToken })
       .catch((error) => console.warn('Failed to refresh the club:', error))
+      .then(() => {
+        // The club's logo, decoded once here rather than inside the
+        // compositor: card switching is held to a 25 ms warm budget, and an
+        // image decode in that path would not fit in it. And its card set,
+        // fetched where this device lacks it and again whenever the club
+        // changes. Both wait for the club this account is actually in, so no
+        // club request goes out before the session, or for another account's
+        // copy. Never awaited; a failure leaves a name-only badge and Classic
+        // cards.
+        warmClubLogo();
+        startClubCardSync({ getToken: getSessionToken });
+      })
       .then(() => joinWithPendingCode(identity, { getToken: getSessionToken }))
       .then((joined) => {
         if (!joined) return;

@@ -153,6 +153,27 @@ describe('POST /api/club/activate', () => {
     expect([...kv.store.keys()].filter((key) => key.startsWith('club-device:'))).toEqual([]);
   });
 
+  it('joins all or nothing: a failed write takes back the row and the place', async () => {
+    const { clubId } = await seedClub();
+    const realPut = kv.put;
+    kv.put = async (key, value) => {
+      if (key === clubOfKey('timer-uid')) throw new Error('kv down');
+      return realPut(key, value);
+    };
+
+    const res = await handleClubActivate(activateReq('DTSP-7K2QM9'), env);
+    kv.put = realPut;
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'try_again' });
+    expect(await kv.get(`club-member:${clubId}:zoom:timer-uid`)).toBeNull();
+    expect(await env.CLUB_PLACES.getByName(clubId).count()).toBe(0);
+
+    const again = await handleClubActivate(activateReq('DTSP-7K2QM9'), env);
+    expect(again.status).toBe(200);
+    expect((await again.json()).placesUsed).toBe(1);
+  });
+
   it('needs a Zoom account', async () => {
     await seedClub();
     const res = await handleClubActivate(activateReq('DTSP-7K2QM9', { uid: null }), env);
@@ -293,6 +314,25 @@ describe('POST /api/club/leave', () => {
     expect((await handleClubState(stateReq('timer-uid'), env)).status).toBe(404);
 
     expect((await handleClubActivate(activateReq('DTSP-7K2QM9'), env)).status).toBe(200);
+  });
+
+  it('keeps the account and its place when its row cannot be deleted', async () => {
+    const { clubId } = await seedClub();
+    await handleClubActivate(activateReq('DTSP-7K2QM9'), env);
+    const realDelete = kv.delete;
+    kv.delete = async (key) => {
+      if (key === `club-member:${clubId}:zoom:timer-uid`) throw new Error('kv down');
+      return realDelete(key);
+    };
+
+    const res = await handleClubLeave(leaveReq('timer-uid'), env);
+    kv.delete = realDelete;
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'try_again' });
+    // Still a member, still holding its one place: the cap stays exact.
+    expect((await handleClubState(stateReq('timer-uid'), env)).status).toBe(200);
+    expect(await env.CLUB_PLACES.getByName(clubId).count()).toBe(1);
   });
 
   it('is quiet for an account in no club', async () => {

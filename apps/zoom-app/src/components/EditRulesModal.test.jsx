@@ -192,6 +192,8 @@ describe('the publish panel', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     const [path, init] = global.fetch.mock.calls[0];
     expect(path).toBe('/api/club/presets');
+    // The Zoom session is the credential; nothing club-shaped rides along.
+    expect(init.headers.Authorization).toBe('Bearer session-token');
     expect(init.headers).not.toHaveProperty('X-Club');
 
     const sent = JSON.parse(init.body);

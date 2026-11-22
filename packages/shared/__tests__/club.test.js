@@ -21,6 +21,7 @@ import {
   createClub,
   refreshClub,
   forgetClub,
+  leaveClub,
   syncClubWithIdentity,
   subscribeClub,
   resetClubForTests,
@@ -156,6 +157,10 @@ describe('activateClub', () => {
 
     const down = respondWith(null, { ok: false, status: 503 });
     expect(await activateClub('DTSP-7K2QM9', { fetchImpl: down })).toEqual({ ok: false, error: 'network' });
+
+    // What the Worker actually answers when the place counter is down.
+    const counterDown = respondWith({ error: 'try_again' }, { ok: false, status: 503 });
+    expect(await activateClub('DTSP-7K2QM9', { fetchImpl: counterDown })).toEqual({ ok: false, error: 'network' });
   });
 
   it('refuses an empty code without asking the server', async () => {
@@ -305,6 +310,57 @@ describe('refreshClub', () => {
     expect(await refreshClub({ fetchImpl: respondWith({ error: 'no_club' }, { ok: false, status: 404 }) })).toBeNull();
     expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
     expect(getEntitlement()).toEqual(FREE_ENTITLEMENT);
+  });
+
+  // The account left club 1 and joined club 2 on another computer. Both clubs
+  // are at ver 1, so the version alone can't tell the lists apart.
+  it('replaces everything of the old club when the answer is another club', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, '{"rules":{"FromClubOne":{"green":60,"yellow":90,"red":120}}}');
+
+    const other = clubState({
+      club: { id: 'club-2', name: 'Uptown Talkers' },
+      presets: { rules: { FromClubTwo: { green: 30, yellow: 45, red: 60 } } },
+    });
+    const entry = await refreshClub({ uid: 'u-1', fetchImpl: respondWith(other) });
+
+    expect(entry).toMatchObject({ uid: 'u-1', club: { id: 'club-2', name: 'Uptown Talkers' } });
+    expect(JSON.parse(localStorage.getItem(CLUB_PRESETS_STORAGE_KEY)).rules).toEqual(other.presets.rules);
+  });
+});
+
+describe('leaveClub when the server cannot answer', () => {
+  it('blames the network and keeps the club, whatever the 5xx body says', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    resetClubForTests();
+
+    const result = await leaveClub({ fetchImpl: respondWith({ error: 'try_again' }, { ok: false, status: 503 }) });
+
+    expect(result).toEqual({ ok: false, error: 'network' });
+    expect(loadClub()).toMatchObject({ club: { id: 'club-1' } });
+  });
+});
+
+describe('syncClubWithIdentity and a club change', () => {
+  it('forgets the copy of a club the same account is no longer in before refreshing', async () => {
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify(cached()));
+    localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, '{"rules":{"FromClubOne":{"green":60,"yellow":90,"red":120}}}');
+    resetClubForTests();
+
+    // The refresh fails: nothing of club 1 may stay behind in the meantime.
+    const fetchImpl = vi.fn(async () => { throw new Error('offline'); });
+    await syncClubWithIdentity({
+      identified: true,
+      uid: 'u-1',
+      authStatus: 'authorized',
+      reachable: true,
+      entitlement: { plan: 'pro', entitled: true, source: 'club', club: { id: 'club-2', name: 'Uptown Talkers' } },
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(CLUB_PRESETS_STORAGE_KEY)).toBeNull();
   });
 });
 

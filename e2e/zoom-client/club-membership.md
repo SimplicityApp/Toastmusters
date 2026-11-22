@@ -42,8 +42,14 @@ needs:
   - Zoom account A, the test account on the Mac, approved for the dev app
   - for the `human` steps that need it, a second Zoom account B (Q6); without one, mark those
     steps ⏭ with the reason
-  - KV-seeded member rows for CM-03 and CM-14 (`club-member:<id>:zoom:<fake uid>` plus
-    `club-of:zoom:<fake uid>`); save what was there first and restore it at the end
+  - for CM-03, CM-04 and CM-14, a fresh dev club whose fake members are in KV before its
+    first request (`club-cli create --env dev --name "Places test" --uid <its admin's uid>`,
+    then `club-member:<id>:zoom:<fake uid>` with `{role:'member'}` plus `club-of:zoom:<fake
+    uid>` for each, then the first request). `ClubPlaces` reads KV once, on the club's first
+    activate, `GET /api/club` or roster request, and never again: rows seeded into a club
+    whose counter already ran (the dev club after CM-01) are not counted. Its admin must not
+    be A, who joins it; without a second account, use the billing-address link (`--email`) or
+    mark the admin halves ⏭. Delete the club and its keys at the end
 verified_at: never
 verified_on: never
 ---
@@ -85,16 +91,16 @@ Evidence: tail shows `POST /api/zoom/session` (entitlement `club` set) and then 
 /api/club` → 200; `toastmaster_club` holds A's `uid` and no `clubToken`.
 
 ### CM-03 · auto · The 4th account is refused with the full message
-Do: seed the club to the owner plus 3 members in KV (fake uids, see needs), then, as A (not
-one of them), enter the code.
+Do: on the fresh club (see needs), with the owner plus 3 fake members written to KV before
+its first request, enter its code as A (in no club: leave first if needed).
 Expect: "This club's Pro is full (3 of 3). Ask the person who shared the code to free a
 place." A is not joined.
 Evidence: tail `POST /api/club/activate` → 409 `full` with `placesUsed: 3`; no member row or
 `club-of` for A. PostHog `club_code_rejected` `reason: full`.
 
 ### CM-04 · auto · A freed place admits the next account; admins see the count
-Do: delete one seeded member in the console (Remove, CM-06's flow), then enter the code as A.
-As the club's admin, open the Pro panel and `/club/admin`.
+Do: as the fresh club's admin (see needs), remove one fake member in the console (Remove,
+CM-06's flow), then enter its code as A. As that admin, open the Pro panel and `/club/admin`.
 Expect: A joins. The admin sees "N of 3 places used" next to the code in the Zoom Pro panel and
 in the console; a member or editor sees no count. Re-entering the code as A changes nothing.
 Evidence: `placesUsed` in the activate answer and in `GET /api/club/roster` `counts`.
@@ -169,8 +175,8 @@ Evidence: `toastmaster_club_outbox` holds the speech while offline and is empty 
 tail shows `POST /api/club/meetings/<id>/speeches` → 200 after reconnecting.
 
 ### CM-14 · auto · Block a member from the console's "…" menu
-Do: with a KV-seeded member in the club, open `/club/admin` as the admin; on that member's row
-press "…" → Block → confirm.
+Do: on the fresh club (see needs, its fake members seeded before its first request), open
+`/club/admin` as its admin; on a fake member's row press "…" → Block → confirm.
 Expect: the confirm says they lose Pro at their next open, the place is freed and the code
 won't let them back in. The member moves to a **Blocked** section; the place count drops by 1.
 Evidence: tail `POST /api/club/members/<uid>/block` → 200; KV member row is

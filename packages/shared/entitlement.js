@@ -9,7 +9,6 @@
  * asked, and inside any 402 the sync layer receives.
  */
 
-
 const ME_ENDPOINT = '/api/me';
 
 export const FREE_ENTITLEMENT = Object.freeze({

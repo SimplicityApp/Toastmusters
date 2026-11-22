@@ -283,6 +283,10 @@ export function recordSpeech(speech, { getToken, fetchImpl, now = Date.now() } =
   if (!club?.club?.id || !clubFeaturesOn(club) || !speech) return null;
 
   const entry = {
+    // Whose archive this belongs in. The upload is credited to the club of
+    // whoever is signed in when it goes out, so an entry is only ever sent
+    // while that is still this club (see `drainOutbox`).
+    clubId: club.club.id,
     speechId: typeof speech.speechId === 'string' && speech.speechId ? speech.speechId : newSpeechId(),
     meetingId:
       typeof speech.meetingId === 'string' && speech.meetingId
@@ -455,6 +459,9 @@ function stopListeningForWake() {
  *                     entry (403: the account is in no club any more)
  *   5xx / net       → keep it, and stop draining; the next trigger tries again
  *
+ * An entry timed for another club than the one this device holds now is
+ * dropped unsent: the server would file it under the signed-in account's club.
+ *
  * A caller that passes `getToken` (the Zoom app) sends nothing until it
  * returns a token, which is how a speech finished before the Zoom session
  * existed waits for it. The web app passes none: its session is the cookie.
@@ -483,7 +490,16 @@ export function drainOutbox({ getToken, fetchImpl } = {}) {
       const queue = readOutbox();
       if (!queue.length) break;
       const entry = queue[0];
-      if (!loadClub()?.club?.id) break;
+      const clubId = loadClub()?.club?.id;
+      if (!clubId) break;
+      // Timed for another club: the account left it, or another account signed
+      // in on this device. Sending it now would file it in this club's archive,
+      // names and comments included, so it goes no further.
+      if (entry.clubId && entry.clubId !== clubId) {
+        writeOutbox(readOutbox().filter((queued) => queued.speechId !== entry.speechId));
+        notify();
+        continue;
+      }
       // No session yet: the speech waits for one rather than being refused.
       if (getToken && !getToken()) break;
 

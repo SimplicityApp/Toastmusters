@@ -289,6 +289,7 @@ export async function handleClubActivate(request, env) {
     if (!isLiveMember(row)) {
       await store.put(clubMemberKey(clubId, uid), JSON.stringify({ role: 'admin', displayName: null, addedAt: now }));
     }
+    if (!current) await writeClubIndex(store, uid, clubId, now);
     placesUsed = await countPlaces(env, clubId);
   } else {
     let claim;
@@ -306,13 +307,16 @@ export async function handleClubActivate(request, env) {
         // A removed account's name survives; a legacy revoked row is replaced.
         JSON.stringify({ role: 'member', displayName: row?.displayName ?? null, addedAt: now })
       );
+      if (!current) await writeClubIndex(store, uid, clubId, now);
     } catch {
+      // All or nothing: a row with no index, or a place with no row, is a
+      // join that half happened. Take back the row, then the place.
+      await store.delete(clubMemberKey(clubId, uid)).catch(() => {});
       await clubPlaces(env, clubId).release(uid).catch(() => {});
       return tryAgain();
     }
     placesUsed = claim.placesUsed;
   }
-  if (!current) await writeClubIndex(store, uid, clubId, now);
 
   return json({ ...(await buildClubState(env, clubId, club, access, { uid })), placesUsed });
 }
@@ -406,7 +410,13 @@ export async function handleClubLeave(request, env) {
   } catch {
     return tryAgain();
   }
-  await store.delete(clubMemberKey(clubId, uid));
+  try {
+    await store.delete(clubMemberKey(clubId, uid));
+  } catch {
+    // Still a member: give the place back so the count stays exact.
+    await clubPlaces(env, clubId).claim(uid).catch(() => {});
+    return tryAgain();
+  }
   await clearClubIndex(store, uid, clubId);
   return json({ left: true });
 }

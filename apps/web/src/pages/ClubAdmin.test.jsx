@@ -79,6 +79,8 @@ describe('ClubAdmin — the two doors', () => {
     renderConsole();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('not an admin');
+    // True for a member and for an account in no club alike: both get a 403.
+    expect(screen.getByRole('alert')).not.toHaveTextContent('on the club');
     expect(screen.getByTestId('sign-in-with-zoom')).toBeInTheDocument();
   });
 
@@ -112,6 +114,16 @@ describe('ClubAdmin — the roster', () => {
 
     expect(screen.getByText('Sarah Chen')).toBeInTheDocument();
     expect(screen.getByText('James Okoro')).toBeInTheDocument();
+  });
+
+  // Null when the place counter could not be reached: "0 of 3" would read as
+  // three free places.
+  it('shows a dash, not a zero, when the place count is unknown', async () => {
+    stubApi({ '/api/club/roster': { status: 200, body: { ...ROSTER, counts: { ...ROSTER.counts, placesUsed: null } } } });
+    renderConsole();
+
+    expect(await screen.findByText(/2 people · — of 3 places used/)).toBeInTheDocument();
+    expect(screen.queryByText(/0 of 3 places used/)).not.toBeInTheDocument();
   });
 
   // The roster used to label anyone without a `displayName` — which was

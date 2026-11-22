@@ -87,8 +87,10 @@ A claim checks and adds on an in-memory set with no `await` between, so two
 people who type the code at the same moment cannot make a 4th place; KV alone
 could not, because it has no transaction and its list lags writes. The object
 seeds itself once from the live member rows the first time it is used. Activate
-claims the place before it writes the row (and releases it if the write fails);
-leave, Remove and Block release it before they delete. Re-entering the code as a
+claims the place before it writes the row and the index (and takes both back, then
+the place, if a write fails); leave, Remove and Block release it before they delete
+the row, and claim it back if the delete fails, so a live member always holds a
+place and a 503 changes nothing. Re-entering the code as a
 member, or as the owner, takes nothing. `placesUsed` is shown to admins only,
 beside the code.
 
@@ -167,7 +169,9 @@ toastmaster_club_cards              the club's card set: label and image hashes
 toastmaster_card_source             'club' | 'own'
 toastmaster_club_badge              this device's badge move, if it made one
 toastmaster_club_outbox             finished speeches not yet uploaded (kept on a 401 or
-                                    with no session yet; sent once there is one)
+                                    with no session yet; sent once there is one; each
+                                    carries its clubId and is dropped unsent if the
+                                    device is in another club by then)
 toastmaster_club_grace_dismissed    the day the renewal reminder was dismissed
 ```
 

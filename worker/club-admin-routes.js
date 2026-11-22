@@ -264,6 +264,18 @@ async function releasePlace(env, clubId, uid) {
 }
 
 /**
+ * Undo a release whose KV write then failed. The member row is still live, and
+ * a live member without a place would let the cap be passed by one.
+ */
+async function reclaimPlace(env, clubId, uid) {
+  try {
+    await clubPlaces(env, clubId).claim(uid);
+  } catch {
+    // The counter went away too; the admin's retry releases it again.
+  }
+}
+
+/**
  * POST /api/club/members/<uid>/role — promote, demote, or remove.
  *
  * Removal is the `revoked` role rather than a second endpoint: "this person is
@@ -302,7 +314,13 @@ export async function handleMemberRole(request, env, uid) {
 
   if (requested === REVOKED) {
     if (!(await releasePlace(env, clubId, uid))) return json({ error: 'try_again' }, 503);
-    await store.delete(key);
+    try {
+      await store.delete(key);
+    } catch {
+      // Still a member: give the place back so the count stays exact.
+      await reclaimPlace(env, clubId, uid);
+      return json({ error: 'try_again' }, 503);
+    }
     await clearClubIndex(store, uid, clubId);
     return json({ uid, removed: true, actor });
   }
@@ -353,10 +371,16 @@ export async function handleMemberBlock(request, env, uid) {
   if (!(await releasePlace(env, clubId, uid)) && live) return json({ error: 'try_again' }, 503);
 
   if (!existing?.blockedAt) {
-    await store.put(
-      key,
-      JSON.stringify({ displayName: existing?.displayName ?? null, blockedAt: Date.now(), blockedBy: actor })
-    );
+    try {
+      await store.put(
+        key,
+        JSON.stringify({ displayName: existing?.displayName ?? null, blockedAt: Date.now(), blockedBy: actor })
+      );
+    } catch {
+      // Still a member: give the place back so the count stays exact.
+      if (live) await reclaimPlace(env, clubId, uid);
+      return json({ error: 'try_again' }, 503);
+    }
   }
   await clearClubIndex(store, uid, clubId);
   return json({ uid, blocked: true, actor });

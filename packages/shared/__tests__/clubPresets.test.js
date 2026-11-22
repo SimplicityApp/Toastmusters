@@ -255,14 +255,12 @@ describe('a publish arriving on a device', () => {
     const nextList = publishedList({ rules: { Speech: { green: 1, yellow: 2, red: 3 } }, order: [], hiddenBuiltins: [] });
 
     await refreshClub({
-      force: true,
       now: NOW,
       fetchImpl: respondWith({ ...clubState({ ver: 1, presets: nextList }) }),
     });
     expect(loadClubPresets().rules).toEqual(CLUB_RULES);
 
     await refreshClub({
-      force: true,
       now: NOW,
       fetchImpl: respondWith({ ...clubState({ ver: 2, presets: nextList }) }),
     });
@@ -277,7 +275,6 @@ describe('a publish arriving on a device', () => {
     usePersonalPresets();
 
     await refreshClub({
-      force: true,
       now: NOW,
       fetchImpl: respondWith({ ...clubState({ ver: 9, presets: publishedList({ rules: { Speech: { green: 1, yellow: 2, red: 3 } } }) }) }),
     });

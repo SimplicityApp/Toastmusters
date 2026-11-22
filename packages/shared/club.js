@@ -795,6 +795,12 @@ export async function syncClubWithIdentity({
 
   accountUid = uid;
   if (club && club.uid !== uid) forgetClub();
+  // Same account, another club: it left this one and joined that one
+  // somewhere else. Nothing of the old club's (its list, its cards, the badge
+  // placement) may ride along under the new club's name.
+  const sessionClubId = entitlement?.club?.id ?? null;
+  const copy = loadClub();
+  if (copy && sessionClubId && copy.club?.id !== sessionClubId) forgetClub();
   if (!entitlement?.club) {
     if (loadClub()) forgetClub();
     return null;
@@ -872,11 +878,14 @@ export async function activateClub(code, { getToken, fetchImpl, uid = accountUid
   }
 
   if (!response.ok || !body?.club) {
+    // A 5xx is never the code's fault, whatever the body says (`try_again`
+    // when the place counter can't be reached): the person sees the network
+    // message, not "That code isn't active".
+    if (response.status >= 500) return { ok: false, error: 'network' };
     const fallback =
       response.status === 429 ? 'too_many_attempts'
         : response.status === 401 ? 'sign_in_required'
-          : response.status >= 500 ? 'network'
-            : 'invalid_code';
+          : 'invalid_code';
     return {
       ok: false,
       error: body?.error || fallback,
@@ -990,7 +999,7 @@ function guessTimezone() {
  * @returns {Promise<Object|null>} the club as it now stands, or null if there is none
  */
 export async function refreshClub({ getToken, fetchImpl, uid, now = Date.now() } = {}) {
-  const club = loadClub();
+  let club = loadClub();
 
   let response;
   try {
@@ -1019,6 +1028,15 @@ export async function refreshClub({ getToken, fetchImpl, uid, now = Date.now() }
   }
   if (!body?.club) return club;
 
+  // Another club than the copy's: the account moved clubs on another
+  // computer. `ver` starts at 1 in every club, so comparing it alone would
+  // keep the old club's list and cards under the new club's name.
+  const copyUid = club?.uid;
+  if (club && club.club?.id !== body.club.id) {
+    forgetClub();
+    club = null;
+  }
+
   // Content moves only when `ver` moves. A plain refresh therefore leaves a
   // device's list exactly as it was, and only an actual publish replaces it —
   // and even then the switch is not touched, so a device sitting on its own
@@ -1031,7 +1049,7 @@ export async function refreshClub({ getToken, fetchImpl, uid, now = Date.now() }
   // about card sets still receives the one already published.
   if (verMoved || (!loadClubCards() && body.cards)) saveClubCards(body.cards ?? null);
 
-  const entry = store(toCacheEntry(body, { uid: uid ?? club?.uid ?? accountUid, lastRefreshAt: now }));
+  const entry = store(toCacheEntry(body, { uid: uid ?? copyUid ?? accountUid, lastRefreshAt: now }));
   applyPlan(clubEntitlementOf(entry));
   // The kit is club-wide and carries no device override, so it simply lands;
   // the badge *default* lands too, while whatever this device moved sits in its
@@ -1072,7 +1090,7 @@ export async function leaveClub({ getToken, fetchImpl } = {}) {
     } catch {
       body = null;
     }
-    return { ok: false, error: body?.error || (response.status >= 500 ? 'network' : 'leave_failed') };
+    return { ok: false, error: response.status >= 500 ? 'network' : body?.error || 'leave_failed' };
   }
 
   forgetClub();

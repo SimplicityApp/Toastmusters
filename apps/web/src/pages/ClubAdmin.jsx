@@ -73,7 +73,7 @@ function DoorsPanel({ reason }) {
       <h2 className="text-xl font-bold">Manage your club</h2>
       <p className="mt-2 text-gray-300" role={reason ? 'alert' : undefined}>
         {reason === 'forbidden'
-          ? 'This account is on the club, but it is not an admin. Ask a club admin to promote you, or use the billing address below.'
+          ? 'This Zoom account is not an admin of a club. Ask a club admin to promote you, or use the billing address below.'
           : 'Sign in with the Zoom account that runs your club, or ask for a link at the address that pays for it.'}
       </p>
 
@@ -634,7 +634,10 @@ export default function ClubAdmin() {
               <h2 className="text-2xl font-bold">{roster.club?.name || 'Your club'}</h2>
               <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-gray-300">
                 {roster.counts?.people ?? 0} {roster.counts?.people === 1 ? 'person' : 'people'} ·{' '}
-                {roster.counts?.placesUsed ?? 0} of {roster.counts?.placesTotal ?? 3} places used
+                {/* Null when the place counter can't be reached: a dash, not a
+                    "0" that reads as three free places. */}
+                {typeof roster.counts?.placesUsed === 'number' ? roster.counts.placesUsed : '—'} of{' '}
+                {roster.counts?.placesTotal ?? 3} places used
               </span>
             </div>
             <p className="mt-2 text-sm text-gray-400">

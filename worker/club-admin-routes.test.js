@@ -268,6 +268,23 @@ describe('POST /api/club/members/<uid>/role', () => {
     expect((await (await handleClubRoster(rosterReq(billingDoor()), env)).json()).counts.placesUsed).toBe(1);
   });
 
+  it('keeps the person and their place when the row cannot be deleted', async () => {
+    await seedClub();
+    const realDelete = kv.delete;
+    kv.delete = async (key) => {
+      if (key === clubMemberKey(clubId, 'priya')) throw new Error('kv down');
+      return realDelete(key);
+    };
+
+    const res = await setRole('priya', { role: 'revoked' }, billingDoor());
+    kv.delete = realDelete;
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'try_again' });
+    expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'priya'))).role).toBe('member');
+    expect((await (await handleClubRoster(rosterReq(billingDoor()), env)).json()).counts.placesUsed).toBe(2);
+  });
+
   it('never changes the owner', async () => {
     await seedClub();
 
@@ -314,6 +331,22 @@ describe('POST /api/club/members/<uid>/block', () => {
     expect(kv.store.has(clubMemberKey(clubId, 'priya'))).toBe(false);
 
     expect((await setBlocked('priya', { blocked: 'yes' }, billingDoor())).status).toBe(400);
+  });
+
+  it('keeps a member and their place when the block cannot be written', async () => {
+    await seedClub();
+    const realPut = kv.put;
+    kv.put = async (key, value) => {
+      if (key === clubMemberKey(clubId, 'priya')) throw new Error('kv down');
+      return realPut(key, value);
+    };
+
+    const res = await setBlocked('priya', { blocked: true }, billingDoor());
+    kv.put = realPut;
+
+    expect(res.status).toBe(503);
+    expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'priya')))).toMatchObject({ role: 'member' });
+    expect((await (await handleClubRoster(rosterReq(billingDoor()), env)).json()).counts.placesUsed).toBe(2);
   });
 
   it('leaves a live member alone on an unblock', async () => {
