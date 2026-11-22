@@ -20,8 +20,7 @@
  *   node scripts/club-cli.mjs create  --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]
  *   node scripts/club-cli.mjs rotate  --env dev --club <clubId>
  *   node scripts/club-cli.mjs show    --env dev --club <clubId> | --code DTSP-7K2QM9
- *   node scripts/club-cli.mjs backfill-admin-index --env dev [--apply]
- *   node scripts/club-cli.mjs prune-devices --env dev --club <clubId> [--apply]
+ *   node scripts/club-cli.mjs backfill-club-of --env dev [--apply]
  */
 
 import { spawnSync } from 'node:child_process';
@@ -30,7 +29,7 @@ import {
   rotateClubCode,
   normalizeCode,
   formatCode,
-  clubAdminOfKey,
+  clubOfKey,
   clubByCodeKey,
   clubPendingKey,
   CLUB_PENDING_PREFIX,
@@ -150,91 +149,68 @@ function printClub(clubId, club) {
 }
 
 /**
- * Write `club-admin-of:zoom:<uid>` for every admin that predates it.
+ * Write `club-of:zoom:<uid>` for every account that is in a club, once.
  *
- * The console's Zoom door used to need a club token in the same browser, which
- * *Manage your club* — opening the system browser — can never have. The index
- * is written beside every admin row from now on; this is the one pass over the
- * rows that already existed.
+ * Club Pro follows the account through that index (#167); members who joined
+ * before it existed have a member row and no index, so their club would not
+ * reach them until they typed the code again. This is the one pass over the
+ * rows that already existed:
+ *
+ *  - a live row writes the index; an account with live rows in two clubs is
+ *    pointed at the newest one and reported, because an account is in one club
+ *    at a time and someone has to remove it from the other;
+ *  - a legacy `revokedAt` row (a device-era removal) is deleted, so the account
+ *    can join with the code like anyone else;
+ *  - a blocked row is left exactly as it is.
  *
  * Dry by default. Reading the whole member space is cheap; writing over a
- * pointer somebody is mid-demotion on is not.
+ * pointer somebody is mid-change on is not.
  */
-async function backfillAdminIndex(store, { apply }) {
+async function backfillClubOf(store, { apply }) {
   const { keys } = await store.list({ prefix: 'club-member:' });
-  let written = 0;
-  let skipped = 0;
+  const byUid = new Map();
+  const legacy = [];
   for (const entry of keys ?? []) {
     const match = /^club-member:([^:]+):zoom:(.+)$/.exec(entry.name);
     if (!match) continue;
     const [, clubId, uid] = match;
     // eslint-disable-next-line no-await-in-loop
     const member = await store.get(entry.name, 'json');
-    if (member?.role !== 'admin' || member.revokedAt) {
-      skipped += 1;
+    if (!member || member.blockedAt) continue;
+    if (member.revokedAt) {
+      legacy.push(entry.name);
       continue;
     }
-    process.stdout.write(`  ${apply ? 'write' : 'would write'}  ${clubAdminOfKey(uid)} -> ${clubId}\n`);
+    if (!byUid.has(uid)) byUid.set(uid, []);
+    byUid.get(uid).push({ clubId, addedAt: member.addedAt ?? 0 });
+  }
+
+  let written = 0;
+  for (const [uid, clubs] of byUid) {
+    clubs.sort((a, b) => b.addedAt - a.addedAt);
+    const [newest, ...others] = clubs;
+    if (others.length) {
+      process.stdout.write(
+        `  ! ${uid} is in ${clubs.length} clubs (${clubs.map((c) => c.clubId).join(', ')}); pointing at the newest\n`
+      );
+    }
+    process.stdout.write(`  ${apply ? 'write' : 'would write'}  ${clubOfKey(uid)} -> ${newest.clubId}\n`);
     // eslint-disable-next-line no-await-in-loop
-    if (apply) await store.put(clubAdminOfKey(uid), clubId);
+    if (apply) await store.put(clubOfKey(uid), JSON.stringify({ clubId: newest.clubId, at: Date.now() }));
     written += 1;
   }
-  process.stdout.write(
-    [
-      '',
-      `  ${written} admin${written === 1 ? '' : 's'} ${apply ? 'indexed' : 'to index'}, ` +
-        `${skipped} row${skipped === 1 ? '' : 's'} skipped.`,
-      ...(apply || !written ? [] : ['  Re-run with --apply to write them.']),
-      '',
-    ].join('\n')
-  );
-}
-
-/**
- * Drop the duplicate device rows a club collected before device ids were stable.
- *
- * Every activation used to mint a fresh id, so leaving and rejoining — or
- * simply re-typing the code — added a row, and a roster read "4 devices · 1
- * person" for one person with two browsers. Duplicates are rows with the same
- * label *and* the same person; the most recently seen one survives. A revoked
- * row is never dropped: it is the record of a decision.
- */
-async function pruneDevices(store, clubId, { apply }) {
-  const prefix = `club-device:${clubId}:`;
-  const { keys } = await store.list({ prefix });
-  const rows = [];
-  for (const entry of keys ?? []) {
+  for (const name of legacy) {
+    process.stdout.write(`  ${apply ? 'delete' : 'would delete'}  ${name}  (legacy revoked row)\n`);
     // eslint-disable-next-line no-await-in-loop
-    const device = await store.get(entry.name, 'json');
-    if (device) rows.push({ name: entry.name, device });
-  }
-
-  const groups = new Map();
-  for (const row of rows) {
-    if (row.device.revokedAt) continue;
-    const key = `${row.device.uid ?? ''}|${row.device.label ?? ''}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
-  }
-
-  let dropped = 0;
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-    group.sort((a, b) => (b.device.lastSeenAt ?? 0) - (a.device.lastSeenAt ?? 0));
-    for (const row of group.slice(1)) {
-      process.stdout.write(`  ${apply ? 'delete' : 'would delete'}  ${row.name}  (${row.device.label})\n`);
-      // eslint-disable-next-line no-await-in-loop
-      if (apply) await store.delete(row.name);
-      dropped += 1;
-    }
+    if (apply) await store.delete(name);
   }
 
   process.stdout.write(
     [
       '',
-      `  ${rows.length} row${rows.length === 1 ? '' : 's'}, ` +
-        `${dropped} duplicate${dropped === 1 ? '' : 's'} ${apply ? 'deleted' : 'to delete'}.`,
-      ...(apply || !dropped ? [] : ['  Re-run with --apply to delete them.']),
+      `  ${written} account${written === 1 ? '' : 's'} ${apply ? 'indexed' : 'to index'}, ` +
+        `${legacy.length} legacy row${legacy.length === 1 ? '' : 's'} ${apply ? 'deleted' : 'to delete'}.`,
+      ...(apply || !(written || legacy.length) ? [] : ['  Re-run with --apply to write them.']),
       '',
     ].join('\n')
   );
@@ -312,20 +288,14 @@ async function main() {
 
   if (command === 'rotate') {
     if (typeof flags.club !== 'string') throw new Error('--club <clubId> is required');
-    const { club, revoked } = await rotateClubCode(env, flags.club);
+    const { club } = await rotateClubCode(env, flags.club);
     printClub(flags.club, club);
-    process.stdout.write(`  revoked ${revoked} device${revoked === 1 ? '' : 's'}; every cached code is now dead\n\n`);
+    process.stdout.write('  the old code admits nobody now; every member keeps access\n\n');
     return;
   }
 
-  if (command === 'backfill-admin-index') {
-    await backfillAdminIndex(env.PROFILES, { apply: flags.apply === true });
-    return;
-  }
-
-  if (command === 'prune-devices') {
-    if (typeof flags.club !== 'string') throw new Error('--club <clubId> is required');
-    await pruneDevices(env.PROFILES, flags.club, { apply: flags.apply === true });
+  if (command === 'backfill-club-of') {
+    await backfillClubOf(env.PROFILES, { apply: flags.apply === true });
     return;
   }
 
@@ -350,8 +320,7 @@ async function main() {
       '  node scripts/club-cli.mjs create  --env dev --name "Downtown Speakers" --uid <zoom uid> [--tz America/Toronto] [--email x@y.z] [--prefix DTSP]',
       '  node scripts/club-cli.mjs rotate  --env dev --club <clubId>',
       '  node scripts/club-cli.mjs show    --env dev --club <clubId> | --code DTSP-7K2QM9',
-      '  node scripts/club-cli.mjs backfill-admin-index --env dev [--apply]',
-      '  node scripts/club-cli.mjs prune-devices --env dev --club <clubId> [--apply]',
+      '  node scripts/club-cli.mjs backfill-club-of --env dev [--apply]',
       '',
       'Omit --env to act on production.',
       '',

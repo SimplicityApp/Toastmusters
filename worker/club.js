@@ -1,9 +1,20 @@
-import crypto from 'node:crypto';
-import { readSession, readClub, proReleased } from './auth.js';
+import { readSession, proReleased } from './auth.js';
 import { json, methodNotAllowed, notConfigured, notFound, unauthorized } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
-import { mintClubToken } from './club-token.js';
-import { normalizeCode, formatCode, clubByCodeKey, clubDeviceKey, clubMemberKey, readMemberRole } from './club-admin.js';
+import {
+  normalizeCode,
+  formatCode,
+  clubByCodeKey,
+  clubMemberKey,
+  activeAdmins,
+  clubOwnerUid,
+  clearClubIndex,
+  isLiveMember,
+  memberClub,
+  readMemberRole,
+  writeClubIndex,
+} from './club-admin.js';
+import { CLUB_PLACES, clubPlaces, countPlaces } from './club-places.js';
 import { createClubForSubscriber } from './club-create.js';
 import { readClubName } from './billing.js';
 import { createStripeClient } from './stripe.js';
@@ -14,20 +25,26 @@ import { handleClubAdminRoutes } from './club-admin-routes.js';
 import { handleMagicLinkRequest, handleClubManage, handleClubManageSignOut } from './club-magic.js';
 
 /**
- * Joining a club from a device, and asking the club what it looks like today.
+ * Joining a club with a Zoom account, and asking the club what it looks like
+ * today.
  *
- * Two routes answer with the same document. POST /api/club/activate takes a
- * code and hands back a clubToken; GET /api/club takes that token and is
- * called on app start, at most once a day. Splitting content from plan is the
+ * Club Pro belongs to accounts, not devices. POST /api/club/activate takes a
+ * code from a signed-in account and makes it a member; from then on the club
+ * follows that account through its session, on every computer and in every
+ * browser it signs in to, with nothing stored per device. GET /api/club answers
+ * with the same document on every app open. Splitting content from plan is the
  * point of the shape: content is versioned and replaces a device's copy only
  * when `ver` moves, while plan and `entitled` carry no version and are applied
  * every time — a club can lapse with nothing having been written, because a
  * grace window just expires against the clock.
  *
+ * A club's code admits the owner plus up to 3 other accounts (worker/club-places.js
+ * counts them), and an account is in one club at a time (`club-of:zoom:<uid>`).
+ *
  * The doors into a club sit behind the `pro` release flag (worker/flags.js):
  * while it is off, activate, create, magic-link and manage answer a bare 404.
- * The refresh and every route that needs an existing club stay open, so a
- * device already in a club keeps working (see CLUB_DOORS below).
+ * The refresh and every route that needs an existing club stay open, so an
+ * account already in a club keeps working (see CLUB_DOORS below).
  */
 
 /**
@@ -48,9 +65,10 @@ async function throttled(request, env) {
 }
 
 /**
- * Unknown, revoked and lapsed codes all answer with this, so probing cannot
- * confirm that a club exists — which is also the one line of copy the product
- * asks for: "That code isn't active. Check with your club officer."
+ * Unknown, rotated and lapsed codes all answer with this, and so does a code
+ * entered by a blocked account, so probing cannot confirm that a club exists or
+ * that someone was blocked from it — which is also the one line of copy the
+ * product asks for: "That code isn't active. Check with your club officer."
  */
 const invalidCode = () => json({ error: 'invalid_code' }, 400);
 
@@ -60,32 +78,6 @@ async function readJsonBody(request) {
   } catch {
     return {};
   }
-}
-
-/**
- * A human-readable name for the device row in the club roster. Derived from the
- * user agent because there is nothing else to derive it from — activation is
- * anonymous by design, and "Firefox · Windows" is enough for an admin to
- * recognise the laptop they are about to revoke.
- */
-export function deviceLabel(request) {
-  const ua = request.headers.get('user-agent') || '';
-  const browser =
-    /Edg\//.test(ua) ? 'Edge'
-      : /OPR\//.test(ua) ? 'Opera'
-        : /Chrome\//.test(ua) ? 'Chrome'
-          : /Firefox\//.test(ua) ? 'Firefox'
-            : /Safari\//.test(ua) ? 'Safari'
-              : null;
-  const os =
-    /Windows/.test(ua) ? 'Windows'
-      : /iPhone|iPad|iPod/.test(ua) ? 'iOS'
-        : /Mac OS X|Macintosh/.test(ua) ? 'macOS'
-          : /Android/.test(ua) ? 'Android'
-            : /Linux/.test(ua) ? 'Linux'
-              : null;
-  if (browser && os) return `${browser} · ${os}`;
-  return browser || os || 'Unknown device';
 }
 
 /** Toastmasters maroon: the kit's colour until a club chooses its own. */
@@ -164,11 +156,11 @@ export function shareUrlFor(env, code) {
  * The split down the middle of this document is the point. Content — the
  * presets, the brand kit, the badge default and the card set — is versioned,
  * and a device replaces its copy only when `ver` moves, which is what lets a
- * timer's local list survive a daily refresh and lose only to an actual
- * publish. Everything below `timezone` carries no version and is applied every
- * time, because it can change with nothing having been written: a club lapses
- * when a grace window expires against the clock, and a member's role changes
- * under a different uid entirely.
+ * timer's local list survive a refresh and lose only to an actual publish.
+ * Everything below `timezone` carries no version and is applied every time,
+ * because it can change with nothing having been written: a club lapses when a
+ * grace window expires against the clock, and a member's role changes under a
+ * different uid entirely.
  *
  * @param {Object} env
  * @param {string} clubId
@@ -177,11 +169,13 @@ export function shareUrlFor(env, code) {
  * @param {{uid?: string|null}} [caller] - whose role to report, if anyone's
  */
 export async function buildClubState(env, clubId, club, access, { uid = null } = {}) {
-  const [presets, cards, role] = await Promise.all([
+  const [presets, cards, role, owner] = await Promise.all([
     readClubPresets(env, clubId),
     readClubCards(env, clubId),
     readMemberRole(env, clubId, uid),
+    clubOwnerUid(env, club),
   ]);
+  const isAdmin = role === 'admin';
 
   return {
     ver: club?.ver ?? 1,
@@ -199,15 +193,20 @@ export async function buildClubState(env, clubId, club, access, { uid = null } =
     badge: buildBadge(presets),
     cards: buildCards(cards),
     timezone: club?.timezone ?? null,
-    // Not versioned: a guest device sees null and a promotion takes effect on
-    // the next refresh without anything being republished.
+    // Not versioned: a promotion takes effect on the next refresh without
+    // anything being republished.
     role,
+    // The owner can't leave, so the apps hide Leave for them.
+    isOwner: Boolean(uid) && uid === owner,
     // The code is the club's password, so only an admin is told it — but an
     // admin is told it *here*, on the refresh every surface already makes,
     // rather than only by the web console. Without this the one person who
     // needs to share the code cannot read it anywhere inside the Zoom app.
-    code: role === 'admin' && club?.code ? formatCode(club.code) : null,
-    shareUrl: role === 'admin' && club?.code ? shareUrlFor(env, club.code) : null,
+    code: isAdmin && club?.code ? formatCode(club.code) : null,
+    shareUrl: isAdmin && club?.code ? shareUrlFor(env, club.code) : null,
+    // Beside the code, for the same people: how many of the places it can
+    // still fill.
+    ...(isAdmin ? { placesUsed: await countPlaces(env, clubId), placesTotal: CLUB_PLACES } : {}),
     plan: access.plan,
     entitled: access.entitled,
     status: access.status,
@@ -217,39 +216,27 @@ export async function buildClubState(env, clubId, club, access, { uid = null } =
   };
 }
 
-/**
- * The clubId a write may be credited to: verified, present, and not revoked.
- *
- * The club token is HMAC-only so that sending it on every request stays cheap,
- * which means revoking an already-issued one has to consult state somewhere.
- * Here is the cheapest place that still makes revocation *mean* something — it
- * rides only on requests that were already going to write, and it takes a
- * revoked device's ability to publish, append or consume quota away
- * immediately. What that device keeps, for up to the token's 24 hours, is the
- * ability to read a club it was already reading.
- *
- * @returns {Promise<string|null>}
- */
-export async function verifiedClubId(env, claims) {
-  if (!claims?.clubId || !claims?.deviceId) return null;
-  const store = entitlementStore(env);
-  if (!store) return null;
-  let device;
-  try {
-    device = await store.get(clubDeviceKey(claims.clubId, claims.deviceId), 'json');
-  } catch {
-    return null;
-  }
-  if (!device || device.revokedAt) return null;
-  return claims.clubId;
-}
+/** No session: joining, leaving and reading a club all need a Zoom account. */
+const signInRequired = () => json({ error: 'sign_in_required' }, 401);
+/** The place counter could not be reached; nothing was written. */
+const tryAgain = () => json({ error: 'try_again' }, 503);
 
 /**
- * POST /api/club/activate — a device types a code and becomes Pro.
+ * POST /api/club/activate — a signed-in account types a code and joins.
  *
- * Public and rate-limited. A session is read if one happens to be there, but
- * never required: a guest with no Zoom identity has to be able to use a club
- * code, and that is the case the whole feature is sold on.
+ * Public and rate-limited, and the session is checked before the code is even
+ * looked up, so an anonymous caller learns nothing about which codes exist.
+ * Then, in order:
+ *
+ *   own live row, or the owner      success, no new place
+ *   blocked row                     invalid_code, like a wrong code
+ *   already in another club         409 already_in_club, with its name
+ *   no free place                   409 full
+ *   otherwise                       a member row and the account's index
+ *
+ * The place is claimed before anything is written, so a join that cannot be
+ * counted is a join that did not happen: an unreachable counter answers 503
+ * and joins nobody.
  */
 export async function handleClubActivate(request, env) {
   if (request.method !== 'POST') return methodNotAllowed();
@@ -258,6 +245,10 @@ export async function handleClubActivate(request, env) {
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
 
   if (await throttled(request, env)) return json({ error: 'too_many_attempts' }, 429);
+
+  const session = readSession(request, env);
+  if (!session?.uid) return signInRequired();
+  const { uid } = session;
 
   const body = await readJsonBody(request);
   const code = normalizeCode(body?.code);
@@ -275,88 +266,55 @@ export async function handleClubActivate(request, env) {
   if (!club) return invalidCode();
 
   const access = await resolveAccess(env, { clubId, club });
-  // A club that has lapsed is not a club a device may join. Same failure as an
+  // A club that has lapsed is not a club anyone may join. Same failure as an
   // unknown code, on purpose.
   if (!access.entitled) return invalidCode();
 
-  const session = readSession(request, env);
-  const uid = session?.uid ?? null;
-  const now = Date.now();
+  const [row, owner, current] = await Promise.all([
+    store.get(clubMemberKey(clubId, uid), 'json').catch(() => null),
+    clubOwnerUid(env, club),
+    memberClub(env, uid),
+  ]);
 
-  const clubToken = await attachDevice(env, request, {
-    clubId,
-    club,
-    uid,
-    now,
-    deviceId: readDeviceId(body?.deviceId),
-  });
-  if (!clubToken) return notConfigured('Club activation');
-
-  return json({ clubToken, ...(await buildClubState(env, clubId, club, access, { uid })) });
-}
-
-/**
- * A device id this browser minted for itself, if it looks like one of ours.
- *
- * Client-chosen on purpose: it has to survive `leaveClub()`, which is exactly
- * what a server-minted id cannot do. Guessing someone else's id buys nothing
- * anyone who already holds the club code does not have — the id names a row in
- * the roster, not a permission — but the shape is still checked, because this
- * string becomes part of a KV key.
- */
-export function readDeviceId(raw) {
-  return typeof raw === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(raw) ? raw : null;
-}
-
-/**
- * Put this device on a club's roll and hand it a token.
- *
- * Shared by activation and by creation: an officer who just minted their club
- * must end up exactly where a timer who typed the code ends up, rather than
- * being told to go and type a code they were shown two lines above.
- *
- * The device id is the browser's own, so leaving and rejoining reuses the row
- * rather than adding a second one — a roster that grew a "macOS" line every
- * time somebody re-typed the code was showing four devices for one laptop, and
- * an admin cannot revoke what they cannot recognise. A revoked row is reused
- * as-is and stays revoked: re-typing the code is not a way out of a revocation.
- *
- * @returns {Promise<string|null>} the club token, or null when unsignable
- */
-async function attachDevice(env, request, { clubId, club, uid, now, deviceId: requested }) {
-  const store = entitlementStore(env);
-  const deviceId = requested ?? crypto.randomUUID();
-
-  const existing = requested ? await store.get(clubDeviceKey(clubId, deviceId), 'json').catch(() => null) : null;
-  await store.put(
-    clubDeviceKey(clubId, deviceId),
-    JSON.stringify({
-      label: deviceLabel(request),
-      uid,
-      activatedAt: existing?.activatedAt ?? now,
-      lastSeenAt: now,
-      // Carried, never cleared. Activation is a door, not an appeal.
-      revokedAt: existing?.revokedAt ?? null,
-    })
-  );
-
-  // Access attaches to a device; authorization attaches to a person. A guest
-  // gets a device row and nothing else, which is what makes "you cannot grant
-  // editing rights to an anonymous device" true by construction.
-  //
-  // The existence check is also what keeps a club's creator an admin: their
-  // member row was written by createClubFromPending moments earlier.
-  if (uid) {
-    const existing = await store.get(clubMemberKey(clubId, uid), 'json');
-    if (!existing) {
-      await store.put(
-        clubMemberKey(clubId, uid),
-        JSON.stringify({ role: 'member', displayName: null, addedAt: now, revokedAt: null })
-      );
-    }
+  if (row?.blockedAt) return invalidCode();
+  if (current && current.clubId !== clubId) {
+    return json({ error: 'already_in_club', clubName: current.club?.name ?? null }, 409);
   }
 
-  return mintClubToken({ clubId, deviceId, uid, ver: club.ver ?? 1 }, env.SESSION_SIGNING_KEY, now);
+  const now = Date.now();
+  let placesUsed;
+  if (isLiveMember(row) || uid === owner) {
+    // Re-entering the code: nothing to claim. An owner whose row is missing (a
+    // club matched to its owner through Stripe) gets the admin row it implies.
+    if (!isLiveMember(row)) {
+      await store.put(clubMemberKey(clubId, uid), JSON.stringify({ role: 'admin', displayName: null, addedAt: now }));
+    }
+    placesUsed = await countPlaces(env, clubId);
+  } else {
+    let claim;
+    try {
+      claim = await clubPlaces(env, clubId).claim(uid);
+    } catch {
+      return tryAgain();
+    }
+    if (!claim?.ok) {
+      return json({ error: 'full', placesUsed: claim?.placesUsed ?? CLUB_PLACES, placesTotal: CLUB_PLACES }, 409);
+    }
+    try {
+      await store.put(
+        clubMemberKey(clubId, uid),
+        // A removed account's name survives; a legacy revoked row is replaced.
+        JSON.stringify({ role: 'member', displayName: row?.displayName ?? null, addedAt: now })
+      );
+    } catch {
+      await clubPlaces(env, clubId).release(uid).catch(() => {});
+      return tryAgain();
+    }
+    placesUsed = claim.placesUsed;
+  }
+  if (!current) await writeClubIndex(store, uid, clubId, now);
+
+  return json({ ...(await buildClubState(env, clubId, club, access, { uid })), placesUsed });
 }
 
 /** Why a create was refused, in the words the officer reads. */
@@ -375,9 +333,10 @@ const CREATE_ERRORS = {
  * left every subscriber from before the club bundle — and everyone who skipped
  * the optional name field — paying for features they could not reach.
  *
- * Requires a session, because a club belongs to the person who pays for it and
- * a guest device has nobody to make an admin. Comp grants are deliberately not
- * accepted: those stay operator-minted.
+ * Requires a session, because a club belongs to the person who pays for it.
+ * Comp grants are deliberately not accepted: those stay operator-minted. The
+ * creator is the owner and an admin from the moment the club exists, by
+ * account, like every other member.
  */
 export async function handleClubCreate(request, env) {
   if (request.method !== 'POST') return methodNotAllowed();
@@ -398,17 +357,8 @@ export async function handleClubCreate(request, env) {
 
   const { clubId, club, code } = result;
   const access = await resolveAccess(env, { uid: session.uid, clubId, club });
-  const clubToken = await attachDevice(env, request, {
-    clubId,
-    club,
-    uid: session.uid,
-    now: Date.now(),
-    deviceId: readDeviceId(body?.deviceId),
-  });
-  if (!clubToken) return notConfigured('Club creation');
 
   return json({
-    clubToken,
     created: result.created,
     ...(await buildClubState(env, clubId, club, access, { uid: session.uid })),
     // Last, so these win over the role-gated pair above. The member row making
@@ -422,77 +372,70 @@ export async function handleClubCreate(request, env) {
 }
 
 /**
- * POST /api/club/leave — this device is done with the club.
+ * POST /api/club/leave — this account is done with the club.
  *
- * The other half of `leaveClub()` on the device. Without it, leaving was purely
- * local: the row stayed on the roster for ever, and every rejoin added another,
- * so an admin trying to work out which laptop to revoke was reading a list of
- * ghosts. Deleted rather than marked, because a device that left is not a device
- * that was thrown out, and the two must not look the same in the console.
+ * Leaves everywhere the account is signed in, because that is where the club
+ * is. The place is released first: if the counter can't be reached the answer
+ * is 503 and nothing changes, so a retry is safe and a place is never left
+ * held by someone who is gone. Then the member row and the index go, which
+ * also lets the account rejoin with the code later.
  *
- * A revoked row is left exactly where it is. The device calls this on its way
- * out of a 403 too, and deleting the row there would make re-typing the code a
- * way to undo a revocation — which is the one thing revocation has to mean.
- *
- * Idempotent, and quiet about what it found: the device is leaving either way.
+ * The owner can't leave (they end the club by cancelling the subscription),
+ * and neither can the last admin of a club with no known owner. An account in
+ * no club gets `left` anyway: it is leaving either way.
  */
 export async function handleClubLeave(request, env) {
   if (request.method !== 'POST') return methodNotAllowed();
 
-  const claims = readClub(request, env);
-  if (!claims?.clubId || !claims?.deviceId) return unauthorized();
+  const session = readSession(request, env);
+  if (!session?.uid) return signInRequired();
+  const { uid } = session;
 
   const store = entitlementStore(env);
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
 
-  const key = clubDeviceKey(claims.clubId, claims.deviceId);
-  const device = await store.get(key, 'json').catch(() => null);
-  if (device && !device.revokedAt) await store.delete(key).catch(() => {});
+  const membership = await memberClub(env, uid);
+  if (!membership) return json({ left: true });
+  const { clubId, club, role } = membership;
+
+  if (uid === (await clubOwnerUid(env, club))) return json({ error: 'owner' }, 409);
+  if (role === 'admin' && (await activeAdmins(store, clubId)) <= 1) return json({ error: 'last_admin' }, 409);
+
+  try {
+    await clubPlaces(env, clubId).release(uid);
+  } catch {
+    return tryAgain();
+  }
+  await store.delete(clubMemberKey(clubId, uid));
+  await clearClubIndex(store, uid, clubId);
   return json({ left: true });
 }
 
 /**
- * GET /api/club — the daily refresh.
+ * GET /api/club — the club this account is in, on every app open.
  *
- * Re-mints the token (bounding a revoked device's residual read access by the
- * same 24-hour clock that governs a lapse) and re-reads the plan, so a club
- * that lapsed overnight is off on the next app start. A session is read when
- * present so the answer is the *combined* one: a buyer who also typed their own
- * club's code must not be told they are free.
+ * Found from the session alone. An account that left, was removed or was
+ * blocked gets 404 `no_club`, which is how every device it is signed in on
+ * loses the club's Pro on its next open. The plan is re-read every time, so a
+ * club that lapsed overnight is off on the next app start, and the answer is
+ * the *combined* one: a buyer who is also in a club must not be told they are
+ * free.
  */
 export async function handleClubState(request, env) {
   if (request.method !== 'GET') return methodNotAllowed();
 
-  const claims = readClub(request, env);
-  if (!claims) return unauthorized();
+  const session = readSession(request, env);
+  if (!session?.uid) return signInRequired();
 
   const store = entitlementStore(env);
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
 
-  const club = await readClubRecord(env, claims.clubId);
-  if (!club) return json({ error: 'club_not_found' }, 404);
+  const membership = await memberClub(env, session.uid);
+  if (!membership) return json({ error: 'no_club' }, 404);
+  const { clubId, club } = membership;
 
-  const device = await store.get(clubDeviceKey(claims.clubId, claims.deviceId), 'json');
-  if (!device || device.revokedAt) return json({ error: 'club_access_revoked' }, 403);
-
-  const now = Date.now();
-  const session = readSession(request, env);
-  const access = await resolveAccess(env, { uid: session?.uid ?? null, clubId: claims.clubId, club }, now);
-
-  // Once a day, on the one request that already costs a round trip. The roster
-  // is the only reader, and "last seen yesterday" is the resolution it needs.
-  if (!device.lastSeenAt || now - device.lastSeenAt > 12 * 60 * 60 * 1000) {
-    await store.put(clubDeviceKey(claims.clubId, claims.deviceId), JSON.stringify({ ...device, lastSeenAt: now }));
-  }
-
-  const state = await buildClubState(env, claims.clubId, club, access, { uid: session?.uid ?? null });
-  const clubToken = mintClubToken(
-    { clubId: claims.clubId, deviceId: claims.deviceId, uid: claims.uid, ver: club.ver ?? 1 },
-    env.SESSION_SIGNING_KEY,
-    now
-  );
-
-  return json({ ...(clubToken ? { clubToken } : {}), ...state });
+  const access = await resolveAccess(env, { uid: session.uid, clubId, club });
+  return json(await buildClubState(env, clubId, club, access, { uid: session.uid }));
 }
 
 /**
@@ -501,10 +444,11 @@ export async function handleClubState(request, env) {
  * behind the `pro` release flag (worker/flags.js).
  *
  * Everything else stays open on purpose. A 404 from GET /api/club makes the
- * client leave the club, and a 4xx from the speech outbox makes it drop the
- * queued speech, so a blanket gate would evict club devices and lose their
- * work the first time the flag went off. The other routes need a club token or
- * an admin session, and while the flag is off nobody can get either.
+ * client forget the club, and a 403/404 from the speech outbox makes it drop
+ * the queued speech, so a blanket gate would evict club members and lose their
+ * work the first time the flag went off. The other routes need a member's
+ * session or an admin session, and while the flag is off nobody can become
+ * either.
  */
 const CLUB_DOORS = new Set(['activate', 'create', 'magic-link', 'manage']);
 
@@ -541,7 +485,7 @@ export async function handleClub(request, url, env, { ctx } = {}) {
   if (route === 'manage') return handleClubManage(request, url, env);
   if (route === 'manage/signout') return handleClubManageSignOut(request);
 
-  // roster, members/<uid>/role, devices/<id>/revoke, kit.
+  // roster, members/<uid>/role|name|block, kit.
   const admin = handleClubAdminRoutes(request, route, env);
   if (admin) return admin;
 

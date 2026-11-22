@@ -1,16 +1,18 @@
 import crypto from 'node:crypto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { handleClub } from './club.js';
-import { handleClubRoster, handleMemberRole, handleMemberName, handleDeviceRevoke, handleClubKit } from './club-admin-routes.js';
-import { createClubFromPending, clubAdminOfKey, clubDeviceKey, clubMemberKey } from './club-admin.js';
+import { handleClubRoster, handleMemberRole, handleMemberName, handleMemberBlock, handleClubKit } from './club-admin-routes.js';
+import { createClubFromPending, clubMemberKey, clubOfKey } from './club-admin.js';
 import { mintSessionToken } from './session-token.js';
-import { mintClubToken } from './club-token.js';
 import { ADMIN_COOKIE, mintAdminSession } from './club-magic.js';
 import { clubKey } from './entitlements.js';
+import { makeClubPlacesNamespace } from './club-places-fake.js';
 
 /**
  * The console. Both doors reach one permission check, and everything behind it
- * is an admin-only write to a record the earlier phases already enforce.
+ * is an admin-only write to the member rows every club route reads. The
+ * membership rules themselves (Remove, Block, the owner, the place count) are
+ * in club-membership-admin.test.js.
  */
 
 const SIGNING_KEY = 'test-session-signing-key';
@@ -49,9 +51,16 @@ let kv;
 let env;
 let clubId;
 
+/** A member row and the account's index, the way a join leaves them. */
+const member = (uid, row) =>
+  Promise.all([
+    kv.put(clubMemberKey(clubId, uid), JSON.stringify({ displayName: null, ...row })),
+    kv.put(clubOfKey(uid), JSON.stringify({ clubId, at: 1 })),
+  ]);
+
 /**
- * A club with a buyer-admin, an editor, a plain member with two laptops, and a
- * guest device — the roster in the design doc, minus the names.
+ * A club owned by Sarah (its first admin), with an editor and a plain member —
+ * the roster in the design doc, minus the names.
  */
 async function seedClub() {
   const created = await createClubFromPending(
@@ -61,17 +70,8 @@ async function seedClub() {
   );
   clubId = created.clubId;
 
-  await kv.put(clubMemberKey(clubId, 'james'), JSON.stringify({ role: 'editor', displayName: null, addedAt: 1, revokedAt: null }));
-  await kv.put(clubMemberKey(clubId, 'priya'), JSON.stringify({ role: 'member', displayName: null, addedAt: 2, revokedAt: null }));
-
-  const device = (id, uid, label, lastSeenAt) =>
-    kv.put(clubDeviceKey(clubId, id), JSON.stringify({ label, uid, activatedAt: 1, lastSeenAt, revokedAt: null }));
-
-  await device('d-sarah-1', 'sarah', 'Chrome · Windows', 900);
-  await device('d-sarah-2', 'sarah', 'Safari · iOS', 500);
-  await device('d-james', 'james', 'Chrome · macOS', 950);
-  await device('d-priya', 'priya', 'Edge · Windows', 300);
-  await device('d-guest', null, 'Firefox · Windows', 100);
+  await member('james', { role: 'editor', addedAt: 1 });
+  await member('priya', { role: 'member', addedAt: 2 });
 
   return created;
 }
@@ -85,13 +85,11 @@ beforeEach(() => {
     WEB_ORIGIN: 'https://www.timer.simple-tech.app',
     ENTITLEMENT_ENFORCE: '1',
   };
+  env.CLUB_PLACES = makeClubPlacesNamespace(() => env);
 });
 
-/** Door 1: a Zoom session plus the club token the officer's browser holds. */
-const zoomDoor = (uid, { deviceId = 'd-sarah-1' } = {}) => ({
-  authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}`,
-  'x-club': mintClubToken({ clubId, deviceId, uid, ver: 1 }, SIGNING_KEY),
-});
+/** Door 1: the Zoom session, and nothing else. */
+const zoomDoor = (uid) => ({ authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` });
 
 /** Door 2: the cookie a spent magic link left behind. */
 const billingDoor = () => ({
@@ -99,22 +97,15 @@ const billingDoor = () => ({
 });
 
 const rosterReq = (headers) => new Request('https://x/api/club/roster', { headers });
-const roleReq = (uid, body, headers) =>
-  new Request(`https://x/api/club/members/${uid}/role`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
-    body: JSON.stringify(body),
-  });
-const revokeReq = (deviceId, body, headers) =>
-  new Request(`https://x/api/club/devices/${deviceId}/revoke`, {
+const postReq = (path, body, headers) =>
+  new Request(`https://x/api/club/${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-/** The dispatcher supplies the id from the path; these call the handler directly. */
-const setRole = (uid, body, headers) => handleMemberRole(roleReq(uid, body, headers), env, uid);
-const revokeDevice = (deviceId, body, headers) =>
-  handleDeviceRevoke(revokeReq(deviceId, body, headers), env, deviceId);
+/** The dispatcher supplies the uid from the path; these call the handlers directly. */
+const setRole = (uid, body, headers) => handleMemberRole(postReq(`members/${uid}/role`, body, headers), env, uid);
+const setBlocked = (uid, body, headers) => handleMemberBlock(postReq(`members/${uid}/block`, body, headers), env, uid);
 
 const kitReq = (body, headers) =>
   new Request('https://x/api/club/kit', {
@@ -151,53 +142,28 @@ describe('the two doors', () => {
   });
 
   // *Manage your club* opens the system browser, which has the officer's
-  // session and has never typed the club's code. Without a uid → club index
-  // there was no clubId to look the uid up in, and the console was dead for
-  // every Zoom-only officer.
-  it('lets a signed-in admin in with no club token at all', async () => {
+  // session and has never typed the club's code. The account names the club.
+  it('lets a signed-in admin in with the session alone', async () => {
     await seedClub();
-    const res = await handleClubRoster(
-      rosterReq({ authorization: `Bearer ${mintSessionToken('sarah', SIGNING_KEY)}` }),
-      env
-    );
+    const res = await handleClubRoster(rosterReq(zoomDoor('sarah')), env);
     expect(res.status).toBe(200);
     expect((await res.json()).actor).toEqual({ type: 'zoom', uid: 'sarah' });
   });
 
   // The index is a pointer; the member row is the authority.
-  it('refuses a demoted admin whose stale index still points at the club', async () => {
+  it('refuses an admin whose row no longer says admin', async () => {
     await seedClub();
-    await kv.put(
-      clubMemberKey(clubId, 'sarah'),
-      JSON.stringify({ role: 'member', displayName: null, addedAt: 1, revokedAt: null })
-    );
-    // The pointer is deliberately left behind, as a failed cleanup would leave it.
-    expect(await kv.get(clubAdminOfKey('sarah'))).toBe(clubId);
+    await member('james', { role: 'admin', addedAt: 1 });
+    await kv.put(clubMemberKey(clubId, 'james'), JSON.stringify({ role: 'member', displayName: null, addedAt: 1 }));
+    expect(await kv.get(clubOfKey('james'), 'json')).toMatchObject({ clubId });
 
-    const res = await handleClubRoster(
-      rosterReq({ authorization: `Bearer ${mintSessionToken('sarah', SIGNING_KEY)}` }),
-      env
-    );
-    expect(res.status).toBe(403);
+    expect((await handleClubRoster(rosterReq(zoomDoor('james')), env)).status).toBe(403);
   });
 
-  it('answers 401 for a session that administers nothing', async () => {
+  it('answers 403 for a session that administers nothing', async () => {
     await seedClub();
-    const res = await handleClubRoster(
-      rosterReq({ authorization: `Bearer ${mintSessionToken('priya', SIGNING_KEY)}` }),
-      env
-    );
-    expect(res.status).toBe(401);
-  });
-
-  it('keeps the index in step with the role', async () => {
-    await seedClub();
-
-    await setRole('james', { role: 'admin' }, zoomDoor('sarah'));
-    expect(await kv.get(clubAdminOfKey('james'))).toBe(clubId);
-
-    await setRole('james', { role: 'editor' }, zoomDoor('sarah'));
-    expect(await kv.get(clubAdminOfKey('james'))).toBe(null);
+    expect((await handleClubRoster(rosterReq(zoomDoor('priya')), env)).status).toBe(403);
+    expect((await handleClubRoster(rosterReq(zoomDoor('nobody')), env)).status).toBe(403);
   });
 
   it('refuses a billing cookie signed with another key', async () => {
@@ -214,29 +180,26 @@ describe('who may administer', () => {
   it('refuses an editor on the roster and on the kit', async () => {
     await seedClub();
 
-    expect((await handleClubRoster(rosterReq(zoomDoor('james', { deviceId: 'd-james' })), env)).status).toBe(403);
-    const kit = await handleClubKit(kitReq({ primaryColor: '#123456' }, zoomDoor('james', { deviceId: 'd-james' })), env);
+    expect((await handleClubRoster(rosterReq(zoomDoor('james')), env)).status).toBe(403);
+    const kit = await handleClubKit(kitReq({ primaryColor: '#123456' }, zoomDoor('james')), env);
     expect(kit.status).toBe(403);
   });
 
-  it('refuses a plain member and a stranger', async () => {
+  it('locks out an admin who was blocked, or whose row is a legacy revoked one', async () => {
     await seedClub();
-    expect((await handleClubRoster(rosterReq(zoomDoor('priya', { deviceId: 'd-priya' })), env)).status).toBe(403);
-    expect((await handleClubRoster(rosterReq(zoomDoor('nobody', { deviceId: 'd-guest' })), env)).status).toBe(403);
-  });
+    await member('omar', { role: 'admin', addedAt: 3 });
+    expect((await handleClubRoster(rosterReq(zoomDoor('omar')), env)).status).toBe(200);
 
-  // Revoking a *person* clears their role, so it takes the console with it;
-  // revoking a device is about what that laptop may do, not about who runs the
-  // club, so an admin is not locked out of the console by one bad laptop.
-  it('locks out an admin whose membership was revoked', async () => {
-    await seedClub();
-    await kv.put(clubMemberKey(clubId, 'sarah'), JSON.stringify({ role: 'admin', revokedAt: Date.now() }));
-    expect((await handleClubRoster(rosterReq(zoomDoor('sarah')), env)).status).toBe(403);
+    await kv.put(clubMemberKey(clubId, 'omar'), JSON.stringify({ role: 'admin', revokedAt: Date.now() }));
+    expect((await handleClubRoster(rosterReq(zoomDoor('omar')), env)).status).toBe(403);
+
+    await member('omar', { role: 'admin', addedAt: 3, blockedAt: Date.now() });
+    expect((await handleClubRoster(rosterReq(zoomDoor('omar')), env)).status).toBe(403);
   });
 });
 
 describe('GET /api/club/roster', () => {
-  it('groups devices under their person and lists guests on their own', async () => {
+  it('lists people, the owner first, with the places they use', async () => {
     await seedClub();
 
     const res = await handleClubRoster(rosterReq(zoomDoor('sarah')), env);
@@ -248,18 +211,15 @@ describe('GET /api/club/roster', () => {
       code: 'DTSP-7K2QM9',
       billingEmail: BILLING_EMAIL,
     });
-    expect(body.counts).toEqual({ devices: 5, people: 3, guestDevices: 1 });
-
-    // Admin first, then editor, then member.
-    expect(body.members.map((m) => [m.uid, m.role])).toEqual([
-      ['sarah', 'admin'],
-      ['james', 'editor'],
-      ['priya', 'member'],
+    // The owner is a person but takes no place.
+    expect(body.counts).toEqual({ people: 3, placesUsed: 2, placesTotal: 3 });
+    expect(body.members.map((m) => [m.uid, m.role, m.isOwner])).toEqual([
+      ['sarah', 'admin', true],
+      ['james', 'editor', false],
+      ['priya', 'member', false],
     ]);
-    // Newest-seen device first, under the person it belongs to.
-    expect(body.members[0].devices.map((d) => d.deviceId)).toEqual(['d-sarah-1', 'd-sarah-2']);
-    expect(body.guestDevices.map((d) => d.deviceId)).toEqual(['d-guest']);
-    expect(body.guestDevices[0].label).toBe('Firefox · Windows');
+    expect(body.blocked).toEqual([]);
+    expect(body).not.toHaveProperty('guestDevices');
   });
 
   it('reports the plan alongside the roster', async () => {
@@ -269,12 +229,14 @@ describe('GET /api/club/roster', () => {
     expect(body.kit).toMatchObject({ name: 'Downtown Speakers', primaryColor: '#772432' });
   });
 
-  it('still shows a device whose member record was never written', async () => {
+  it('lists blocked accounts apart, and leaves legacy revoked rows out', async () => {
     await seedClub();
-    await kv.put(clubDeviceKey(clubId, 'd-orphan'), JSON.stringify({ label: 'Chrome · Linux', uid: 'ghost' }));
+    await kv.put(clubMemberKey(clubId, 'spam'), JSON.stringify({ displayName: 'Spam', blockedAt: 5, blockedBy: null }));
+    await kv.put(clubMemberKey(clubId, 'old'), JSON.stringify({ role: 'member', displayName: null, addedAt: 1, revokedAt: 2 }));
 
-    const body = await (await handleClubRoster(rosterReq(zoomDoor('sarah')), env)).json();
-    expect(body.members.find((m) => m.uid === 'ghost')).toMatchObject({ role: 'member' });
+    const body = await (await handleClubRoster(rosterReq(billingDoor()), env)).json();
+    expect(body.members.map((m) => m.uid)).toEqual(['sarah', 'james', 'priya']);
+    expect(body.blocked).toEqual([{ uid: 'spam', displayName: 'Spam', blockedAt: 5 }]);
   });
 });
 
@@ -284,61 +246,46 @@ describe('POST /api/club/members/<uid>/role', () => {
 
     const res = await setRole('priya', { role: 'editor' }, zoomDoor('sarah'));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ uid: 'priya', member: { role: 'editor', revokedAt: null } });
+    expect(await res.json()).toMatchObject({ uid: 'priya', member: { role: 'editor' } });
     expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'priya'))).role).toBe('editor');
   });
 
-  it('grants a role to a uid the roster has never seen', async () => {
+  // A role here never creates a row: that would take a place without a join.
+  it('refuses a uid that is not in the club', async () => {
     await seedClub();
-    expect((await setRole('newcomer', { role: 'editor' }, billingDoor())).status).toBe(200);
-    expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'newcomer')))).toMatchObject({ role: 'editor' });
+    expect((await setRole('newcomer', { role: 'editor' }, billingDoor())).status).toBe(404);
+    expect(kv.store.has(clubMemberKey(clubId, 'newcomer'))).toBe(false);
   });
 
-  it('revoking a person marks every device linked to them', async () => {
+  it('removes a person: the row and the index go, and the place is freed', async () => {
     await seedClub();
-    // Sarah is the buyer and holds two laptops; James takes the club on first,
-    // because the last admin cannot be revoked.
-    await setRole('james', { role: 'admin' }, billingDoor());
 
-    const res = await setRole('sarah', { role: 'revoked' }, billingDoor());
+    const res = await setRole('priya', { role: 'revoked' }, billingDoor());
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ devicesRevoked: 2 });
+    expect(await res.json()).toMatchObject({ uid: 'priya', removed: true });
+    expect(kv.store.has(clubMemberKey(clubId, 'priya'))).toBe(false);
+    expect(kv.store.has(clubOfKey('priya'))).toBe(false);
+    expect((await (await handleClubRoster(rosterReq(billingDoor()), env)).json()).counts.placesUsed).toBe(1);
+  });
 
-    for (const id of ['d-sarah-1', 'd-sarah-2']) {
-      expect(JSON.parse(kv.store.get(clubDeviceKey(clubId, id))).revokedAt).toBeTypeOf('number');
+  it('never changes the owner', async () => {
+    await seedClub();
+
+    for (const role of ['editor', 'revoked']) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await setRole('sarah', { role }, zoomDoor('sarah'));
+      expect(res.status).toBe(409);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await res.json()).toEqual({ error: 'owner' });
     }
-    // And nobody else's.
-    expect(JSON.parse(kv.store.get(clubDeviceKey(clubId, 'd-james'))).revokedAt).toBeNull();
-    expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'sarah'))).revokedAt).toBeTypeOf('number');
-  });
-
-  it('puts a revoked person back with one write', async () => {
-    await seedClub();
-    await setRole('priya', { role: 'revoked' }, billingDoor());
-
-    const res = await setRole('priya', { role: 'member' }, billingDoor());
-    expect(res.status).toBe(200);
-    expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'priya'))).revokedAt).toBeNull();
-  });
-
-  // A club with nobody who can administer it needs a support ticket to fix.
-  it('refuses to remove the last admin', async () => {
-    await seedClub();
-
-    const demote = await setRole('sarah', { role: 'editor' }, zoomDoor('sarah'));
-    expect(demote.status).toBe(409);
-    expect(await demote.json()).toEqual({ error: 'last_admin' });
-
-    const revoke = await setRole('sarah', { role: 'revoked' }, zoomDoor('sarah'));
-    expect(revoke.status).toBe(409);
     expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'sarah'))).role).toBe('admin');
   });
 
-  it('allows the handover once a second admin exists', async () => {
+  it('lets an admin step another admin down while the owner remains', async () => {
     await seedClub();
     await setRole('james', { role: 'admin' }, zoomDoor('sarah'));
 
-    expect((await setRole('sarah', { role: 'member' }, zoomDoor('sarah'))).status).toBe(200);
+    expect((await setRole('james', { role: 'member' }, zoomDoor('sarah'))).status).toBe(200);
   });
 
   it('refuses a role it does not recognise', async () => {
@@ -350,20 +297,34 @@ describe('POST /api/club/members/<uid>/role', () => {
 
   it('refuses a non-admin', async () => {
     await seedClub();
-    const res = await setRole('priya', { role: 'editor' }, zoomDoor('james', { deviceId: 'd-james' }));
+    const res = await setRole('priya', { role: 'editor' }, zoomDoor('james'));
     expect(res.status).toBe(403);
     expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'priya'))).role).toBe('member');
   });
 });
 
+describe('POST /api/club/members/<uid>/block', () => {
+  it('blocks and unblocks, and refuses anything but a yes or a no', async () => {
+    await seedClub();
+
+    expect((await setBlocked('priya', { blocked: true }, billingDoor())).status).toBe(200);
+    expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'priya')))).toMatchObject({ blockedAt: expect.any(Number) });
+
+    expect((await setBlocked('priya', { blocked: false }, billingDoor())).status).toBe(200);
+    expect(kv.store.has(clubMemberKey(clubId, 'priya'))).toBe(false);
+
+    expect((await setBlocked('priya', { blocked: 'yes' }, billingDoor())).status).toBe(400);
+  });
+
+  it('leaves a live member alone on an unblock', async () => {
+    await seedClub();
+    expect((await setBlocked('priya', { blocked: false }, billingDoor())).status).toBe(200);
+    expect(JSON.parse(kv.store.get(clubMemberKey(clubId, 'priya')))).toMatchObject({ role: 'member' });
+  });
+});
+
 describe('POST /api/club/members/<uid>/name', () => {
-  const nameReq = (uid, body, headers) =>
-    new Request(`https://x/api/club/members/${uid}/name`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-    });
-  const setName = (uid, body, headers) => handleMemberName(nameReq(uid, body, headers), env, uid);
+  const setName = (uid, body, headers) => handleMemberName(postReq(`members/${uid}/name`, body, headers), env, uid);
 
   // Until this existed the roster labelled people with their raw Zoom uid,
   // because `displayName` was written null everywhere and nothing ever set it.
@@ -393,37 +354,6 @@ describe('POST /api/club/members/<uid>/name', () => {
 
     expect((await setName('priya', { name: 'x'.repeat(61) }, zoomDoor('sarah'))).status).toBe(400);
     expect((await setName('priya', { name: 'Priya' }, zoomDoor('james'))).status).toBe(403);
-  });
-});
-
-describe('POST /api/club/devices/<id>/revoke', () => {
-  it('marks exactly one row', async () => {
-    await seedClub();
-
-    const res = await revokeDevice('d-guest', undefined, zoomDoor('sarah'));
-    expect(res.status).toBe(200);
-    expect(JSON.parse(kv.store.get(clubDeviceKey(clubId, 'd-guest'))).revokedAt).toBeTypeOf('number');
-    expect(JSON.parse(kv.store.get(clubDeviceKey(clubId, 'd-priya'))).revokedAt).toBeNull();
-  });
-
-  it('puts a device back when the wrong row was tapped', async () => {
-    await seedClub();
-    await revokeDevice('d-guest', undefined, billingDoor());
-
-    const res = await revokeDevice('d-guest', { revoked: false }, billingDoor());
-    expect(res.status).toBe(200);
-    expect(JSON.parse(kv.store.get(clubDeviceKey(clubId, 'd-guest'))).revokedAt).toBeNull();
-  });
-
-  it('404s on a device that is not this club\'s', async () => {
-    await seedClub();
-    expect((await revokeDevice('d-nope', undefined, billingDoor())).status).toBe(404);
-  });
-
-  it('refuses a non-admin', async () => {
-    await seedClub();
-    const res = await revokeDevice('d-guest', undefined, zoomDoor('james', { deviceId: 'd-james' }));
-    expect(res.status).toBe(403);
   });
 });
 
@@ -558,7 +488,11 @@ describe('dispatch', () => {
       })).status
     ).toBe(200);
     expect(
-      (await call('/api/club/devices/d-guest/revoke', { method: 'POST', headers: billingDoor() })).status
+      (await call('/api/club/members/priya/block', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...billingDoor() },
+        body: JSON.stringify({ blocked: true }),
+      })).status
     ).toBe(200);
     expect(
       (await call('/api/club/kit', {
@@ -572,7 +506,8 @@ describe('dispatch', () => {
   it('404s on a tail it does not know', async () => {
     await seedClub();
     expect((await call('/api/club/members/priya/promote', { method: 'POST', headers: billingDoor() })).status).toBe(404);
-    expect((await call('/api/club/devices/d-guest', { method: 'POST', headers: billingDoor() })).status).toBe(404);
+    // There is no per-device route any more.
+    expect((await call('/api/club/devices/d-guest/revoke', { method: 'POST', headers: billingDoor() })).status).toBe(404);
   });
 
   it('refuses the wrong method', async () => {

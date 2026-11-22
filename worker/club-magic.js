@@ -71,9 +71,9 @@ const sign = (encoded, secret) => crypto.createHmac('sha256', secret).update(enc
 /**
  * Mint the console session a consumed link hands back.
  *
- * Same construction as session-token.js and club-token.js — one HMAC to
- * rotate, one set of failure modes to reason about — but a *third* credential
- * rather than a reuse of either: it names a club and an address, not a uid, and
+ * Same construction as session-token.js — one HMAC to rotate, one set of
+ * failure modes to reason about — but a second credential rather than a reuse
+ * of it: it names a club and an address, not a uid, and
  * folding it into the session token would mean every `readSession()` caller in
  * the Worker had to start asking which kind of session it got.
  *

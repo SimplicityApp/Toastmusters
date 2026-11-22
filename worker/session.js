@@ -2,7 +2,7 @@ import { decryptAppContext } from './zoom-context.js';
 import { mintSessionToken } from './session-token.js';
 import { resolveAccess } from './entitlements.js';
 import { resolveFlags } from './flags.js';
-import { readClub } from './auth.js';
+import { memberClub } from './club-admin.js';
 import { readContactKnown } from './contact.js';
 
 /**
@@ -93,9 +93,11 @@ export async function handleZoomSession(request, env, ctx) {
 
   // None of these throws, and none needs another, so none waits.
   const [entitlement, flags, contactKnown] = await Promise.all([
-    // Combined with whatever club this device has already joined, so the line
-    // that records it cannot overwrite club-derived Pro with a free plan.
-    resolveAccess(env, { uid: payload.uid, clubId: readClub(request, env)?.clubId ?? null }),
+    // Combined with the club this account is in, found from the uid alone, so
+    // club Pro follows the account to every computer on its first paint.
+    memberClub(env, payload.uid).then((membership) =>
+      resolveAccess(env, { uid: payload.uid, clubId: membership?.clubId ?? null, club: membership?.club ?? null })
+    ),
     resolveFlags(env, { uid: payload.uid }, ctx),
     readContactKnown(env, payload.uid),
   ]);

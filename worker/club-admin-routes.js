@@ -1,18 +1,19 @@
 import crypto from 'node:crypto';
-import { readSession, readClub } from './auth.js';
+import { readSession } from './auth.js';
 import { json, methodNotAllowed } from './http.js';
 import { entitlementStore, clubKey, readClubRecord, resolveAccess } from './entitlements.js';
 import {
-  clubAdminOfKey,
-  clubDeviceKey,
+  activeAdmins,
   clubMemberKey,
   clubByEmailKey,
-  clearAdminIndex,
+  clubOwnerUid,
+  clearClubIndex,
   formatCode,
+  isLiveMember,
+  memberClub,
   normalizeEmail,
-  readMemberRole,
-  writeAdminIndex,
 } from './club-admin.js';
+import { CLUB_PLACES, clubPlaces, countPlaces } from './club-places.js';
 import { buildKit, DEFAULT_PRIMARY_COLOR } from './club.js';
 import { buildCards, readClubCards } from './club-cards.js';
 import { readAdminSession } from './club-magic.js';
@@ -28,16 +29,17 @@ import { readAdminSession } from './club-magic.js';
  * see whether a change came from a named member or from whoever holds the
  * billing mailbox.
  *
- *   GET  /api/club/roster                  devices grouped under their person
- *   POST /api/club/members/<uid>/role      grant, demote, revoke, restore
+ *   GET  /api/club/roster                  the people in the club, and the blocked
+ *   POST /api/club/members/<uid>/role      promote, demote, or `revoked` to remove
+ *   POST /api/club/members/<uid>/block     `{blocked}`: keep an account out, or let it back
  *   POST /api/club/members/<uid>/name      what the roster calls them
- *   POST /api/club/devices/<id>/revoke     the only handle a guest device has
  *   PUT  /api/club/kit                     name, colour, toggles, logo
  *
- * Enforcement of a revocation is already in place from the earlier phases — the
- * write paths read `club-device:` — so a revoked device stops publishing,
- * appending and consuming the club's R2 quota immediately, and loses read
- * access when its 24-hour token expires.
+ * The owner (the account that pays) is fixed: no request from either door
+ * removes, blocks or changes the role of them (`409 owner`). Remove frees the
+ * place and lets the account rejoin with the code; Block frees it too but keeps
+ * a row that makes the code refuse that account until it is unblocked. Either
+ * lands on the person's next app open, wherever they are signed in.
  */
 
 const forbidden = () => json({ error: 'forbidden' }, 403);
@@ -74,52 +76,28 @@ const logoKey = (clubId, hash) => `club/${clubId}/${hash}`;
  *
  * The Zoom door is preferred when it yields an admin, because a named person is
  * the better actor: the audit trail reads better, and the Stripe portal is only
- * reachable under a uid. The billing-address session answers for everything
- * else, including the browser that never activated a club code at all — which
- * is precisely the situation it exists for.
+ * reachable under a uid. The club is the one the session's account is in
+ * (`memberClub`), so *Manage your club* works in a system browser that has
+ * never seen the code. The billing-address session answers for everything
+ * else.
  *
- * Note what the Zoom door does *not* consult: the device record. Access
- * attaches to a device, authorization attaches to a person, and the console is
- * entirely about the second. Revoking a person clears their role — that is one
- * KV read away in `readMemberRole` — while revoking a device is about what that
- * laptop may do with the club's content, not about who may run the club.
+ * A signed-in account in no club comes back with no role rather than as null,
+ * so the console can tell "not an admin" (403) from "not signed in" (401).
  *
- * Nor does it require a club token. *Manage your club* opens the system
- * browser, which carries the officer's session and nothing else; the club it
- * names comes from `club-admin-of:zoom:<uid>` in that case, and the member row
- * it points at still decides.
- *
- * @returns {Promise<{clubId: string, actor: Object, role: string}|null>}
+ * @returns {Promise<{clubId: string|null, actor: Object, role: string|null}|null>}
  */
 export async function readAdminContext(request, env) {
-  const claims = readClub(request, env);
   const session = readSession(request, env);
 
   let zoom = null;
-  if (claims?.clubId && session?.uid) {
+  if (session?.uid) {
+    const membership = await memberClub(env, session.uid);
     zoom = {
-      clubId: claims.clubId,
+      clubId: membership?.clubId ?? null,
       actor: { type: 'zoom', uid: session.uid },
-      // Reported rather than filtered, so the caller can tell "not an admin"
-      // (403, and the console can say why) from "not signed in at all" (401).
-      role: await readMemberRole(env, claims.clubId, session.uid),
+      role: membership?.role ?? null,
     };
-  } else if (session?.uid) {
-    // Signed in, no club token. The index names a club; the member row under it
-    // is re-read rather than trusted, so a stale pointer left by a failed
-    // demotion reads as "not an admin" (403) instead of as access.
-    const store = entitlementStore(env);
-    const clubId = store ? await store.get(clubAdminOfKey(session.uid)).catch(() => null) : null;
-    if (clubId) {
-      zoom = {
-        clubId,
-        actor: { type: 'zoom', uid: session.uid },
-        role: await readMemberRole(env, clubId, session.uid),
-      };
-    }
   }
-  // A named person is the better actor whenever there is one: the audit trail
-  // reads better, and the Stripe portal is only reachable under a uid.
   if (zoom?.role === 'admin') return zoom;
 
   const billing = readAdminSession(request, env);
@@ -179,15 +157,14 @@ async function readAll(store, keys) {
 }
 
 const ROLE_RANK = { admin: 0, editor: 1, member: 2 };
-const bySeen = (a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0);
 
 /**
- * Devices grouped under the person they belong to, with unidentified devices
- * listed on their own.
+ * The people in the club, the place count, and the accounts kept out.
  *
- * The guest row is not an oversight: a device that activated with no Zoom
- * identity is the only handle an admin has on whoever is using their code, so
- * it has to be visible and revocable even though there is no name to put on it.
+ * People are live member rows: the owner first, marked and never counted, then
+ * by role and by when they joined. Blocked accounts come back on their own
+ * list, so an admin can let one back in. Legacy rows from device-era removals
+ * are neither.
  */
 export async function handleClubRoster(request, env) {
   if (request.method !== 'GET') return methodNotAllowed();
@@ -196,59 +173,39 @@ export async function handleClubRoster(request, env) {
   if (gate.response) return gate.response;
   const { store, club, clubId, actor } = gate;
 
-  const [deviceKeys, memberKeys] = await Promise.all([
-    listAll(store, `club-device:${clubId}:`),
-    listAll(store, `club-member:${clubId}:zoom:`),
+  const prefix = clubMemberKey(clubId, '');
+  const [rows, owner, placesUsed] = await Promise.all([
+    listAll(store, prefix).then((keys) => readAll(store, keys)),
+    clubOwnerUid(env, club),
+    countPlaces(env, clubId),
   ]);
-  const [devices, members] = await Promise.all([readAll(store, deviceKeys), readAll(store, memberKeys)]);
 
-  const byUid = new Map();
-  for (const { name, value } of members) {
-    const uid = name.slice(`club-member:${clubId}:zoom:`.length);
+  const people = [];
+  const blocked = [];
+  for (const { name, value } of rows) {
+    const uid = name.slice(prefix.length);
     if (!uid) continue;
-    byUid.set(uid, {
+    if (value.blockedAt) {
+      blocked.push({ uid, displayName: value.displayName ?? null, blockedAt: value.blockedAt });
+      continue;
+    }
+    if (!isLiveMember(value)) continue;
+    people.push({
       uid,
       role: ROLES.has(value.role) ? value.role : 'member',
       displayName: value.displayName ?? null,
       addedAt: value.addedAt ?? null,
-      revokedAt: value.revokedAt ?? null,
-      devices: [],
+      isOwner: uid === owner,
     });
   }
 
-  const guestDevices = [];
-  for (const { name, value } of devices) {
-    const deviceId = name.slice(`club-device:${clubId}:`.length);
-    if (!deviceId) continue;
-    const row = {
-      deviceId,
-      label: value.label || 'Unknown device',
-      activatedAt: value.activatedAt ?? null,
-      lastSeenAt: value.lastSeenAt ?? null,
-      revokedAt: value.revokedAt ?? null,
-    };
-    const uid = typeof value.uid === 'string' && value.uid ? value.uid : null;
-    if (!uid) {
-      guestDevices.push(row);
-      continue;
-    }
-    // A device whose member record was never written (or was deleted by hand)
-    // still belongs to someone; showing it under an implied member beats
-    // dropping it out of the roster entirely.
-    if (!byUid.has(uid)) {
-      byUid.set(uid, { uid, role: 'member', displayName: null, addedAt: null, revokedAt: null, devices: [] });
-    }
-    byUid.get(uid).devices.push(row);
-  }
-
-  const people = [...byUid.values()];
-  for (const person of people) person.devices.sort(bySeen);
   people.sort((a, b) => {
+    if (a.isOwner !== b.isOwner) return a.isOwner ? -1 : 1;
     const rank = (ROLE_RANK[a.role] ?? 3) - (ROLE_RANK[b.role] ?? 3);
     if (rank) return rank;
-    return (b.devices[0]?.lastSeenAt ?? 0) - (a.devices[0]?.lastSeenAt ?? 0);
+    return (a.addedAt ?? 0) - (b.addedAt ?? 0);
   });
-  guestDevices.sort(bySeen);
+  blocked.sort((a, b) => (b.blockedAt ?? 0) - (a.blockedAt ?? 0));
 
   const access = await resolveAccess(env, { clubId, club });
 
@@ -271,18 +228,14 @@ export async function handleClubRoster(request, env) {
     status: access.status,
     currentPeriodEnd: access.currentPeriodEnd,
     cancelAtPeriodEnd: access.cancelAtPeriodEnd,
-    counts: {
-      devices: devices.length,
-      people: people.length,
-      guestDevices: guestDevices.length,
-    },
+    counts: { people: people.length, placesUsed, placesTotal: CLUB_PLACES },
     members: people,
-    guestDevices,
+    blocked,
   });
 }
 
 // ---------------------------------------------------------------------------
-// Roles and revocation
+// Roles, removal and blocking
 // ---------------------------------------------------------------------------
 
 async function readJsonBody(request) {
@@ -293,31 +246,40 @@ async function readJsonBody(request) {
   }
 }
 
-/** How many people can still administer this club. */
-async function activeAdmins(store, clubId) {
-  const keys = await listAll(store, `club-member:${clubId}:zoom:`);
-  const records = await readAll(store, keys);
-  return records.filter(({ value }) => value.role === 'admin' && !value.revokedAt).length;
+const ownerRefused = () => json({ error: 'owner' }, 409);
+
+/**
+ * Free a place, or say the counter could not be reached. Called before the
+ * member row goes, so a failure changes nothing and the admin can retry.
+ *
+ * @returns {Promise<boolean>}
+ */
+async function releasePlace(env, clubId, uid) {
+  try {
+    await clubPlaces(env, clubId).release(uid);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * POST /api/club/members/<uid>/role — promote, demote, revoke or restore.
+ * POST /api/club/members/<uid>/role — promote, demote, or remove.
  *
- * One route for all four because they are one write. Revocation is a `role` of
- * its own rather than a second endpoint: "this person is out" and "this person
- * is an editor" are the same field from the console's point of view, and
- * splitting them would let the two drift.
- *
- * Revoking a person cascades to every device linked to them — a person who is
- * out is out on all of their laptops, and asking an admin to hunt down the rows
- * by hand is how someone stays half-revoked.
+ * Removal is the `revoked` role rather than a second endpoint: "this person is
+ * out" and "this person is an editor" are the same field from the console's
+ * point of view. A removed account loses its row, its index and its place, and
+ * may rejoin with the code while a place is free; keeping someone out is
+ * Block's job. Only a live member's role changes: there is no "restore",
+ * because a removed person has no row, and a role here never creates one —
+ * that would take a place without a join.
  */
 export async function handleMemberRole(request, env, uid) {
   if (request.method !== 'POST') return methodNotAllowed();
 
   const gate = await requireAdmin(request, env);
   if (gate.response) return gate.response;
-  const { store, clubId, actor } = gate;
+  const { store, club, clubId, actor } = gate;
 
   if (!uid) return notFound();
 
@@ -325,49 +287,79 @@ export async function handleMemberRole(request, env, uid) {
   const requested = body?.role === REVOKED ? REVOKED : ROLES.has(body?.role) ? body.role : null;
   if (!requested) return json({ error: 'invalid_role' }, 400);
 
+  if (uid === (await clubOwnerUid(env, club))) return ownerRefused();
+
   const key = clubMemberKey(clubId, uid);
   const existing = (await store.get(key, 'json').catch(() => null)) ?? null;
-  const now = Date.now();
+  if (!isLiveMember(existing)) return notFound();
 
   // A club with nobody who can administer it is a club that needs a support
-  // ticket to fix, so the last admin cannot demote or revoke themselves. The
-  // way out is to promote someone else first — which is also the way an
-  // officer hands the club over.
-  const losingAdmin = existing?.role === 'admin' && !existing?.revokedAt && requested !== 'admin';
-  if (losingAdmin && (await activeAdmins(store, clubId)) <= 1) {
+  // ticket to fix, so the last admin cannot demote or remove themselves. Only
+  // a club with no known owner can get here: the owner is always an admin.
+  if (existing.role === 'admin' && requested !== 'admin' && (await activeAdmins(store, clubId)) <= 1) {
     return json({ error: 'last_admin' }, 409);
   }
 
-  const member = {
-    role: requested === REVOKED ? (existing?.role && ROLES.has(existing.role) ? existing.role : 'member') : requested,
-    displayName: existing?.displayName ?? null,
-    addedAt: existing?.addedAt ?? now,
-    // Restoring is the same write with the mark cleared, so an accidental
-    // revocation costs one tap rather than a re-activation.
-    revokedAt: requested === REVOKED ? now : null,
-  };
-  await store.put(key, JSON.stringify(member));
-
-  // The console's uid → club pointer, kept beside the row that grants the role.
-  // Written after it, so a crash in between leaves a pointer that resolves to
-  // no role rather than a role nothing points at.
-  if (member.role === 'admin' && !member.revokedAt) await writeAdminIndex(store, uid, clubId);
-  else await clearAdminIndex(store, uid, clubId);
-
-  let cascaded = 0;
   if (requested === REVOKED) {
-    const deviceKeys = await listAll(store, `club-device:${clubId}:`);
-    for (const entry of deviceKeys) {
-      // eslint-disable-next-line no-await-in-loop
-      const device = await store.get(entry.name, 'json').catch(() => null);
-      if (!device || device.uid !== uid || device.revokedAt) continue;
-      // eslint-disable-next-line no-await-in-loop
-      await store.put(entry.name, JSON.stringify({ ...device, revokedAt: now }));
-      cascaded += 1;
-    }
+    if (!(await releasePlace(env, clubId, uid))) return json({ error: 'try_again' }, 503);
+    await store.delete(key);
+    await clearClubIndex(store, uid, clubId);
+    return json({ uid, removed: true, actor });
   }
 
-  return json({ uid, member, devicesRevoked: cascaded, actor });
+  const member = { ...existing, role: requested };
+  await store.put(key, JSON.stringify(member));
+  return json({ uid, member, actor });
+}
+
+/**
+ * POST /api/club/members/<uid>/block — `{ blocked: true }` keeps an account
+ * out of the club, `{ blocked: false }` lets it join with the code again.
+ *
+ * Blocking keeps (or creates) the account's row as `{ displayName, blockedAt,
+ * blockedBy }` with no role, and drops its index and its place. It works on an
+ * account that already left, so an admin can block someone after the fact.
+ * Unblocking deletes the row and nothing more: the account is not put back,
+ * it may simply use the code again.
+ */
+export async function handleMemberBlock(request, env, uid) {
+  if (request.method !== 'POST') return methodNotAllowed();
+
+  const gate = await requireAdmin(request, env);
+  if (gate.response) return gate.response;
+  const { store, club, clubId, actor } = gate;
+
+  if (!uid) return notFound();
+
+  const body = await readJsonBody(request);
+  if (typeof body?.blocked !== 'boolean') return json({ error: 'invalid_block' }, 400);
+
+  if (uid === (await clubOwnerUid(env, club))) return ownerRefused();
+
+  const key = clubMemberKey(clubId, uid);
+  const existing = (await store.get(key, 'json').catch(() => null)) ?? null;
+
+  if (!body.blocked) {
+    if (existing?.blockedAt) await store.delete(key);
+    return json({ uid, blocked: false, actor });
+  }
+
+  const live = isLiveMember(existing);
+  if (live && existing.role === 'admin' && (await activeAdmins(store, clubId)) <= 1) {
+    return json({ error: 'last_admin' }, 409);
+  }
+  // Someone who holds no place has nothing to release, so an unreachable
+  // counter only matters for a live member.
+  if (!(await releasePlace(env, clubId, uid)) && live) return json({ error: 'try_again' }, 503);
+
+  if (!existing?.blockedAt) {
+    await store.put(
+      key,
+      JSON.stringify({ displayName: existing?.displayName ?? null, blockedAt: Date.now(), blockedBy: actor })
+    );
+  }
+  await clearClubIndex(store, uid, clubId);
+  return json({ uid, blocked: true, actor });
 }
 
 /** Long enough for "Sarah (VPE)", short enough that nobody writes an essay. */
@@ -383,7 +375,9 @@ const MAX_DISPLAY_NAME_LENGTH = 60;
  * then a raw uid is a bad label, and an officer typing "Sarah" once fixes it
  * for everybody without anyone's name leaving the club.
  *
- * An empty name clears it, which is the undo.
+ * Renames an existing row only (a member or a blocked account): writing a row
+ * here would take a place without a join. An empty name clears it, which is
+ * the undo.
  */
 export async function handleMemberName(request, env, uid) {
   if (request.method !== 'POST') return methodNotAllowed();
@@ -400,45 +394,12 @@ export async function handleMemberName(request, env, uid) {
 
   const key = clubMemberKey(clubId, uid);
   const existing = (await store.get(key, 'json').catch(() => null)) ?? null;
-  // A person who has a device but no member row still deserves a label: the
-  // roster already shows them, so naming them writes the row it implies.
-  const member = {
-    role: existing?.role && ROLES.has(existing.role) ? existing.role : 'member',
-    displayName: raw || null,
-    addedAt: existing?.addedAt ?? Date.now(),
-    revokedAt: existing?.revokedAt ?? null,
-  };
+  if (!existing) return notFound();
+
+  const member = { ...existing, displayName: raw || null };
   await store.put(key, JSON.stringify(member));
 
   return json({ uid, member, actor });
-}
-
-/**
- * POST /api/club/devices/<deviceId>/revoke — cut one laptop off.
- *
- * The only handle a guest device has: it has no person to revoke, so the row
- * itself is the unit. `{ revoked: false }` puts it back, because the single
- * commonest mistake here is revoking the wrong row.
- */
-export async function handleDeviceRevoke(request, env, deviceId) {
-  if (request.method !== 'POST') return methodNotAllowed();
-
-  const gate = await requireAdmin(request, env);
-  if (gate.response) return gate.response;
-  const { store, clubId, actor } = gate;
-
-  if (!deviceId) return notFound();
-
-  const key = clubDeviceKey(clubId, deviceId);
-  const device = await store.get(key, 'json').catch(() => null);
-  if (!device) return notFound();
-
-  const body = await readJsonBody(request);
-  const revoked = body?.revoked !== false;
-  const next = { ...device, revokedAt: revoked ? Date.now() : null };
-  await store.put(key, JSON.stringify(next));
-
-  return json({ deviceId, device: { ...next, deviceId }, actor });
 }
 
 // ---------------------------------------------------------------------------
@@ -601,14 +562,9 @@ export function handleClubAdminRoutes(request, route, env) {
     const [uid, tail, ...extra] = route.slice('members/'.length).split('/');
     if (extra.length) return json({ error: 'Not found' }, 404);
     if (tail === 'role') return handleMemberRole(request, env, decodeURIComponent(uid || ''));
+    if (tail === 'block') return handleMemberBlock(request, env, decodeURIComponent(uid || ''));
     if (tail === 'name') return handleMemberName(request, env, decodeURIComponent(uid || ''));
     return json({ error: 'Not found' }, 404);
-  }
-
-  if (route.startsWith('devices/')) {
-    const [deviceId, tail, ...extra] = route.slice('devices/'.length).split('/');
-    if (extra.length || tail !== 'revoke') return json({ error: 'Not found' }, 404);
-    return handleDeviceRevoke(request, env, decodeURIComponent(deviceId || ''));
   }
 
   return null;

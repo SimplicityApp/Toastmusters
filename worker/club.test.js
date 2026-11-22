@@ -1,14 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import worker from './index.js';
-import { handleClubActivate, handleClubLeave, handleClubState, verifiedClubId, deviceLabel } from './club.js';
-import { createClubFromPending, rotateClubCode, normalizeCode, formatCode, clubPrefix, mintCode } from './club-admin.js';
+import { handleClubActivate, handleClubLeave, handleClubState } from './club.js';
+import {
+  createClubFromPending,
+  rotateClubCode,
+  normalizeCode,
+  formatCode,
+  clubPrefix,
+  mintCode,
+  clubOfKey,
+} from './club-admin.js';
 import { mintSessionToken } from './session-token.js';
-import { verifyClubToken } from './club-token.js';
 import { clubKey } from './entitlements.js';
+import { makeClubPlacesNamespace } from './club-places-fake.js';
 
 /**
- * Activation end to end: a code becomes a credential, every rejection looks the
- * same, and the device record is the handle revocation hangs off.
+ * Activation end to end: a code puts a signed-in account in a club, every
+ * rejection looks the same, and the club then follows the account through its
+ * session. The membership rules themselves (places, one club, owner, block)
+ * are in club-membership.test.js.
  */
 
 const SIGNING_KEY = 'test-session-signing-key';
@@ -51,30 +61,21 @@ let env;
 beforeEach(() => {
   kv = makeKv();
   env = { PROFILES: kv, SESSION_SIGNING_KEY: SIGNING_KEY, ENTITLEMENT_ENFORCE: '1' };
+  env.CLUB_PLACES = makeClubPlacesNamespace(() => env);
 });
 
-const activateReq = (code, { uid, ip = '1.2.3.4', ua, deviceId } = {}) =>
+const bearer = (uid) => (uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {});
+
+const activateReq = (code, { uid = 'timer-uid', ip = '1.2.3.4' } = {}) =>
   new Request('https://x/api/club/activate', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'cf-connecting-ip': ip,
-      ...(ua ? { 'user-agent': ua } : {}),
-      ...(uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {}),
-    },
-    body: JSON.stringify({ code, ...(deviceId ? { deviceId } : {}) }),
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip, ...bearer(uid) },
+    body: JSON.stringify({ code }),
   });
 
-const leaveReq = (clubToken) =>
-  new Request('https://x/api/club/leave', { method: 'POST', headers: { 'x-club': clubToken } });
+const leaveReq = (uid) => new Request('https://x/api/club/leave', { method: 'POST', headers: bearer(uid) });
 
-const stateReq = (clubToken, { uid } = {}) =>
-  new Request('https://x/api/club', {
-    headers: {
-      ...(clubToken ? { 'x-club': clubToken } : {}),
-      ...(uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {}),
-    },
-  });
+const stateReq = (uid) => new Request('https://x/api/club', { headers: bearer(uid) });
 
 async function seedClub(over = {}) {
   return createClubFromPending(env, { clubName: 'Downtown Speakers', uid: 'buyer-uid', ...over }, { code: 'DTSP7K2QM9' });
@@ -110,7 +111,7 @@ describe('codes', () => {
 });
 
 describe('POST /api/club/activate', () => {
-  it('returns a club token and the club state', async () => {
+  it('returns the club state, and no token', async () => {
     const { clubId } = await seedClub();
 
     const res = await handleClubActivate(activateReq('dtsp-7k2qm9', { uid: 'timer-uid' }), env);
@@ -123,6 +124,9 @@ describe('POST /api/club/activate', () => {
       plan: 'pro',
       entitled: true,
       source: 'club',
+      role: 'member',
+      isOwner: false,
+      placesUsed: 1,
       // A club that has set no kit still gets one: the name is always there,
       // and the defaults are what a device renders until an admin chooses.
       kit: {
@@ -136,89 +140,24 @@ describe('POST /api/club/activate', () => {
       badge: { x: 0.8, y: 0.12, scale: 0.12 },
       presets: null,
     });
-
-    const claims = verifyClubToken(body.clubToken, SIGNING_KEY);
-    expect(claims).toMatchObject({ clubId, uid: 'timer-uid', ver: 1 });
-    expect(claims.deviceId).toBeTruthy();
+    expect(body).not.toHaveProperty('clubToken');
   });
 
-  it('writes a device record naming the browser, and a member record for the uid', async () => {
+  it('writes a member row and the account\'s index, and nothing per device', async () => {
     const { clubId } = await seedClub();
 
-    const res = await handleClubActivate(
-      activateReq('DTSP-7K2QM9', { uid: 'timer-uid', ua: 'Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari/537' }),
-      env
-    );
-    const { clubToken } = await res.json();
-    const { deviceId } = verifyClubToken(clubToken, SIGNING_KEY);
+    await handleClubActivate(activateReq('DTSP-7K2QM9', { uid: 'timer-uid' }), env);
 
-    expect(await kv.get(`club-device:${clubId}:${deviceId}`, 'json')).toMatchObject({
-      label: 'Chrome · Windows',
-      uid: 'timer-uid',
-      revokedAt: null,
-    });
     expect(await kv.get(`club-member:${clubId}:zoom:timer-uid`, 'json')).toMatchObject({ role: 'member' });
+    expect(await kv.get(clubOfKey('timer-uid'), 'json')).toMatchObject({ clubId });
+    expect([...kv.store.keys()].filter((key) => key.startsWith('club-device:'))).toEqual([]);
   });
 
-  // The case the whole feature is sold on: whoever is timing on a borrowed
-  // laptop at 6:55pm has no Zoom identity and still needs the club.
-  it('activates a guest, writing a device record with uid null and no member record', async () => {
-    const { clubId } = await seedClub();
-
-    const res = await handleClubActivate(activateReq('DTSP-7K2QM9'), env);
-    expect(res.status).toBe(200);
-    const { clubToken } = await res.json();
-    const { deviceId, uid } = verifyClubToken(clubToken, SIGNING_KEY);
-
-    expect(uid).toBeNull();
-    expect(await kv.get(`club-device:${clubId}:${deviceId}`, 'json')).toMatchObject({ uid: null });
-    // Roles live only on member records, which is what makes "you cannot grant
-    // editing rights to an anonymous device" true by construction. The buyer's
-    // admin record, written when the club was minted, is the only one there.
-    expect([...kv.store.keys()].filter((key) => key.startsWith(`club-member:${clubId}:`))).toEqual([
-      `club-member:${clubId}:zoom:buyer-uid`,
-    ]);
-  });
-
-  // A roster that grew a row every time somebody re-typed the code was showing
-  // "4 devices · 1 person" for one person with two browsers, and an admin
-  // cannot revoke a laptop they cannot pick out of a list of ghosts.
-  it('reuses the browser’s own device row rather than minting a second', async () => {
-    const { clubId } = await seedClub();
-    const browser = 'b7f3c1d9e2a44f10b8c6d5e4f3a21098';
-
-    const first = await handleClubActivate(activateReq('DTSP-7K2QM9', { uid: 'timer-uid', deviceId: browser }), env);
-    const second = await handleClubActivate(activateReq('DTSP-7K2QM9', { uid: 'timer-uid', deviceId: browser }), env);
-
-    expect(verifyClubToken((await first.json()).clubToken, SIGNING_KEY).deviceId).toBe(browser);
-    expect(verifyClubToken((await second.json()).clubToken, SIGNING_KEY).deviceId).toBe(browser);
-    expect([...kv.store.keys()].filter((key) => key.startsWith(`club-device:${clubId}:`))).toEqual([
-      `club-device:${clubId}:${browser}`,
-    ]);
-  });
-
-  // Re-typing the code is not an appeal.
-  it('leaves a revoked row revoked when its browser activates again', async () => {
-    const { clubId } = await seedClub();
-    const browser = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
-
-    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
-    const key = `club-device:${clubId}:${browser}`;
-    await kv.put(key, JSON.stringify({ ...(await kv.get(key, 'json')), revokedAt: 1 }));
-
-    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
-
-    expect(await kv.get(key, 'json')).toMatchObject({ revokedAt: 1 });
-  });
-
-  it('mints an id for a browser that cannot keep one', async () => {
-    const { clubId } = await seedClub();
-
-    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: 'nope' }), env);
-
-    const keys = [...kv.store.keys()].filter((key) => key.startsWith(`club-device:${clubId}:`));
-    expect(keys).toHaveLength(1);
-    expect(keys[0].endsWith(':nope')).toBe(false);
+  it('needs a Zoom account', async () => {
+    await seedClub();
+    const res = await handleClubActivate(activateReq('DTSP-7K2QM9', { uid: null }), env);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'sign_in_required' });
   });
 
   // One uniform failure, so probing cannot confirm that a club exists.
@@ -281,157 +220,107 @@ describe('POST /api/club/activate', () => {
 });
 
 describe('GET /api/club', () => {
-  async function activated(options) {
+  async function activated(uid = 'timer-uid') {
     const seeded = await seedClub();
-    const res = await handleClubActivate(activateReq('DTSP-7K2QM9', options), env);
-    const body = await res.json();
-    return { ...seeded, ...body, claims: verifyClubToken(body.clubToken, SIGNING_KEY) };
+    await handleClubActivate(activateReq('DTSP-7K2QM9', { uid }), env);
+    return seeded;
   }
 
-  it('re-mints the token and reports the plan again', async () => {
-    const { clubId, clubToken } = await activated();
+  it('reports the club and the plan again, from the session alone', async () => {
+    const { clubId } = await activated();
 
-    const res = await handleClubState(stateReq(clubToken), env);
+    const res = await handleClubState(stateReq('timer-uid'), env);
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(body).toMatchObject({ ver: 1, club: { id: clubId, name: 'Downtown Speakers' }, entitled: true });
-    expect(verifyClubToken(body.clubToken, SIGNING_KEY)).toMatchObject({ clubId });
+    expect(body).toMatchObject({ ver: 1, club: { id: clubId, name: 'Downtown Speakers' }, entitled: true, role: 'member' });
+    expect(body).not.toHaveProperty('clubToken');
   });
 
   // A lapse can only land on a successful refresh at app start, never mid-meeting.
   it('reports a lapsed club as free without deleting anything', async () => {
-    const { clubId, clubToken } = await activated();
+    const { clubId } = await activated();
     const club = await kv.get(clubKey(clubId), 'json');
     await kv.put(clubKey(clubId), JSON.stringify({ ...club, status: 'canceled', currentPeriodEnd: Date.now() - DAY }));
 
-    const body = await (await handleClubState(stateReq(clubToken), env)).json();
+    const body = await (await handleClubState(stateReq('timer-uid'), env)).json();
     expect(body).toMatchObject({ plan: 'free', entitled: false, club: { id: clubId } });
     expect(await kv.get(clubKey(clubId), 'json')).toBeTruthy();
   });
 
-  // The buyer who also typed their own club's code must not be told they are free.
+  // The buyer who is also in their own club must not be told they are free.
   it('combines the club with the caller\'s own subscription', async () => {
-    const { clubId, clubToken } = await activated();
+    const { clubId } = await activated();
     const club = await kv.get(clubKey(clubId), 'json');
     await kv.put(clubKey(clubId), JSON.stringify({ ...club, status: 'canceled', currentPeriodEnd: Date.now() - DAY }));
     await kv.put('entitlement:zoom:buyer-uid', JSON.stringify({ status: 'active', currentPeriodEnd: Date.now() + DAY }));
 
-    const body = await (await handleClubState(stateReq(clubToken, { uid: 'buyer-uid' }), env)).json();
+    const body = await (await handleClubState(stateReq('buyer-uid'), env)).json();
     expect(body).toMatchObject({ plan: 'pro', entitled: true, source: 'subscription' });
   });
 
-  it('refuses a missing, forged or revoked credential', async () => {
-    const { clubId, clubToken, claims } = await activated();
+  it('needs a session, and answers no_club for an account in none', async () => {
+    await activated();
 
     expect((await handleClubState(stateReq(null), env)).status).toBe(401);
-    expect((await handleClubState(stateReq('not.a.token'), env)).status).toBe(401);
-
-    const device = await kv.get(`club-device:${clubId}:${claims.deviceId}`, 'json');
-    await kv.put(`club-device:${clubId}:${claims.deviceId}`, JSON.stringify({ ...device, revokedAt: Date.now() }));
-    const res = await handleClubState(stateReq(clubToken), env);
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'club_access_revoked' });
+    const res = await handleClubState(stateReq('stranger'), env);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'no_club' });
   });
 
-  it('404s when the club record is gone', async () => {
-    const { clubId, clubToken } = await activated();
+  it('answers no_club when the club record is gone', async () => {
+    const { clubId } = await activated();
     await kv.delete(clubKey(clubId));
 
-    expect((await handleClubState(stateReq(clubToken), env)).status).toBe(404);
-  });
-
-  it('refreshes lastSeenAt, but not on every call', async () => {
-    const { clubId, clubToken, claims } = await activated();
-    const deviceKey = `club-device:${clubId}:${claims.deviceId}`;
-
-    const firstSeen = (await kv.get(deviceKey, 'json')).lastSeenAt;
-    await handleClubState(stateReq(clubToken), env);
-    expect((await kv.get(deviceKey, 'json')).lastSeenAt).toBe(firstSeen);
-
-    await kv.put(deviceKey, JSON.stringify({ ...(await kv.get(deviceKey, 'json')), lastSeenAt: Date.now() - 2 * DAY }));
-    await handleClubState(stateReq(clubToken), env);
-    expect((await kv.get(deviceKey, 'json')).lastSeenAt).toBeGreaterThan(Date.now() - 1000);
+    expect((await handleClubState(stateReq('timer-uid'), env)).status).toBe(404);
   });
 
   it('refuses anything but GET', async () => {
-    const { clubToken } = await activated();
-    const res = await handleClubState(
-      new Request('https://x/api/club', { method: 'POST', headers: { 'x-club': clubToken } }),
-      env
-    );
+    await activated();
+    const res = await handleClubState(new Request('https://x/api/club', { method: 'POST', headers: bearer('timer-uid') }), env);
     expect(res.status).toBe(405);
   });
 });
 
 describe('POST /api/club/leave', () => {
-  const browser = 'c0ffee00c0ffee00c0ffee00c0ffee00';
-
-  it('takes this device off the roster, so leaving and rejoining is one row', async () => {
+  it('takes the account out of the club everywhere, and it can rejoin', async () => {
     const { clubId } = await seedClub();
-    const key = `club-device:${clubId}:${browser}`;
+    await handleClubActivate(activateReq('DTSP-7K2QM9'), env);
 
-    const joined = await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
-    const { clubToken } = await joined.json();
+    const res = await handleClubLeave(leaveReq('timer-uid'), env);
+    expect(res.status).toBe(200);
+    expect(await kv.get(`club-member:${clubId}:zoom:timer-uid`, 'json')).toBeNull();
+    expect((await handleClubState(stateReq('timer-uid'), env)).status).toBe(404);
 
-    expect(await handleClubLeave(leaveReq(clubToken), env)).toMatchObject({ status: 200 });
-    expect(await kv.get(key, 'json')).toBeNull();
-
-    await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
-    expect([...kv.store.keys()].filter((k) => k.startsWith(`club-device:${clubId}:`))).toEqual([key]);
+    expect((await handleClubActivate(activateReq('DTSP-7K2QM9'), env)).status).toBe(200);
   });
 
-  // The device calls this on its way out of a 403 too, and deleting the row
-  // there would make leaving a way to undo a revocation.
-  it('keeps a revoked row exactly where it is', async () => {
-    const { clubId } = await seedClub();
-    const key = `club-device:${clubId}:${browser}`;
-
-    const joined = await handleClubActivate(activateReq('DTSP-7K2QM9', { deviceId: browser }), env);
-    const { clubToken } = await joined.json();
-    await kv.put(key, JSON.stringify({ ...(await kv.get(key, 'json')), revokedAt: 1 }));
-
-    await handleClubLeave(leaveReq(clubToken), env);
-
-    expect(await kv.get(key, 'json')).toMatchObject({ revokedAt: 1 });
+  it('is quiet for an account in no club', async () => {
+    await seedClub();
+    const res = await handleClubLeave(leaveReq('stranger'), env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ left: true });
   });
 
-  it('refuses a request with no club token, and anything but POST', async () => {
+  it('refuses a request with no session, and anything but POST', async () => {
     expect((await handleClubLeave(new Request('https://x/api/club/leave', { method: 'POST' }), env)).status).toBe(401);
     expect((await handleClubLeave(new Request('https://x/api/club/leave'), env)).status).toBe(405);
   });
 });
 
-describe('verifiedClubId', () => {
-  it('is the clubId only while the device record says so', async () => {
-    const { clubId } = await seedClub();
-    const body = await (await handleClubActivate(activateReq('DTSP-7K2QM9'), env)).json();
-    const claims = verifyClubToken(body.clubToken, SIGNING_KEY);
-
-    expect(await verifiedClubId(env, claims)).toBe(clubId);
-
-    const key = `club-device:${clubId}:${claims.deviceId}`;
-    await kv.put(key, JSON.stringify({ ...(await kv.get(key, 'json')), revokedAt: Date.now() }));
-    expect(await verifiedClubId(env, claims)).toBeNull();
-
-    await kv.delete(key);
-    expect(await verifiedClubId(env, claims)).toBeNull();
-    expect(await verifiedClubId(env, null)).toBeNull();
-  });
-});
-
 describe('createClubFromPending', () => {
-  it('mints the record, both lookups and the buyer as first admin', async () => {
+  it('mints the record, both lookups and the buyer as owner and first admin', async () => {
     const { clubId, code, club } = await createClubFromPending(
       env,
       { clubName: 'Downtown Speakers', uid: 'buyer-uid', email: 'treasurer@example.com', stripeCustomerId: 'cus_1' },
       { now: 1_000 }
     );
 
-    expect(club).toMatchObject({ name: 'Downtown Speakers', ver: 1, status: 'active', billingEmail: 'treasurer@example.com' });
+    expect(club).toMatchObject({ name: 'Downtown Speakers', ver: 1, status: 'active', billingEmail: 'treasurer@example.com', ownerUid: 'buyer-uid' });
     expect(await kv.get(`club-by-code:${code}`)).toBe(clubId);
     expect(await kv.get('club-by-customer:cus_1')).toBe(clubId);
     expect(await kv.get(`club-member:${clubId}:zoom:buyer-uid`, 'json')).toMatchObject({ role: 'admin' });
+    expect(await kv.get(clubOfKey('buyer-uid'), 'json')).toEqual({ clubId, at: 1_000 });
   });
 
   it('names a club whose buyer skipped the field', async () => {
@@ -441,12 +330,11 @@ describe('createClubFromPending', () => {
 });
 
 describe('rotateClubCode', () => {
-  // Rotation is the lever a leaked code needs, and it has to bite now rather
-  // than whenever a cached token happens to expire.
-  it('issues a new code, deletes the old one and revokes every device', async () => {
+  // Rotation is the lever a leaked code needs: it closes the door, and the
+  // people already inside stay, by account.
+  it('issues a new code and deletes the old one, keeping every member', async () => {
     const { clubId } = await seedClub();
-    const body = await (await handleClubActivate(activateReq('DTSP-7K2QM9'), env)).json();
-    const claims = verifyClubToken(body.clubToken, SIGNING_KEY);
+    await handleClubActivate(activateReq('DTSP-7K2QM9'), env);
 
     const { code, club } = await rotateClubCode(env, clubId, { code: 'DTSPAAAAAA' });
 
@@ -454,18 +342,7 @@ describe('rotateClubCode', () => {
     expect(club.ver).toBe(2);
     expect(await kv.get('club-by-code:DTSP7K2QM9')).toBeNull();
     expect(await kv.get('club-by-code:DTSPAAAAAA')).toBe(clubId);
-    expect(await verifiedClubId(env, claims)).toBeNull();
-  });
-});
-
-describe('deviceLabel', () => {
-  it('names the browser and the OS, and degrades to something printable', () => {
-    const ua = (value) => new Request('https://x/', { headers: { 'user-agent': value } });
-
-    expect(deviceLabel(ua('Mozilla/5.0 (Macintosh) Safari/605'))).toBe('Safari · macOS');
-    expect(deviceLabel(ua('Mozilla/5.0 (Windows NT 10.0) Firefox/121'))).toBe('Firefox · Windows');
-    expect(deviceLabel(ua('Mozilla/5.0 (Windows NT 10.0) Chrome/120 Edg/120'))).toBe('Edge · Windows');
-    expect(deviceLabel(new Request('https://x/'))).toBe('Unknown device');
+    expect((await handleClubState(stateReq('timer-uid'), env)).status).toBe(200);
   });
 });
 
@@ -480,7 +357,7 @@ describe('routing', () => {
     const activate = await worker.fetch(
       new Request('https://timer.simple-tech.app/api/club/activate', {
         method: 'POST',
-        headers: { host: 'timer.simple-tech.app', 'content-type': 'application/json' },
+        headers: { host: 'timer.simple-tech.app', 'content-type': 'application/json', ...bearer('timer-uid') },
         body: JSON.stringify({ code: 'DTSP-7K2QM9' }),
       }),
       { ...env, FLAGS_FORCE: '1' },
