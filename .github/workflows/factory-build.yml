@@ -63,6 +63,7 @@ jobs:
           npm ci --prefix apps/table-topics
           npx playwright install --with-deps chromium
       - uses: anthropics/claude-code-action@v1
+        id: claude
         if: steps.gate.outputs.issue
         env:
           FACTORY_STATION: build
@@ -83,6 +84,26 @@ jobs:
           # from github-actions[bot], never a factory actor. Pushes made with it don't start
           # CI, so the PR's checks stay on the last human or Mac push until the Zoom station.
           github_token: ${{ github.token }}
+      - name: Show how Claude ended
+        # The action logs only a summary and keeps Claude's final message in a file on the
+        # runner, so a station that died on an API error or a usage limit left no reason
+        # (#167, 2026-11-22: is_error after 6 turns, nothing else). Print the final result and
+        # the last assistant text, never the transcript: this repository is public.
+        if: always() && steps.gate.outputs.issue
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          f="${EXECUTION_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
+          [ -f "$f" ] || { echo "No Claude output file at $f."; exit 0; }
+          jq -rs '
+            flatten
+            | (map(select(.type == "result")) | last) as $r
+            | (map(select(.type == "assistant")) | last | .message.content // []
+               | map(select(.type == "text") | .text) | join("\n")) as $a
+            | "subtype: \($r.subtype // "?"), is_error: \($r.is_error), turns: \($r.num_turns // "?")",
+              "result: \(($r.result // "(none)") | .[0:4000])",
+              "last assistant text: \($a | .[0:2000])"
+          ' "$f" || echo "Couldn't parse $f."
       - name: Check the station ran
         if: steps.gate.outputs.issue
         env:
