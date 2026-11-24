@@ -208,8 +208,14 @@ the Zoom halves of CM-04 and CM-16 passed, and so did CM-12: every ⋯ → Refre
 session → profile → club in that order. On the 4 cold opens from Apps the Worker tail showed
 only `GET /`, but PostHog shows each one resolved its session about 1 s after the page view
 (`$set` with `zoom_identified: true`, which only a successful `/api/zoom/session` answer gives):
-the tail drops requests on a cold open, so prove those with PostHog. CM-02 and CM-07 ⏭ (no way to run them in Zoom; Do lines fixed), the console
-halves (CM-04, CM-06, CM-14, CM-16) ⏭ (no web session), human steps ⏭. Log: test-runs/2026-11-24-167-club-account-invites/run.md.
+the tail drops requests on a cold open, so prove those with PostHog. The same day, on the web
+console signed in as the owner (FLAGS_FORCE "1,new_look=0"; web sign-in is dark while `pro` is
+off): CM-04's and CM-16's console halves, CM-14 (Block), CM-15's Unblock half and CM-06's
+Remove passed on seeded fake members; the forced owner leave answered 409 `owner`. The console
+confirms with `window.confirm`, which freezes a background tab under browser automation: stub it
+from a page script and read the text it was given. CM-02 and CM-07 ⏭ (no way to run them in
+Zoom; Do lines fixed), CM-06's and CM-15's halves that need a second real account ⏭, human
+steps ⏭. Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 
 ## Not covered
 - The Durable Object's serialisation of simultaneous joins (AC-3's race): unit-tested in
