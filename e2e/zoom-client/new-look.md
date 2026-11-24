@@ -239,6 +239,12 @@ currentSpeaker), and the idle card shows that snapshot's old times after a rules
 personal-Pro device with no club, ⋯ → "Join my club with a code" opens a Pro sheet with no code
 field. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 
+Run 2026-11-24 (factory/167 9d094d6, the steps #167 touches; dev e2c40064 with FLAGS_FORCE "1,pro=0", then
+c5175c33 with "1"): NL-01, NL-09, NL-10, NL-15, NL-16's club half and NL-17's club Pro half passed (no Leave for
+the owner; ⋯ has no "Join my club" row on a Pro device). NL-20 ⏭ (this device closed the note before), NL-17's
+free half ⏭ (no free account). The other steps were not rerun: #167 does not touch them; they last passed on
+61de1d8 (2026-11-19). Log: test-runs/2026-11-24-167-zoom-pass-2/run.md.
+
 ## Not covered
 - Reviewed against the #167 implementation: the Pro sheet's code field now reads "Already on Pro
   with your club?" (its accessible name still starts "Already on Pro through your club?"), the

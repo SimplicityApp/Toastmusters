@@ -1,7 +1,7 @@
 ---
 id: club-pro-gate
 title: Club features only while Pro is released
-status: stale
+status: current
 covers:
   - packages/shared/club.js
   - packages/shared/clubPresets.js
@@ -21,8 +21,8 @@ needs:
     account, so any computer signed in as that account is a "club device"
   - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
     today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
-verified_at: 7e05b9a
-verified_on: 2026-11-16 (Zoom 7.2.5, macOS 26.7.2, dev with FLAGS_FORCE "0" then "1,new_look=0")
+verified_at: 9d094d6
+verified_on: 2026-11-24 (Zoom on macOS, factory/167 9d094d6: dev 52af75ee and 7c8ee168 with FLAGS_FORCE "0", fd826c9b with "1,new_look=0")
 ---
 
 # Club features only while Pro is released
@@ -63,7 +63,8 @@ the Report tab shows "Saved to <club>" with History. Nothing had to be re-entere
 Evidence: screenshots.
 
 Run 2026-11-24 (factory/167 9d094d6): GP-01 and GP-02 passed with FLAGS_FORCE "0" (dev 52af75ee);
-GP-03 not rerun (seen in part earlier the same run under "1,new_look=0": badge, archive upload).
+GP-03 passed in the second pass the same day (FLAGS_FORCE "0" → "1,new_look=0" and Refresh: badge back on the
+preview and the video, the club's card set listed with the device's own choice kept). Log: test-runs/2026-11-24-167-zoom-pass-2/run.md.
 Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): GP-01 and GP-02 passed with FLAGS_FORCE "0", GP-03 with
 "1,new_look=0" (today's panel). Log: test-runs/2026-11-16-design-b-new-look-2/run.md.

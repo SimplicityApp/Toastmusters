@@ -114,6 +114,12 @@ it next opens the timer (see CC-07).
 Evidence: `PUT /api/club/cards` → 200; KV `club-cards:<clubId>` names only the new hashes and
 `ver` went up by 1; `GET /api/club/cards/<old hash>` with B's session → 404 (pruned).
 
+Run 2026-11-24 (factory/167 9d094d6, dev fd826c9b with FLAGS_FORCE "1,new_look=0", then c5175c33 with "1" for
+CC-09 in the new look's Cards sheet, which has the same Share rows): CC-01, CC-02, CC-05 (on A's device) and
+CC-09 passed — the republish pruned both old images (404) and the club set was then re-shared from Custom 1, so
+Claude Test Club keeps its CLUB BLUE / CLUB RED set. CC-03, CC-04, CC-06, CC-07 and CC-08 need account B and
+were not run. Use fresh images: re-uploading the fixtures already in the club set hashes the same. Log: test-runs/2026-11-24-167-zoom-pass-2/run.md.
+
 ## Not covered
 - Reviewed against the #167 implementation: card downloads and publishes carry the session
   (Bearer in Zoom, the cookie on the web) and wait for it, and the club comes from the account,

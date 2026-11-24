@@ -213,8 +213,9 @@ console signed in as the owner (FLAGS_FORCE "1,new_look=0"; web sign-in is dark 
 off): CM-04's and CM-16's console halves, CM-14 (Block), CM-15's Unblock half and CM-06's
 Remove passed on seeded fake members; the forced owner leave answered 409 `owner`. The console
 confirms with `window.confirm`, which freezes a background tab under browser automation: stub it
-from a page script and read the text it was given. CM-02 and CM-07 ⏭ (no way to run them in
-Zoom; Do lines fixed), CM-06's and CM-15's halves that need a second real account ⏭, human
+from a page script and read the text it was given. CM-02 passed on the web route (the second pass: /timer/app
+signed in as A rebuilt the club copy from GET /api/club, no clubToken). CM-07 ⏭ (no way to run it in
+Zoom; Do line fixed), CM-06's and CM-15's halves that need a second real account ⏭, human
 steps ⏭. Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 
 ## Not covered
