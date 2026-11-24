@@ -62,6 +62,8 @@ const setCookies = (res) => res.headers.getSetCookie?.() ?? [res.headers.get('se
 
 // The "approved before" mark the install landing sets (worker/reconnect.js).
 const APPROVED_SET_COOKIE = /^tt_approved=1; Path=\/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax$/;
+// The same landing clears a reconnect-page dismissal, and sets no other cookie.
+const CLEAR_DISMISSED_SET_COOKIE = 'tt_reconnect_dismissed=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax';
 
 describe('canonical host redirect', () => {
   it('301s the bare apex host to www, preserving path and query', async () => {
@@ -774,8 +776,9 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
       expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
       expect(res.headers.get('cache-control')).toBe('no-store');
       const cookies = setCookies(res);
-      expect(cookies).toHaveLength(1);
+      expect(cookies).toHaveLength(2);
       expect(cookies[0]).toMatch(APPROVED_SET_COOKIE);
+      expect(cookies[1]).toBe(CLEAR_DISMISSED_SET_COOKIE);
       expect(env.ASSETS.fetch).not.toHaveBeenCalled();
     }
   });
@@ -829,8 +832,9 @@ describe('/oauth/redirect: sign-in callback vs Marketplace install', () => {
         const res = await worker.fetch(get('https://www.timer.simple-tech.app/oauth/redirect?code=abc'), env, backgroundCtx);
         expect(res.status).toBe(302);
         expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/oauth/redirect?welcome=new');
-        expect(setCookies(res)).toHaveLength(1);
+        expect(setCookies(res)).toHaveLength(2);
         expect(setCookies(res)[0]).toMatch(APPROVED_SET_COOKIE);
+        expect(setCookies(res)[1]).toBe(CLEAR_DISMISSED_SET_COOKIE);
         expect(kv.store.size).toBe(0);
         expect(backgroundCtx.pending()).toBe(1);
 
@@ -1072,9 +1076,43 @@ describe('a marked browser opening a bare / goes to the reconnect page', () => {
     }
   });
 
-  // "Go to the homepage" on the reconnect page is /?home, and marketing links
-  // carry ?utm_…: a query string always reaches the homepage.
-  it.each(['/?home', '/?utm_source=newsletter'])('serves a marked browser the homepage at %s', async (path) => {
+  // "Go to the homepage" on the reconnect page is /?home: the Worker remembers
+  // the choice and the next bare / is the homepage, not the reconnect page.
+  it('remembers a marked browser leaving for the homepage', async () => {
+    const env = makeEnv(['/index.html']);
+    const first = await worker.fetch(get('https://www.timer.simple-tech.app/?home', { cookie: MARK }), env, ctx);
+
+    expect(first.status).toBe(302);
+    expect(first.headers.get('location')).toBe('https://www.timer.simple-tech.app/');
+    expect(first.headers.get('cache-control')).toBe('no-store');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+
+    const cookie = `${MARK}; ${setCookies(first)[0].split(';')[0]}`;
+    for (const path of ['/', '/?home']) {
+      const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`, { cookie }), makeEnv(['/index.html']), ctx);
+
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('x-asset-path')).toBe('/index.html');
+      expect(res.headers.get('location')).toBeNull();
+    }
+  });
+
+  // The next approval clears the dismissal, so the reconnect page comes back.
+  it('sends a dismissed browser to the reconnect page again after it re-approves', async () => {
+    const landing = await worker.fetch(
+      get('https://www.timer.simple-tech.app/oauth/redirect?code=abc', { cookie: `${MARK}; tt_reconnect_dismissed=1` }),
+      makeEnv(['/index.html']),
+      createCtx()
+    );
+    expect(setCookies(landing)).toContain('tt_reconnect_dismissed=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax');
+
+    const res = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie: MARK }), makeEnv(['/index.html']), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer.simple-tech.app/reconnect');
+  });
+
+  // Marketing links carry ?utm_…: any other query string reaches the homepage.
+  it.each(['/?utm_source=newsletter'])('serves a marked browser the homepage at %s', async (path) => {
     const res = await worker.fetch(get(`https://www.timer.simple-tech.app${path}`, { cookie: MARK }), makeEnv(['/index.html']), ctx);
 
     expect(res.status).toBe(200);
@@ -1103,8 +1141,25 @@ describe('a marked browser opening a bare / goes to the reconnect page', () => {
       expect(res.headers.get('cache-control')).toBe('no-store');
     });
 
-    it('301s a marked /?home to the main site homepage', async () => {
-      const res = await worker.fetch(get('https://www.timer.simple-tech.app/?home', { cookie: MARK }), env(), ctx);
+    // "Go to the homepage": the dismissal is written here, on the old host,
+    // because the cookie is host-only. Then a bare / moves to the main site.
+    it('remembers a marked /?home on the old host, then 301s / to the main site', async () => {
+      const first = await worker.fetch(get('https://www.timer.simple-tech.app/?home', { cookie: MARK }), env(), ctx);
+
+      expect(first.status).toBe(302);
+      expect(first.headers.get('location')).toBe('https://www.timer.simple-tech.app/');
+      const dismissed = setCookies(first)[0].split(';')[0];
+      expect(dismissed).toBe('tt_reconnect_dismissed=1');
+
+      const next = await worker.fetch(get('https://www.timer.simple-tech.app/', { cookie: `${MARK}; ${dismissed}` }), env(), ctx);
+
+      expect(next.status).toBe(301);
+      expect(next.headers.get('location')).toBe('https://www.toastmusters.com/');
+      expect(next.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('301s an already dismissed /?home to the main site homepage', async () => {
+      const res = await worker.fetch(get('https://www.timer.simple-tech.app/?home', { cookie: `${MARK}; tt_reconnect_dismissed=1` }), env(), ctx);
 
       expect(res.status).toBe(301);
       expect(res.headers.get('location')).toBe('https://www.toastmusters.com/?home');

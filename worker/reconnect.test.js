@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { APPROVED_COOKIE, approvedBefore, installLandingRedirect, reconnectRedirect } from './reconnect.js';
+import {
+  APPROVED_COOKIE,
+  DISMISSED_COOKIE,
+  approvedBefore,
+  installLandingRedirect,
+  reconnectDismissal,
+  reconnectDismissed,
+  reconnectRedirect,
+} from './reconnect.js';
 
 const ONE_YEAR_SEC = 365 * 24 * 60 * 60;
 
@@ -53,15 +61,18 @@ describe('installLandingRedirect', () => {
     expect([...location.searchParams.keys()]).toEqual(['welcome']);
   });
 
-  it('marks the browser for a year, host-only and out of reach of page JavaScript', () => {
-    for (const cookie of [undefined, 'tt_approved=1']) {
+  // A fresh approval starts the cycle over: the reconnect page comes back on a
+  // bare / until the visitor leaves it for the homepage again.
+  it('marks the browser for a year, host-only and out of reach of page JavaScript, and clears a dismissal', () => {
+    for (const cookie of [undefined, 'tt_approved=1', 'tt_approved=1; tt_reconnect_dismissed=1']) {
       const res = installLandingRedirect(...landing('https://www.timer.simple-tech.app/oauth/redirect?code=abc', { cookie }));
       const cookies = setCookies(res);
 
       expect(cookies).toEqual([
         `tt_approved=1; Path=/; Max-Age=${ONE_YEAR_SEC}; HttpOnly; Secure; SameSite=Lax`,
+        'tt_reconnect_dismissed=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
       ]);
-      expect(cookies[0]).not.toMatch(/Domain=/i);
+      for (const set of cookies) expect(set).not.toMatch(/Domain=/i);
     }
   });
 
@@ -88,6 +99,10 @@ describe('installLandingRedirect', () => {
 
 describe('reconnectRedirect', () => {
   const MARK = 'tt_approved=1';
+
+  it('leaves a browser that dismissed the reconnect page on the homepage', () => {
+    expect(reconnectRedirect(...landing('https://www.timer.simple-tech.app/', { cookie: 'tt_approved=1; tt_reconnect_dismissed=1' }))).toBeNull();
+  });
 
   it('sends a marked browser opening a bare / to the reconnect page', () => {
     const res = reconnectRedirect(...landing('https://www.timer-dev.simple-tech.app/', { cookie: MARK }));
@@ -142,4 +157,56 @@ describe('reconnectRedirect', () => {
       expect(reconnectRedirect(...landing(`https://www.timer.simple-tech.app${path}`, { cookie: MARK }))).toBeNull();
     },
   );
+});
+
+describe('reconnectDismissed', () => {
+  it('is true only when the request carries tt_reconnect_dismissed=1', () => {
+    const dismissed = (cookie) => reconnectDismissed(new Request('https://www.example.test/', cookie ? { headers: { cookie } } : {}));
+
+    expect(DISMISSED_COOKIE).toBe('tt_reconnect_dismissed');
+    expect(dismissed('tt_approved=1; tt_reconnect_dismissed=1')).toBe(true);
+    expect(dismissed('tt_approved=1')).toBe(false);
+    expect(dismissed('tt_reconnect_dismissed=')).toBe(false);
+    expect(dismissed(undefined)).toBe(false);
+  });
+});
+
+// "Go to the homepage" on the reconnect page: the choice sticks, so a healthy
+// user is not sent back to the reconnect page on every visit.
+describe('reconnectDismissal', () => {
+  const MARK = 'tt_approved=1';
+  const DISMISSED = 'tt_approved=1; tt_reconnect_dismissed=1';
+
+  it('remembers a marked browser leaving for the homepage, and sends it to a bare /', () => {
+    const res = reconnectDismissal(...landing('https://www.timer-dev.simple-tech.app/?home', { cookie: MARK }));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.timer-dev.simple-tech.app/');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(setCookies(res)).toEqual([
+      `tt_reconnect_dismissed=1; Path=/; Max-Age=${ONE_YEAR_SEC}; HttpOnly; Secure; SameSite=Lax`,
+    ]);
+  });
+
+  it('makes the next bare / the homepage', () => {
+    const res = reconnectDismissal(...landing('https://www.timer.simple-tech.app/?home', { cookie: MARK }));
+    const cookie = `${MARK}; ${setCookies(res)[0].split(';')[0]}`;
+
+    expect(reconnectRedirect(...landing('https://www.timer.simple-tech.app/', { cookie }))).toBeNull();
+  });
+
+  // Already dismissed: fall through, so the redirect to / never loops.
+  it('does nothing once dismissed, or for an unmarked browser', () => {
+    for (const cookie of [DISMISSED, undefined, 'tt_session=x.y']) {
+      expect(reconnectDismissal(...landing('https://www.timer.simple-tech.app/?home', { cookie })), String(cookie)).toBeNull();
+    }
+  });
+
+  it.each(['/', '/?home=1', '/?utm_source=newsletter', '/reconnect?home', '/timer/app'])('leaves %s alone', (path) => {
+    expect(reconnectDismissal(...landing(`https://www.timer.simple-tech.app${path}`, { cookie: MARK }))).toBeNull();
+  });
+
+  it('leaves the zoom host alone', () => {
+    expect(reconnectDismissal(...landing('https://zoom.timer.simple-tech.app/?home', { cookie: MARK }))).toBeNull();
+  });
 });

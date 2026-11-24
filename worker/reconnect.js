@@ -12,7 +12,7 @@ import { parseCookies, hostOnlyCookie } from './auth.js';
  *
  * Set by the Worker only, on an install or re-approval landing
  * (/oauth/redirect?code with no state), and read by the Worker only: there,
- * and on a bare / (sent to the reconnect page). It means "approved once",
+ * on a bare / (sent to the reconnect page) and on /?home (the dismissal). It means "approved once",
  * never "lapsed now": the website cannot tell whether a grant is still alive.
  * Web sign-in does not write it, because people who sign in on the web are
  * mostly web-timer users, and their homepage visits should stay the homepage.
@@ -22,16 +22,33 @@ import { parseCookies, hostOnlyCookie } from './auth.js';
  * request that writes the mark can also see whether it was already there, so
  * the success page knows "reconnected" from "first install" with no race.
  *
+ * A marked visitor who did not need to reconnect leaves through "Go to the
+ * homepage" (/?home). That click also writes a second cookie, the dismissal:
+ *
+ *   tt_reconnect_dismissed=1; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax
+ *
+ * With it, a bare / is the homepage again, so a healthy user is not sent to the
+ * reconnect page on every visit. The next install or re-approval landing clears
+ * it, and the cycle starts over. A dismissed browser whose approval lapses later
+ * gets the homepage, whose "Already use the Zoom app? Reconnect it" line still
+ * leads to the reconnect page.
+ *
  * Neither identity nor sign-in, so it lives here beside contact.js rather than
  * in auth.js. The one thing it borrows is the host-only cookie template.
  */
 
 export const APPROVED_COOKIE = 'tt_approved';
+export const DISMISSED_COOKIE = 'tt_reconnect_dismissed';
 const APPROVED_TTL_SEC = 365 * 24 * 60 * 60;
 
 /** Whether this request carries the mark. */
 export function approvedBefore(request) {
   return parseCookies(request.headers.get('cookie'))[APPROVED_COOKIE] === '1';
+}
+
+/** Whether this browser left the reconnect page for the homepage. */
+export function reconnectDismissed(request) {
+  return parseCookies(request.headers.get('cookie'))[DISMISSED_COOKIE] === '1';
 }
 
 /**
@@ -41,6 +58,7 @@ export function approvedBefore(request) {
  *   302 Location: <origin>/oauth/redirect?welcome=back   the request carried the mark
  *                 <origin>/oauth/redirect?welcome=new    it did not
  *       Set-Cookie: tt_approved=1 (one year, host-only)
+ *       Set-Cookie: tt_reconnect_dismissed= (Max-Age=0, cleared)
  *       Cache-Control: no-store
  *
  * Zoom's one-time code leaves the address bar before the page loads, so it
@@ -68,6 +86,9 @@ export function installLandingRedirect(request, url) {
 
   const headers = new Headers({ Location: target.toString(), 'Cache-Control': 'no-store' });
   headers.append('Set-Cookie', hostOnlyCookie(APPROVED_COOKIE, '1', APPROVED_TTL_SEC));
+  // A fresh approval starts the cycle over: the reconnect page comes back on a
+  // bare / until the visitor leaves it for the homepage again.
+  headers.append('Set-Cookie', hostOnlyCookie(DISMISSED_COOKIE, '', 0));
   return new Response(null, { status: 302, headers });
 }
 
@@ -87,7 +108,8 @@ export function installLandingRedirect(request, url) {
  * Every other path is left alone too.
  *
  * Null on the zoom.* host, which keeps serving the Zoom shell for every path,
- * and null without the mark: an unmarked visitor gets the homepage as before.
+ * null without the mark: an unmarked visitor gets the homepage as before, and
+ * null once the visitor dismissed the page (reconnectDismissal below).
  *
  * The cached / revalidates on every visit (max-age=0, must-revalidate), so
  * this check runs before any cache answers. The redirect itself depends on the
@@ -101,10 +123,39 @@ export function reconnectRedirect(request, url) {
   const host = request.headers.get('host') || url.host;
   if (host.startsWith('zoom.')) return null;
   if (url.pathname !== '/' || url.search) return null;
-  if (!approvedBefore(request)) return null;
+  if (!approvedBefore(request) || reconnectDismissed(request)) return null;
 
   return new Response(null, {
     status: 302,
     headers: { Location: new URL('/reconnect', url.origin).toString(), 'Cache-Control': 'no-store' },
   });
+}
+
+/**
+ * /?home from a marked browser that has not dismissed yet — the reconnect
+ * page's "Go to the homepage" (and its header logo). Remember the choice and
+ * send the browser on to a bare /, which is now the homepage.
+ *
+ *   302 Location: <origin>/
+ *       Set-Cookie: tt_reconnect_dismissed=1 (one year, host-only)
+ *       Cache-Control: no-store
+ *
+ * The page links here with a full navigation, not a client-side route, so this
+ * request reaches the Worker. Null on the zoom.* host, for any other URL, for
+ * an unmarked browser (nothing to dismiss) and once dismissed (no loop): those
+ * fall through to the homepage, or to the old web host's move to the main site.
+ *
+ * @param {Request} request
+ * @param {URL} url
+ * @returns {Response|null}
+ */
+export function reconnectDismissal(request, url) {
+  const host = request.headers.get('host') || url.host;
+  if (host.startsWith('zoom.')) return null;
+  if (url.pathname !== '/' || url.search !== '?home') return null;
+  if (!approvedBefore(request) || reconnectDismissed(request)) return null;
+
+  const headers = new Headers({ Location: new URL('/', url.origin).toString(), 'Cache-Control': 'no-store' });
+  headers.append('Set-Cookie', hostOnlyCookie(DISMISSED_COOKIE, '1', APPROVED_TTL_SEC));
+  return new Response(null, { status: 302, headers });
 }

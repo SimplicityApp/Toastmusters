@@ -43,6 +43,9 @@ changed, so no step changes.
 Reviewed 2026-11-02 against #94: `appLinks.js` gains `ZOOM_MANAGE_APPS_URL` and
 `ZOOM_SIGNIN_PERMISSION_HELP_URL` for the web sign-in failure actions; `zoomAppDeeplink()` is
 unchanged, so no step changes.
+Reviewed 2026-11-24 against the reconnect page's new ways home (header logo, header
+**Homepage**, all to `/?home`): "Approve in Zoom" and "Open in Zoom" are unchanged, so no step
+changes.
 
 ### DL-02 · auto · Zoom resolves the link
 Do: `curl -s -o /dev/null -w '%{http_code} %{redirect_url}' <deeplink>` for the page's link,
