@@ -204,10 +204,11 @@ returns 409 `owner`.
 
 Run 2026-11-24 (factory/167 9d094d6, dev 19f7a29c with FLAGS_FORCE "1,new_look=0"; A's own Pro
 entitlement removed for the plain-account steps and restored): CM-01, CM-03, CM-05, CM-08 and
-the Zoom halves of CM-04 and CM-16 passed. CM-12 ⚠️: every ⋯ → Refresh app sent session →
-profile → club in that order, but none of 4 cold opens from Apps showed any of the three in the
-Worker tail (the tail also dropped 2 activate/leave request lines this run), so it needs
-client-side proof. CM-02 and CM-07 ⏭ (no way to run them in Zoom; Do lines fixed), the console
+the Zoom halves of CM-04 and CM-16 passed, and so did CM-12: every ⋯ → Refresh app sent
+session → profile → club in that order. On the 4 cold opens from Apps the Worker tail showed
+only `GET /`, but PostHog shows each one resolved its session about 1 s after the page view
+(`$set` with `zoom_identified: true`, which only a successful `/api/zoom/session` answer gives):
+the tail drops requests on a cold open, so prove those with PostHog. CM-02 and CM-07 ⏭ (no way to run them in Zoom; Do lines fixed), the console
 halves (CM-04, CM-06, CM-14, CM-16) ⏭ (no web session), human steps ⏭. Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 
 ## Not covered
