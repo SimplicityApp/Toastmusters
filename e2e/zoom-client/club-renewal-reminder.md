@@ -44,8 +44,10 @@ Evidence: screenshot; the device refresh (`GET /api/club`) returns `cancelAtPeri
 `currentPeriodEnd` more than 60 days out.
 
 ### CR-02 · auto · The reminder appears inside the last 60 days
-Do: back up the club record, set its `currentPeriodEnd` to 29.5 days from now (dev KV), wait
-about 60 s for the KV cache, then close and reopen the timer in Zoom.
+Do: on a member device (not the owner's: `GET /api/club` takes status and period end from the
+caller's combined entitlement, and the owner's own subscription wins), back up the club record,
+set its `currentPeriodEnd` to 29.5 days from now (dev KV), wait about 60 s for the KV cache,
+then close and reopen the timer in Zoom.
 Expect: "Claude Test Club's Pro ends in 30 days." with "Renew to keep your presets, branding
 and archive." for an admin, or "Ask your club admin to renew." otherwise, and an ×. The ×
 hides it for the rest of the day. Restore the record afterwards.

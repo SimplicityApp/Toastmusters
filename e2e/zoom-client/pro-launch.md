@@ -75,6 +75,8 @@ Evidence: screenshots; PostHog `periodic_prompt_shown` and `periodic_prompt_dism
 `prompt: "pro_launch"`, once each.
 Human because it needs a second, Free Zoom account signed in on the test computer.
 
+Run 2026-11-24 (factory/167 9d094d6, dev 19f7a29c, the owner of a club): PL-01 Pro half, PL-02
+and PL-03 passed; PL-01 free half, PL-04 and PL-05 not run. Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 Run 2026-11-13 (eeaa840, Zoom on macOS, device Pro through its own subscription): PL-02 and
 PL-03 passed; PL-01 only its Pro half (no dot on "Pro"); PL-04 not run (needs a Free account).
 Log: test-runs/2026-11-13-pro-launch/run.md.

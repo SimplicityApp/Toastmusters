@@ -62,6 +62,9 @@ selected again (unless the device chose its own); the club timings and banner ar
 the Report tab shows "Saved to <club>" with History. Nothing had to be re-entered.
 Evidence: screenshots.
 
+Run 2026-11-24 (factory/167 9d094d6): GP-01 and GP-02 passed with FLAGS_FORCE "0" (dev 52af75ee);
+GP-03 not rerun (seen in part earlier the same run under "1,new_look=0": badge, archive upload).
+Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): GP-01 and GP-02 passed with FLAGS_FORCE "0", GP-03 with
 "1,new_look=0" (today's panel). Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 

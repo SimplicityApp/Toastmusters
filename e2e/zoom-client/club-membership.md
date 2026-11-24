@@ -83,9 +83,10 @@ member`) and `club-of:zoom:<A uid>`; no `club-device:<id>:` key was written. Pos
 `club_code_activated` with `places_used`.
 
 ### CM-02 · auto · Pro follows the account, not the webview
-Do: on the Mac, clear the Zoom app's storage (⋯ → Debug → clear storage, or the web app at
-`www.timer-dev…/timer/app` signed in as A in a fresh browser profile), then open the timer
-again.
+Do: open the web app at `www.timer-dev…/timer/app` signed in as A in a fresh browser profile
+(or clear the Zoom webview's storage through its inspector, `defaults write ZoomChat
+webview.context.menu true`; the Debug Panel has no clear-storage control), then open the
+timer again.
 Expect: club Pro is back with no code typed, once the session has resolved.
 Evidence: tail shows `POST /api/zoom/session` (entitlement `club` set) and then `GET
 /api/club` → 200; `toastmaster_club` holds A's `uid` and no `clubToken`.
@@ -123,7 +124,8 @@ Evidence: tail `POST /api/club/members/<A uid>/role` (`revoked`) → 200, then A
 
 ### CM-07 · auto · An account in one club can't join another
 Do: with A in club 1, enter the code of a second dev club (`club-cli create --env dev`, no `--uid`;
-delete it at the end).
+delete it at the end) at `www.timer-dev…/pro/<CODE>` signed in as A: a member's Zoom Pro panel
+shows Leave and no code field, so this can't be typed in Zoom.
 Expect: "You're already in <club 1>. Leave it to join another club."
 Evidence: tail `POST /api/club/activate` → 409 `already_in_club`. PostHog `club_code_rejected`
 `reason: already_in_club`.
@@ -199,6 +201,14 @@ owner's row reads "Owner", with no role select and no "…" menu. The owner isn'
 places. ⏭ with the reason if the test account isn't the dev club's owner.
 Evidence: `GET /api/club` returns `isOwner: true`; a forced `POST /api/club/leave` as the owner
 returns 409 `owner`.
+
+Run 2026-11-24 (factory/167 9d094d6, dev 19f7a29c with FLAGS_FORCE "1,new_look=0"; A's own Pro
+entitlement removed for the plain-account steps and restored): CM-01, CM-03, CM-05, CM-08 and
+the Zoom halves of CM-04 and CM-16 passed. CM-12 ⚠️: every ⋯ → Refresh app sent session →
+profile → club in that order, but none of 4 cold opens from Apps showed any of the three in the
+Worker tail (the tail also dropped 2 activate/leave request lines this run), so it needs
+client-side proof. CM-02 and CM-07 ⏭ (no way to run them in Zoom; Do lines fixed), the console
+halves (CM-04, CM-06, CM-14, CM-16) ⏭ (no web session), human steps ⏭. Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 
 ## Not covered
 - The Durable Object's serialisation of simultaneous joins (AC-3's race): unit-tested in

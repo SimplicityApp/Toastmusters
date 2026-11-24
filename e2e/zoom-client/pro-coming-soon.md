@@ -14,8 +14,8 @@ needs:
   - FLAGS_FORCE "0" on dev (`pro` off) for PC-01 to PC-03; "1" for PC-04
   - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
     today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
-verified_at: 61de1d8
-verified_on: 2026-11-19 (Zoom 7.2.5, macOS 26.7.2, dev 0aa7a2d0 with FLAGS_FORCE "0" and 0ac2f458 with "1,new_look=0"; 61de1d8 + dev c42fbbf merged locally)
+verified_at: 9d094d6
+verified_on: 2026-11-24 (Zoom on macOS, factory/167 9d094d6: dev 52af75ee with FLAGS_FORCE "0" for PC-01 to PC-03, 19f7a29c with "1,new_look=0" for PC-04)
 ---
 
 # Footer Pro button before the launch (locked, "Pro is coming soon")
