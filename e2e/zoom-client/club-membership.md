@@ -139,15 +139,23 @@ Check with your club officer."
 Evidence: KV `club-by-code:<old>` gone, `club-by-code:<new>` present; A's member row untouched.
 
 ### CM-09 · human · Signed out of Zoom, nothing is sent
-Do: sign out of the Zoom client, open the timer from Apps, Upgrade, type the code, submit.
+Do: Zoom's Apps panel only works while signed in, so this needs a second Zoom session in the
+same meeting (setup in `docs/ZOOM_AUTH_AND_REDIRECTS.md`, "Reaching the `authenticated` state
+deliberately": Guest Mode and Guest Mode Testing on for the dev app, `defaults write ZoomChat
+enableGuestModeTesting true` on the guest's Mac). A, signed in on another device, opens the timer
+and invites the meeting to it; on the test Mac, join signed out (sign in or out before joining)
+and open the timer from that **invitation**, which desktop Zoom reports as `unauthenticated`.
+Upgrade, type the code, submit.
 Expect: "Sign in to Zoom, then open the timer again to join your club". The free timer still
 runs a speech.
 Evidence: tail shows no `POST /api/club/activate`. PostHog `club_code_rejected` `reason:
 sign_in_required`.
 
 ### CM-10 · human · Guest mode: Approve, then the typed code is sent
-Do: remove the app's grant (Zoom web → Apps → Manage → Remove, without uninstalling the
-client), open the timer, Upgrade, type the code, submit; press Approve and approve in Zoom.
+Do: with the same two-session setup as CM-09, sign in to the test Mac's Zoom client as an
+account that has not added the app (remove it: Marketplace → Manage → Added Apps), join A's
+meeting, and open the timer from **Apps** (the App Launcher, not the invitation), which gives
+`authenticated`. Upgrade, type the code, submit; press Approve and approve in Zoom.
 Expect: "Approve Toastmusters Timer in Zoom to join your club" with an Approve button; after
 approving A joins without retyping the code: in the panel when Zoom reports the approval while
 it is open (it watches for 2 minutes), otherwise on the next open.
