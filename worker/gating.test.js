@@ -5,14 +5,13 @@ import { handleAsset } from './assets.js';
 import { handleClubPresets } from './club-presets.js';
 import { appendSpeech, listMeetings } from './club-meetings.js';
 import { mintSessionToken } from './session-token.js';
-import { mintClubToken } from './club-token.js';
 import { grantKey, entitlementKey, clubKey } from './entitlements.js';
-import { clubMemberKey } from './club-admin.js';
+import { clubMemberKey, clubOfKey } from './club-admin.js';
 
 /**
  * The paywall, end to end through the two gated handlers: reads stay open for
  * everyone we can identify, writes need an entitlement — from the caller's own
- * subscription, or from a club code the device activated.
+ * subscription, or from the club their account is in.
  */
 
 const SIGNING_KEY = 'test-session-signing-key';
@@ -55,34 +54,33 @@ beforeEach(() => {
 });
 
 const bearer = (uid) => (uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {});
-const clubHeader = (clubToken) => (clubToken ? { 'x-club': clubToken } : {});
 
-const profileReq = (method, uid, body, clubToken) =>
+const profileReq = (method, uid, body) =>
   new Request('https://x/api/profile', {
     method,
-    headers: { 'content-type': 'application/json', ...bearer(uid), ...clubHeader(clubToken) },
+    headers: { 'content-type': 'application/json', ...bearer(uid) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
 const bytes = new TextEncoder().encode('png-bytes');
 const hash = crypto.createHash('sha256').update(bytes).digest('hex');
-const assetReq = (method, uid, clubToken) => {
+const assetReq = (method, uid) => {
   const url = new URL(`https://x/api/assets/${hash}`);
   return [
     new Request(url, {
       method,
-      headers: { ...bearer(uid), ...clubHeader(clubToken) },
+      headers: bearer(uid),
       ...(method === 'PUT' ? { body: bytes } : {}),
     }),
     url,
   ];
 };
 
-/** An activated device: the club record, the device record, and its token. */
-function seedClubDevice({ clubId = 'club-1', deviceId = 'dev-1', uid = null, status = 'active', revokedAt = null } = {}) {
+/** A member account: the club record, the member row and the account's index. */
+function seedClubMember({ clubId = 'club-1', uid, role = 'member', status = 'active', row = {} } = {}) {
   kv.store.set(clubKey(clubId), JSON.stringify({ name: 'Downtown Speakers', ver: 1, status, currentPeriodEnd: null }));
-  kv.store.set(`club-device:${clubId}:${deviceId}`, JSON.stringify({ label: 'Chrome · macOS', uid, revokedAt }));
-  return mintClubToken({ clubId, deviceId, uid, ver: 1 }, SIGNING_KEY);
+  kv.store.set(clubMemberKey(clubId, uid), JSON.stringify({ role, displayName: null, addedAt: 1, ...row }));
+  kv.store.set(clubOfKey(uid), JSON.stringify({ clubId, at: 1 }));
 }
 
 const profileBody = { profile: { rev: 0, fields: { toastmaster_agenda: { value: '[]', updatedAt: 1 } } } };
@@ -126,58 +124,60 @@ describe('entitled users', () => {
 });
 
 /**
- * The second credential. Note what it does not change: the uid still has to be
- * there, because there is no personal profile to sync without one.
+ * The club, found from the account. Note what it does not change: the uid
+ * still has to be there, because there is no personal profile to sync without
+ * one.
  */
-describe('club devices', () => {
-  it('let a free user push a profile and upload artwork', async () => {
-    const clubToken = seedClubDevice({ uid: 'free' });
+describe('club members', () => {
+  it('let a free account push a profile and upload artwork', async () => {
+    seedClubMember({ uid: 'free' });
 
-    const res = await handleProfile(profileReq('PUT', 'free', profileBody, clubToken), env);
+    const res = await handleProfile(profileReq('PUT', 'free', profileBody), env);
     expect(res.status).toBe(200);
     expect(kv.store.has('profile:zoom:free')).toBe(true);
 
-    expect((await handleAsset(...assetReq('PUT', 'free', clubToken), env)).status).toBe(200);
+    expect((await handleAsset(...assetReq('PUT', 'free'), env)).status).toBe(200);
   });
 
   // The club is read at request time and never written into entitlement:zoom:,
-  // so a revoked device is refused on the very next write with nothing to
-  // reconcile first.
-  it('fall back to 402 once the device is revoked', async () => {
-    const clubToken = seedClubDevice({ uid: 'free', revokedAt: Date.now() });
+  // so a removed or blocked account is refused on the very next write with
+  // nothing to reconcile first.
+  it('fall back to 402 once the account is removed or blocked', async () => {
+    seedClubMember({ uid: 'free' });
+    kv.store.delete(clubMemberKey('club-1', 'free'));
 
-    const res = await handleProfile(profileReq('PUT', 'free', profileBody, clubToken), env);
+    const res = await handleProfile(profileReq('PUT', 'free', profileBody), env);
     expect(res.status).toBe(402);
     expect(await res.json()).toMatchObject({ error: 'upgrade_required', entitlement: { plan: 'free', entitled: false } });
     expect(kv.store.has('profile:zoom:free')).toBe(false);
+
+    seedClubMember({ uid: 'blocked', row: { role: undefined, blockedAt: Date.now() } });
+    expect((await handleProfile(profileReq('PUT', 'blocked', profileBody), env)).status).toBe(402);
   });
 
   it('fall back to 402 once the club lapses', async () => {
-    const clubToken = seedClubDevice({ uid: 'free', status: 'unpaid' });
+    seedClubMember({ uid: 'free', status: 'unpaid' });
 
-    expect((await handleProfile(profileReq('PUT', 'free', profileBody, clubToken), env)).status).toBe(402);
+    expect((await handleProfile(profileReq('PUT', 'free', profileBody), env)).status).toBe(402);
   });
 
-  it('are refused when the club token is forged', async () => {
-    seedClubDevice({ uid: 'free' });
-    const forged = mintClubToken({ clubId: 'club-1', deviceId: 'dev-1', ver: 1 }, 'a-different-key');
+  it('get nothing from another account\'s club', async () => {
+    seedClubMember({ uid: 'member' });
 
-    expect((await handleProfile(profileReq('PUT', 'free', profileBody, forged), env)).status).toBe(402);
+    expect((await handleProfile(profileReq('PUT', 'someone-else', profileBody), env)).status).toBe(402);
   });
 
-  // A guest has a club but no uid, so there is nothing to sync against. 401
-  // comes first, exactly as it does today.
-  it('still need a session: a guest with a club token gets 401', async () => {
-    const clubToken = seedClubDevice();
+  it('still need a session', async () => {
+    seedClubMember({ uid: 'free' });
 
-    expect((await handleProfile(profileReq('PUT', null, profileBody, clubToken), env)).status).toBe(401);
-    expect((await handleAsset(...assetReq('PUT', null, clubToken), env)).status).toBe(401);
+    expect((await handleProfile(profileReq('PUT', null, profileBody), env)).status).toBe(401);
+    expect((await handleAsset(...assetReq('PUT', null), env)).status).toBe(401);
   });
 
   it('report the club alongside the plan', async () => {
-    const clubToken = seedClubDevice({ uid: 'free' });
+    seedClubMember({ uid: 'free' });
 
-    const res = await handleProfile(profileReq('PUT', 'free', profileBody, clubToken), env);
+    const res = await handleProfile(profileReq('PUT', 'free', profileBody), env);
     expect(res.status).toBe(200);
     // The 402 body is the only place the entitlement surfaces on this route, so
     // assert the shape through the handler that always reports it.
@@ -187,48 +187,40 @@ describe('club devices', () => {
 });
 
 /**
- * What revocation costs a device, and what it does not.
- *
- * The club token is HMAC-only so that sending it on every request stays cheap,
- * so revoking an already-issued one has to consult state on the paths that were
- * already going to write. A revoked device stops publishing, appending and
- * consuming the club's quota immediately; what it keeps, for up to the token's
- * 24 hours, is the ability to read a club it was already reading.
+ * What removal costs an account: every club write and read, on its very next
+ * request, wherever it is signed in.
  */
-describe('a revoked device', () => {
+describe('a removed account', () => {
   const presets = { rules: { Speech: { green: 300, yellow: 360, red: 420, graceAfterRed: 30 } }, order: [], hiddenBuiltins: [] };
 
-  const presetsReq = (uid, clubToken) =>
+  const presetsReq = (uid) =>
     new Request('https://x/api/club/presets', {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', ...bearer(uid), ...clubHeader(clubToken) },
+      headers: { 'content-type': 'application/json', ...bearer(uid) },
       body: JSON.stringify(presets),
     });
 
-  const appendReq = (clubToken) =>
+  const appendReq = (uid) =>
     new Request('https://x/api/club/meetings/20260929/speeches', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...clubHeader(clubToken) },
+      headers: { 'content-type': 'application/json', ...bearer(uid) },
       body: JSON.stringify({ speechId: 's-1', name: 'Sarah', role: 'Speech', duration: '5:12', color: 'green', finishedAt: 1 }),
     });
 
-  const listReq = (clubToken) => new Request('https://x/api/club/meetings', { headers: clubHeader(clubToken) });
+  const listReq = (uid) => new Request('https://x/api/club/meetings', { headers: bearer(uid) });
 
-  it('is refused on publish and on append, and still reads', async () => {
-    const live = seedClubDevice({ clubId: 'club-1', deviceId: 'ok', uid: 'sarah' });
-    kv.store.set(clubMemberKey('club-1', 'sarah'), JSON.stringify({ role: 'admin' }));
+  it('is refused on publish, on append and on read', async () => {
+    seedClubMember({ uid: 'sarah', role: 'admin' });
 
-    // It could do both a moment ago.
-    expect((await handleClubPresets(presetsReq('sarah', live), env)).status).toBe(200);
-    expect((await appendSpeech(appendReq(live), env, '20260929')).status).toBe(200);
+    // It could do all three a moment ago.
+    expect((await handleClubPresets(presetsReq('sarah'), env)).status).toBe(200);
+    expect((await appendSpeech(appendReq('sarah'), env, '20260929')).status).toBe(200);
+    expect((await listMeetings(listReq('sarah'), env)).status).toBe(200);
 
-    const dead = seedClubDevice({ clubId: 'club-1', deviceId: 'gone', uid: 'sarah', revokedAt: Date.now() });
+    kv.store.delete(clubMemberKey('club-1', 'sarah'));
 
-    expect((await handleClubPresets(presetsReq('sarah', dead), env)).status).toBe(403);
-    expect((await appendSpeech(appendReq(dead), env, '20260929')).status).toBe(403);
-
-    // Reads ride the token's own life: this is a club it was already reading,
-    // and the 24-hour expiry is what bounds it.
-    expect((await listMeetings(listReq(dead), env)).status).toBe(200);
+    expect((await handleClubPresets(presetsReq('sarah'), env)).status).toBe(403);
+    expect((await appendSpeech(appendReq('sarah'), env, '20260929')).status).toBe(403);
+    expect((await listMeetings(listReq('sarah'), env)).status).toBe(403);
   });
 });

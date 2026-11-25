@@ -1,7 +1,7 @@
-import { readClub } from './auth.js';
+import { readSession } from './auth.js';
 import { json, methodNotAllowed, unauthorized } from './http.js';
-import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
-import { verifiedClubId } from './club.js';
+import { entitlementStore, resolveAccess } from './entitlements.js';
+import { memberClub } from './club-admin.js';
 import { shareMeeting } from './club-share.js';
 
 /**
@@ -207,32 +207,41 @@ function meetingMetadata(meetingId, record) {
 const isOvertime = (speech) => speech.color === 'red' || speech.disqualified === true;
 
 /**
+ * The club a member's session belongs to, or the response to send back: 401
+ * with no session (the device keeps its speech and retries once it has one),
+ * 403 for an account in no club.
+ *
+ * @returns {Promise<{clubId: string, club: Object}|{response: Response}>}
+ */
+export async function requireMember(request, env) {
+  const session = readSession(request, env);
+  if (!session?.uid) return { response: unauthorized() };
+  const membership = await memberClub(env, session.uid);
+  if (!membership) return { response: json({ error: 'forbidden' }, 403) };
+  return membership;
+}
+
+/**
  * POST /api/club/meetings/<meetingId>/speeches — a finished speech arrives.
  *
- * No session required, and that is the point: whoever is timing on a borrowed
- * laptop at 6:55pm has no Zoom identity, and their speeches still belong to the
- * club. The device record is read so a revoked device stops appending (and
- * stops consuming the club's storage) on its very next request rather than
- * whenever its cached token happens to expire.
+ * From a member's session: the club is the one the account is in, so an
+ * account that left, was removed or was blocked stops appending (and stops
+ * consuming the club's storage) on its very next request. A speech timed
+ * before the session existed waits in the device's outbox for one.
  */
 export async function appendSpeech(request, env, meetingId) {
   if (request.method !== 'POST') return methodNotAllowed();
 
-  const claims = readClub(request, env);
-  if (!claims) return unauthorized();
+  const member = await requireMember(request, env);
+  if (member.response) return member.response;
   if (!parseMeetingId(meetingId)) return json({ error: 'invalid_meeting' }, 400);
 
   const store = entitlementStore(env);
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
 
-  const clubId = await verifiedClubId(env, claims);
-  if (!clubId) return json({ error: 'forbidden' }, 403);
-
-  // A lapsed club stops accumulating storage. One extra read on a path that was
-  // already writing, and it costs nothing for the uid: resolveAccess with no
-  // uid short-circuits before it touches KV.
-  const club = await readClubRecord(env, clubId);
-  if (!club) return json({ error: 'club_not_found' }, 404);
+  // A lapsed club stops accumulating storage. The club's plan alone decides,
+  // not the member's own: this is the club's archive.
+  const { clubId, club } = member;
   const access = await resolveAccess(env, { clubId, club });
   if (!access.entitled) return json({ error: 'upgrade_required', entitlement: access }, 402);
 
@@ -273,15 +282,13 @@ export async function appendSpeech(request, env, meetingId) {
 export async function listMeetings(request, env) {
   if (request.method !== 'GET') return methodNotAllowed();
 
-  // HMAC only, no device read: this is a read of a club the device was already
-  // reading, and the token's 24-hour life is what bounds it.
-  const claims = readClub(request, env);
-  if (!claims) return unauthorized();
+  const member = await requireMember(request, env);
+  if (member.response) return member.response;
 
   const store = entitlementStore(env);
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
 
-  const { clubId } = claims;
+  const { clubId } = member;
   const now = Date.now();
 
   const looseKeys = await listAll(store, `speech:${clubId}:`);
@@ -355,14 +362,14 @@ export async function listMeetings(request, env) {
 export async function readMeeting(request, env, meetingId) {
   if (request.method !== 'GET') return methodNotAllowed();
 
-  const claims = readClub(request, env);
-  if (!claims) return unauthorized();
+  const member = await requireMember(request, env);
+  if (member.response) return member.response;
   if (!parseMeetingId(meetingId)) return json({ error: 'invalid_meeting' }, 400);
 
   const store = entitlementStore(env);
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
 
-  const { clubId } = claims;
+  const { clubId } = member;
   const now = Date.now();
 
   if (meetingSettled(meetingId, now)) {

@@ -14,8 +14,8 @@ needs:
   - FLAGS_FORCE "0" on dev (`pro` off) for PC-01 to PC-03; "1" for PC-04
   - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
     today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
-verified_at: 61de1d8
-verified_on: 2026-11-19 (Zoom 7.2.5, macOS 26.7.2, dev 0aa7a2d0 with FLAGS_FORCE "0" and 0ac2f458 with "1,new_look=0"; 61de1d8 + dev c42fbbf merged locally)
+verified_at: 9d094d6
+verified_on: 2026-11-24 (Zoom on macOS, factory/167 9d094d6: dev 52af75ee with FLAGS_FORCE "0" for PC-01 to PC-03, 19f7a29c with "1,new_look=0" for PC-04)
 ---
 
 # Footer Pro button before the launch (locked, "Pro is coming soon")
@@ -63,6 +63,11 @@ Evidence: screenshot of the footer.
 ## Not covered
 - The web app, whose header has no Pro button of this kind.
 - Touch: the Zoom desktop client is mouse-driven, and a click works the same as a tap.
+- Reviewed against #167: `Footer.jsx` now fetches the Upgrade dialog right after the first
+  paint, and the Review button's accessible name is "Review Toastmusters Timer on the Zoom App
+  Marketplace" (its visible "Review" is unchanged). No step here moves.
+- Reviewed against #167's verify fixes: the Footer keeps the open Upgrade dialog's component
+  until it closes, so the preload landing later no longer remounts it. Nothing here moves.
 
 Run 2026-11-19 (claude/redesign-b-p3 61de1d8 with dev c42fbbf merged locally (83fc093, not pushed)): PC-01, PC-02 and PC-03 passed with FLAGS_FORCE "0"; PC-04 passed
 with "1,new_look=0" on a Pro device (amber "Pro"; the device is personal Pro since it dropped

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
-import { readSession, readClub } from './auth.js';
+import { readSession } from './auth.js';
 import { resolveAccess } from './entitlements.js';
-import { verifiedClubId } from './club.js';
+import { memberClub } from './club-admin.js';
 
 /**
  * GET/PUT /api/assets/:hash — the custom card artwork a user uploaded.
@@ -80,9 +80,13 @@ export async function handleAsset(request, url, env) {
   if (request.method !== 'PUT') return json({ error: 'Method not allowed' }, 405);
 
   // Downloads stay open (see profile.js); uploads are the paid part — and a
-  // club code pays for them just as a personal subscription does.
-  const clubId = await verifiedClubId(env, readClub(request, env));
-  const entitlement = await resolveAccess(env, { uid: session.uid, clubId });
+  // club pays for them just as a personal subscription does.
+  const membership = await memberClub(env, session.uid);
+  const entitlement = await resolveAccess(env, {
+    uid: session.uid,
+    clubId: membership?.clubId ?? null,
+    club: membership?.club ?? null,
+  });
   if (!entitlement.entitled) {
     return json({ error: 'upgrade_required', entitlement }, 402);
   }

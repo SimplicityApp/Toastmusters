@@ -30,6 +30,9 @@ import { useState } from 'react';
  * @param {(name: string) => void} [props.onCreate]
  * @param {(what: 'code'|'link') => void} [props.onCopied]
  * @param {() => void} [props.onManageClub] - opens the officer's console
+ * @param {number|null} [props.placesUsed] - how many of the code's places are
+ *   taken; shown beside the code when known, which is for admins only
+ * @param {number|null} [props.placesTotal]
  */
 
 const STROKE = {
@@ -126,6 +129,8 @@ export default function ClubSetupCard({
   onCreate,
   onCopied,
   onManageClub,
+  placesUsed = null,
+  placesTotal = null,
 }) {
   const t = TONES[tone] ?? TONES.light;
   const [name, setName] = useState(defaultName);
@@ -136,10 +141,19 @@ export default function ClubSetupCard({
         <div className="flex items-start gap-2">
           <UsersMark className={`mt-0.5 h-5 w-5 flex-shrink-0 ${t.heading}`} />
           <p className={`text-sm ${t.body}`}>
-            Your club is set up. Share the code — or the link, which activates Pro on its own —
-            and everyone who times a meeting gets your presets, branding and archive.
+            Your club is set up. Share the code — or the link — with up to {placesTotal ?? 3} other
+            Zoom accounts, and everyone who times a meeting gets your presets, branding and archive.
           </p>
         </div>
+
+        {/* The code admits a fixed number of accounts, so whoever shares it
+            sees how many are left. */}
+        {typeof placesUsed === 'number' && (
+          <p className={`mt-3 text-sm ${t.body}`}>
+            Club code <span className={`font-mono tracking-wide ${t.heading}`}>{code}</span> ·{' '}
+            {placesUsed} of {placesTotal ?? 3} places used
+          </p>
+        )}
 
         <CopyRow label="Club code" value={code} tone={t} onCopy={() => onCopied?.('code')} />
         {shareUrl && (

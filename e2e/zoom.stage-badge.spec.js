@@ -5,10 +5,9 @@ import { test, expect } from '@playwright/test';
 // controls. In the real Zoom client on 2026-11-16 the ~400px sidebar stage drew
 // it against the whole tall panel instead: over half the panel wide, off the
 // right edge, and across Screenshare and the pop-out button.
-const CLUB = {
-  clubToken: 'club-token',
-  // Fresh, so the app does not refresh the club against the (unmocked) server.
-  lastRefreshAt: Date.now(),
+const UID = 'e2e-club';
+// What GET /api/club answers for the account (#167: the club follows it).
+const CLUB_STATE = {
   ver: 1,
   club: { id: 'club-1', name: 'Claude Test Club' },
   kit: { name: 'Claude Test Club', logoUrl: null, primaryColor: '#772432', showOnCards: true, showOnReports: true },
@@ -23,6 +22,8 @@ const CLUB = {
   cancelAtPeriodEnd: false,
   source: 'club',
 };
+/** This account's copy from its last open. */
+const CLUB = { uid: UID, lastRefreshAt: Date.now(), ...CLUB_STATE };
 
 async function openStageAsClubDevice(page) {
   await page.addInitScript((club) => {
@@ -34,12 +35,13 @@ async function openStageAsClubDevice(page) {
     route.fulfill({
       json: {
         identified: true,
-        uid: 'e2e-club',
-        entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'club' },
+        uid: UID,
+        entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'club', club: CLUB_STATE.club },
         flags: { sounds: true, pro: true },
       },
     })
   );
+  await page.route('**/api/club', (route) => route.fulfill({ json: CLUB_STATE }));
   await page.goto('/zoom/');
   await expect(page.getByRole('button', { name: /START/i })).toBeVisible();
 

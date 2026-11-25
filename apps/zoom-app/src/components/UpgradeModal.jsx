@@ -15,8 +15,9 @@ import {
 } from '@toastmaster-timer/shared';
 import ClubSetupCard from '@toastmaster-timer/ui/ClubSetupCard';
 import { trackEvent } from '../utils/posthog';
-import { openExternalUrl } from '../utils/zoomSdk';
-import { getSessionToken, resolveZoomIdentity } from '../utils/zoomIdentity';
+import { openExternalUrl, promptZoomAuthorize, readZoomUserSummary } from '../utils/zoomSdk';
+import { getSessionToken, refreshZoomIdentity, resolveZoomIdentity } from '../utils/zoomIdentity';
+import { clearPendingClubCode, readPendingClubCode, savePendingClubCode } from '../utils/pendingClubCode';
 import { useEntitlement } from '../hooks/useEntitlement';
 import { useFlag } from '../hooks/useFlag';
 import { useLook } from '../b/LookContext';
@@ -35,9 +36,12 @@ import Sheet from '../b/Sheet';
  * enter this code" finds the field where they were sent, and nothing stands
  * between anyone and the START button at the start of a meeting.
  *
- * Guests (not signed in to Zoom, or the app not added) have no identity to
- * attach a purchase to, so they are pointed at adding the app first — but the
- * code field works for them, which is the whole point of it.
+ * Club Pro belongs to a Zoom account (#167), so the code field decides by
+ * Zoom's sign-in status before anything is sent: signed out, it asks for a
+ * Zoom sign-in; in guest mode (signed in, app not approved) it offers Zoom's
+ * own Approve and keeps the typed code until the approval lands; authorized,
+ * it sends the code with the session. Guests cannot buy either — there is no
+ * identity to attach a purchase to — so they are pointed at adding the app.
  */
 
 const PRICE_COPY = {
@@ -45,12 +49,55 @@ const PRICE_COPY = {
   yearly: { label: 'Yearly', hint: 'Two months free' },
 };
 
-/** Every rejection looks the same on the server, so there is one line to show. */
+/**
+ * A wrong code, a lapsed club and a blocked account all look the same on the
+ * server, so they share one line; the refusals a person can act on name what
+ * to do.
+ */
 const CLUB_ERRORS = {
   network: 'Could not reach the server. Check your connection and try again.',
   too_many_attempts: 'Too many tries. Wait a minute, then try again.',
 };
 const CLUB_ERROR_FALLBACK = "That code isn't active. Check with your club officer.";
+
+function clubErrorFor(result) {
+  if (result.error === 'full') {
+    return `This club's Pro is full (${result.placesUsed ?? 3} of ${result.placesTotal ?? 3}). Ask the person who shared the code to free a place.`;
+  }
+  if (result.error === 'already_in_club') {
+    return `You're already in ${result.clubName || 'another club'}. Leave it to join another club.`;
+  }
+  return CLUB_ERRORS[result.error] || CLUB_ERROR_FALLBACK;
+}
+
+/** What stands between this Zoom user and joining, before anything is sent. */
+const SIGN_IN_COPY = 'Sign in to Zoom, then open the timer again to join your club.';
+const APPROVE_COPY = 'Approve Toastmusters Timer in Zoom to join your club.';
+
+/**
+ * Whether this identity can send a code: null when it can (or when only the
+ * server can tell), 'sign_in' when signed out of Zoom, 'approve' in guest mode.
+ */
+function joinGateFor(identity) {
+  if (identity?.authStatus === 'unauthenticated') return 'sign_in';
+  if (identity?.identified) return null;
+  if (identity?.isGuest || identity?.authStatus === 'authenticated') return 'approve';
+  return null;
+}
+
+/** How long the panel keeps watching for Zoom's approval, and how often. */
+const APPROVAL_WATCH_MS = 2 * 60 * 1000;
+const APPROVAL_POLL_MS = 2000;
+
+const leaveCopy = (name) => `Leave ${name}? You'll lose its Pro on every computer where you're signed in.`;
+
+/** Why leaving was refused. The owner never sees Leave, but the server says so too. */
+const LEAVE_ERRORS = {
+  last_admin: 'A club needs at least one admin. Promote somebody else first.',
+  owner: 'The club’s owner can’t leave it. To end it, cancel the subscription.',
+  network: 'Could not reach the server. Check your connection and try again.',
+};
+const LEAVE_ERROR_FALLBACK = 'Could not leave the club. Please try again.';
 
 /** Setting up a club fails for reasons an officer can act on, so it names them. */
 const CLUB_CREATE_ERRORS = {
@@ -108,6 +155,11 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   const [code, setCode] = useState('');
   const [clubBusy, setClubBusy] = useState(false);
   const [clubError, setClubError] = useState(null);
+  // Signed out ('sign_in') or guest mode ('approve'): why a code was not sent.
+  const [joinGate, setJoinGate] = useState(null);
+  const [approving, setApproving] = useState(false);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
   // Setting up the club has its own busy/error pair: it sits in the same modal
   // as joining one, and a failure in either must not mislabel the other.
   const [setupBusy, setSetupBusy] = useState(false);
@@ -131,6 +183,8 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     const lapsed = lapsedClubName();
     if (lapsed) trackEvent('club_lapsed_shown', { surface: 'zoom', source, club_id: loadClub()?.club?.id ?? null });
     resolveZoomIdentity().then(setIdentity);
+    setJoinGate(null);
+    setConfirmingLeave(false);
     abortRef.current = { aborted: false };
     return () => {
       abortRef.current.aborted = true;
@@ -193,35 +247,110 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
     }
   };
 
-  const handleActivate = async (event) => {
-    event?.preventDefault?.();
-    if (clubBusy || !code.trim()) return;
+  /**
+   * Send a code with the session. `via` says how it got here: typed, or the
+   * code a guest typed before approving the app.
+   */
+  const sendCode = async (typed, who, via) => {
     setClubBusy(true);
     setClubError(null);
-
-    const result = await activateClub(code, { getToken: getSessionToken });
+    const result = await activateClub(typed, { getToken: getSessionToken, uid: who?.uid ?? null });
     setClubBusy(false);
 
     if (!result.ok) {
-      setClubError(CLUB_ERRORS[result.error] || CLUB_ERROR_FALLBACK);
+      // A session-less request that slipped through says the same as the
+      // client would have.
+      if (result.error === 'sign_in_required') setJoinGate('sign_in');
+      else setClubError(clubErrorFor(result));
       trackEvent('club_code_rejected', { surface: 'zoom', source, reason: result.error });
-      return;
+      return result;
     }
 
     setCode('');
+    setJoinGate(null);
     trackEvent('club_code_activated', {
       surface: 'zoom',
       source,
       club_id: result.club.club?.id ?? null,
-      is_guest: !identity?.identified,
-      via: 'typed',
+      places_used: result.placesUsed,
+      via,
     });
     onUpgraded?.();
+    return result;
   };
 
-  const handleLeave = () => {
+  const handleActivate = async (event) => {
+    event?.preventDefault?.();
+    const typed = code.trim();
+    if (clubBusy || !typed) return;
+    setClubError(null);
+
+    const who = identity ?? (await resolveZoomIdentity());
+    const gate = joinGateFor(who);
+    if (gate) {
+      setJoinGate(gate);
+      // Kept so the approval, not a second round of typing, is the next step.
+      if (gate === 'approve') savePendingClubCode(typed);
+      trackEvent('club_code_rejected', {
+        surface: 'zoom',
+        source,
+        reason: gate === 'approve' ? 'approve_required' : 'sign_in_required',
+      });
+      return;
+    }
+    setJoinGate(null);
+    await sendCode(typed, who, 'typed');
+  };
+
+  /** Once the identity resolves as authorized, the waiting code goes out. */
+  const sendPendingIfApproved = async (fresh) => {
+    setIdentity(fresh);
+    const pending = readPendingClubCode();
+    if (!pending || !fresh?.identified || fresh.authStatus !== 'authorized') return false;
+    const result = await sendCode(pending, fresh, 'approved');
+    if (result.ok || result.error !== 'network') clearPendingClubCode();
+    return true;
+  };
+
+  /**
+   * Zoom's own approve prompt, then the code. The prompt settles when it has
+   * been shown, not when it has been answered, so the panel watches Zoom's
+   * status for a while; an approval it misses is picked up on the next open.
+   */
+  const handleApprove = async () => {
+    if (approving) return;
+    setApproving(true);
+    await promptZoomAuthorize();
+    if (await sendPendingIfApproved(await refreshZoomIdentity())) {
+      setApproving(false);
+      return;
+    }
+    const watch = abortRef.current;
+    const deadline = Date.now() + APPROVAL_WATCH_MS;
+    while (!watch.aborted && Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, APPROVAL_POLL_MS));
+      if (watch.aborted) break;
+      // eslint-disable-next-line no-await-in-loop
+      const summary = await readZoomUserSummary();
+      if (summary?.status !== 'authorized') continue;
+      // eslint-disable-next-line no-await-in-loop
+      await sendPendingIfApproved(await refreshZoomIdentity());
+      break;
+    }
+    if (!watch.aborted) setApproving(false);
+  };
+
+  const handleLeave = async () => {
     const clubId = club?.club?.id ?? null;
-    leaveClub();
+    setConfirmingLeave(false);
+    setLeaveBusy(true);
+    const result = await leaveClub({ getToken: getSessionToken });
+    setLeaveBusy(false);
+    if (!result.ok) {
+      setClubError(LEAVE_ERRORS[result.error] || LEAVE_ERROR_FALLBACK);
+      return;
+    }
     setClubError(null);
     trackEvent('club_left', { surface: 'zoom', source, club_id: clubId });
   };
@@ -293,6 +422,8 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
           shareUrl={shareUrl}
           busy={setupBusy}
           error={setupError}
+          placesUsed={isClubAdmin ? club?.placesUsed ?? null : null}
+          placesTotal={isClubAdmin ? club?.placesTotal ?? null : null}
           onCreate={handleCreateClub}
           onCopied={(what) => trackEvent('club_invite_copied', { surface: 'zoom', what })}
           onManageClub={adminUrl ? () => handleManageClub(adminUrl) : undefined}
@@ -313,14 +444,15 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
   const renderCodeEntry = () => (
     <form onSubmit={handleActivate} className="mt-4 pt-4 border-t border-gray-200">
       <label htmlFor="club-code" className="block text-sm font-medium text-gray-700">
-        Already on Pro through your club?
+        Already on Pro with your club?
       </label>
       <p className="text-xs text-gray-500 mt-0.5 mb-2">
-        Enter the code your club officer shared. No sign-in needed.
+        Enter the code your club officer shared. It joins the Zoom account you&apos;re signed in with.
       </p>
       <div className="flex gap-2">
         <input
           id="club-code"
+          aria-label="Already on Pro through your club? Enter its code"
           value={code}
           onChange={(event) => setCode(event.target.value)}
           placeholder="DTSP-7K2QM9"
@@ -338,6 +470,20 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
         </button>
       </div>
       {clubError && <p className="text-xs text-red-600 mt-2" role="alert">{clubError}</p>}
+      {joinGate === 'sign_in' && <p className="text-xs text-gray-700 mt-2">{SIGN_IN_COPY}</p>}
+      {joinGate === 'approve' && (
+        <div className="mt-2 flex items-center gap-2">
+          <p className="flex-1 text-xs text-gray-700">{APPROVE_COPY}</p>
+          <button
+            type="button"
+            onClick={handleApprove}
+            disabled={approving}
+            className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white font-semibold rounded-lg transition-colors text-xs"
+          >
+            Approve
+          </button>
+        </div>
+      )}
     </form>
   );
 
@@ -349,7 +495,7 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
           <div className="flex items-start gap-2 mb-3">
             <Users className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-gray-700">
-              This device is on <span className="font-semibold">Pro</span> through{' '}
+              You&apos;re on <span className="font-semibold">Pro</span> through{' '}
               <span className="font-semibold">{clubName}</span>.
             </p>
           </div>
@@ -370,14 +516,39 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
             </button>
           )}
           {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
-          {/* A deletion, not a restore: this device's own presets and artwork
-              were never written over, so leaving cannot take them away. */}
-          <button
-            onClick={handleLeave}
-            className="w-full px-4 py-2 text-gray-500 hover:text-gray-700 text-xs"
-          >
-            Leave this club on this device
-          </button>
+          {clubError && <p className="text-xs text-red-600 mb-2" role="alert">{clubError}</p>}
+          {/* Leaving is by account, on every computer it is signed in on, so it
+              asks first. The owner pays for the club and ends it by cancelling,
+              so they are never offered it. Their own presets and artwork were
+              never written over, so leaving cannot take them away. */}
+          {!club?.isOwner && !confirmingLeave && (
+            <button
+              onClick={() => setConfirmingLeave(true)}
+              disabled={leaveBusy}
+              className="w-full px-4 py-2 text-gray-500 hover:text-gray-700 text-xs"
+            >
+              Leave {clubName}
+            </button>
+          )}
+          {!club?.isOwner && confirmingLeave && (
+            <div role="alertdialog" aria-label={`Leave ${clubName}`} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <p className="text-sm text-gray-700">{leaveCopy(clubName)}</p>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmingLeave(false)}
+                  className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold rounded-lg text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleLeave}
+                  className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg text-xs"
+                >
+                  Leave
+                </button>
+              </div>
+            </div>
+          )}
           {/* An admin's code and invite link, on the surface they already use. */}
           {renderClubSetup()}
         </>
@@ -463,8 +634,8 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
       );
     }
 
-    // A guest cannot buy — there is no identity to attach a purchase to — but a
-    // club code needs no identity at all, so the field stays.
+    // A guest cannot buy — there is no identity to attach a purchase to. The
+    // code field stays: it walks them through signing in or approving the app.
     if (identity && !canBuy) {
       return (
         <>
@@ -472,7 +643,6 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
             To subscribe, sign in to Zoom and add Toastmasters Timer from the Zoom App Marketplace.
             Pro needs to know it is you so your settings can follow you between devices.
           </p>
-          {renderCodeEntry()}
         </>
       );
     }
@@ -531,12 +701,16 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
         <p className="text-xs text-gray-400 mt-3 text-center">
           Opens a secure Stripe page in your browser. Prices are shown there.
         </p>
-        {renderCodeEntry()}
       </>
     );
   };
 
   const title = isPro || phase === 'done' ? 'Toastmasters Timer Pro' : 'One Pro account for your whole club';
+
+  // Under the price list, for buyers and guests alike. Rendered beside the body
+  // rather than inside each branch, so the field a person is typing into is
+  // the same element when the identity resolves and the body above it changes.
+  const codeEntry = !clubActive && !isPro && (phase === 'choose' || phase === 'opening') ? renderCodeEntry() : null;
 
   // Design B (plan 13) opens every setting as a sheet from the bottom edge.
   if (look === 'b') {
@@ -548,6 +722,7 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
         badge={<span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">PRO</span>}
       >
         {renderBody()}
+        {codeEntry}
       </Sheet>
     );
   }
@@ -572,6 +747,7 @@ export default function UpgradeModal({ isOpen, onClose, source = 'unknown', onUp
           </button>
         </div>
         {renderBody()}
+        {codeEntry}
       </div>
     </div>
   );
