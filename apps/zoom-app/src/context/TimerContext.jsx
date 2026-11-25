@@ -3,7 +3,7 @@ import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_
 import { calculateStatus, formatTime, getDisplaySeconds } from '@toastmaster-timer/shared';
 import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
-import { parseEasySpeakText } from '@toastmaster-timer/shared';
+import { parseEasySpeakText, insertAfter } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
 import { recordSpeech } from '@toastmaster-timer/shared';
 import { getSessionToken } from '../utils/zoomIdentity';
@@ -399,18 +399,21 @@ export function TimerProvider({ children }) {
 
   /**
    * @param {Object} speaker
-   * @param {{activate?: boolean}} [options] - activate makes the new item the
-   *   speaker the timer is on. It belongs here rather than in a follow-up
-   *   loadSpeakerFromAgenda call: that reads the agenda from the render it was
-   *   created in, which cannot contain an item added moments earlier in the same
-   *   tick, so it silently did nothing. The speaker was then on the agenda but
-   *   not active — finishing could not advance to the next one, and editing the
-   *   name added a second copy instead of correcting the first.
+   * @param {{activate?: boolean, insertAfter?: string|null}} [options] - activate
+   *   makes the new item the speaker the timer is on. It belongs here rather than
+   *   in a follow-up loadSpeakerFromAgenda call: that reads the agenda from the
+   *   render it was created in, which cannot contain an item added moments
+   *   earlier in the same tick, so it silently did nothing. The speaker was then
+   *   on the agenda but not active — finishing could not advance to the next one,
+   *   and editing the name added a second copy instead of correcting the first.
+   *   insertAfter is an agenda id to put the new item right after (#168: a
+   *   speaker picked on the spot speaks next). Without it the item is appended,
+   *   which is what the Agenda tab's form and the imports rely on.
    */
-  const addToAgenda = useCallback((speaker, { activate = false } = {}) => {
+  const addToAgenda = useCallback((speaker, { activate = false, insertAfter: afterId = null } = {}) => {
     const id = Date.now().toString();
     const rules = speaker.rules || roleRules[speaker.role] || DEFAULT_ROLE_RULES['Standard Speech'];
-    setAgenda(prev => [...prev, { id, name: speaker.name, role: speaker.role, rules, completed: false }]);
+    setAgenda(prev => insertAfter(prev, afterId, { id, name: speaker.name, role: speaker.role, rules, completed: false }));
     if (activate) {
       setCurrentSpeakerAction({ name: speaker.name, role: speaker.role, rules });
       setActiveSpeakerId(id);

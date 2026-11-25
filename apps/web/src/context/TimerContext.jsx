@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, us
 import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, BREAK_ROLE, parseSimpleFormatText, agendaItemNeedsRole } from '@toastmaster-timer/shared';
 import { calculateStatus, formatTime } from '@toastmaster-timer/shared';
 import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports } from '@toastmaster-timer/shared';
-import { parseEasySpeakText } from '@toastmaster-timer/shared';
+import { parseEasySpeakText, insertAfter } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
 import { recordSpeech } from '@toastmaster-timer/shared';
 import { resolveActiveRules, resolveActiveHiddenBuiltins, resolveActiveRoleOrder } from '@toastmaster-timer/shared';
@@ -198,13 +198,25 @@ export function TimerProvider({ children }) {
     resetTimer();
   }, [roleRules, resetTimer]);
 
-  const addToAgenda = useCallback((speaker) => {
+  /**
+   * @param {Object} speaker
+   * @param {{activate?: boolean, insertAfter?: string|null}} [options] - activate
+   *   makes the new item the speaker the timer is on; insertAfter puts it right
+   *   after that agenda id (#168: a speaker picked on the spot speaks next).
+   *   Without insertAfter the item is appended, which is what the Agenda tab's
+   *   form and the imports rely on. Same calls as the Zoom app's context.
+   */
+  const addToAgenda = useCallback((speaker, { activate = false, insertAfter: afterId = null } = {}) => {
     const id = Date.now().toString();
     const rules = speaker.rules || roleRules[speaker.role] || DEFAULT_ROLE_RULES['Standard Speech'];
-    setAgenda(prev => [...prev, { id, name: speaker.name, role: speaker.role, rules, completed: false }]);
+    setAgenda(prev => insertAfter(prev, afterId, { id, name: speaker.name, role: speaker.role, rules, completed: false }));
+    if (activate) {
+      setCurrentSpeakerAction({ name: speaker.name, role: speaker.role, rules });
+      setActiveSpeakerId(id);
+    }
     trackEvent('speaker_added', { speaker_name: speaker.name || 'Unnamed', role: speaker.role });
     return id;
-  }, [roleRules]);
+  }, [roleRules, setCurrentSpeakerAction]);
 
   const removeFromAgenda = useCallback((id) => {
     const itemToRemove = agenda.find(item => item.id === id);
@@ -214,6 +226,18 @@ export function TimerProvider({ children }) {
   }, [activeSpeakerId, agenda]);
 
   const reorderAgenda = useCallback((newOrder) => setAgenda(newOrder), []);
+
+  /**
+   * Rename an agenda speaker in place, keeping their position and role. The
+   * current speaker follows along when it is the one being renamed, as in the
+   * Zoom app's context.
+   * @param {string} id - Agenda item id
+   * @param {string} name - Corrected name
+   */
+  const renameAgendaSpeaker = useCallback((id, name) => {
+    setAgenda(prev => prev.map(item => (item.id === id ? { ...item, name } : item)));
+    setCurrentSpeaker(prev => (prev && activeSpeakerId === id ? { ...prev, name } : prev));
+  }, [activeSpeakerId]);
 
   // Edit a speaker in place so their position in the agenda is preserved
   const updateAgendaItem = useCallback((id, speaker) => {
@@ -455,6 +479,7 @@ export function TimerProvider({ children }) {
     addToAgenda,
     removeFromAgenda,
     reorderAgenda,
+    renameAgendaSpeaker,
     updateAgendaItem,
     markCompleted,
     loadSpeakerFromAgenda,
@@ -485,6 +510,7 @@ export function TimerProvider({ children }) {
     addToAgenda,
     removeFromAgenda,
     reorderAgenda,
+    renameAgendaSpeaker,
     updateAgendaItem,
     markCompleted,
     loadSpeakerFromAgenda,
