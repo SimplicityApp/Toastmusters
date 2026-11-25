@@ -1,4 +1,5 @@
-import { readSession, readClub, sessionCookie, REISSUE_AFTER_MS, WEB_SESSION_TTL_MS } from './auth.js';
+import { readSession, sessionCookie, REISSUE_AFTER_MS, WEB_SESSION_TTL_MS } from './auth.js';
+import { memberClub } from './club-admin.js';
 import { mintSessionToken } from './session-token.js';
 import { resolveAccess } from './entitlements.js';
 import { resolveFlags } from './flags.js';
@@ -43,9 +44,12 @@ export async function handleMe(request, env, ctx) {
 
   // Both never throw, and neither needs the other, so neither waits.
   const [entitlement, flags] = await Promise.all([
-    // Combined: a club member's plan is simply correct at the source, so
-    // every client that already reads this keeps working unchanged.
-    resolveAccess(env, { uid: session.uid, clubId: readClub(request, env)?.clubId ?? null }),
+    // Combined with the club this account is in: a club member's plan is
+    // simply correct at the source, so every client that already reads this
+    // keeps working unchanged.
+    memberClub(env, session.uid).then((membership) =>
+      resolveAccess(env, { uid: session.uid, clubId: membership?.clubId ?? null, club: membership?.club ?? null })
+    ),
     withFlags ? resolveFlags(env, { uid: session.uid }, ctx) : null,
   ]);
 

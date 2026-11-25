@@ -90,6 +90,12 @@ They run Claude Code on Opus 5.5 at high effort (`--model claude-opus-5-5 --effo
 `claude_args`). With `CLAUDE_CODE_OAUTH_TOKEN` they use the account's Claude subscription, so
 each run counts against the same usage limits as interactive sessions.
 
+`factory-build.yml` gives the Claude step the job's own token (`github_token`) instead of the
+Claude App token. The App token expires after 60 minutes, and a build runs longer; past that
+hour the station can't push, label or comment, and ends without a word. Commits pushed with
+the job token don't start CI, so a factory PR's checks stay on the oracle commit until the
+Zoom station pushes from the Mac. Verify runs the whole suite inside the build anyway.
+
 `master` is the default branch, so `factory-plan.yml` and `factory-build.yml` must be
 identical on `dev` and `master`: issue-label events run the default branch's copy, and the
 Claude action skips a workflow that differs from it (the run then fails at "Check the station

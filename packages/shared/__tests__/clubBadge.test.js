@@ -25,7 +25,7 @@ import {
   hasClubBadgeOverride,
   warmClubLogo,
   getClubLogoImage,
-  leaveClub,
+  forgetClub,
   resetClubForTests,
 } from '../club.js';
 
@@ -267,7 +267,7 @@ function seedClub(over = {}) {
   localStorage.setItem(
     CLUB_STORAGE_KEY,
     JSON.stringify({
-      clubToken: 'tok',
+      uid: 'u-1',
       ver: 3,
       club: { id: 'club-1', name: 'Downtown Speakers' },
       kit: { name: 'Downtown Speakers', logoUrl: null, primaryColor: '#123456', showOnCards: true, showOnReports: true },
@@ -358,7 +358,7 @@ describe('the badge placement on this device', () => {
     seedClub();
     saveClubBadgeOverride({ x: 0.2 });
 
-    leaveClub();
+    forgetClub();
 
     expect(localStorage.getItem(CLUB_BADGE_STORAGE_KEY)).toBeNull();
     expect(clubBadgeState()).toBeNull();

@@ -185,7 +185,7 @@ Do: with FLAGS_FORCE "1" on a free device, look at the top row; press the Pro ch
 Expect: a blue "Pro" chip with the red launch dot; Upgrade opens as a sheet from the bottom edge
 with the PRO tag, the prices and the club code field; ⋯ starts with "Your plan · Free · See Pro"
 and "Join my club with a code". On the club Pro device the chip is amber; it opens the Pro sheet
-("This device is on Pro through Claude Test Club", Manage billing), and ⋯ starts with "Your plan ·
+("You're on Pro through Claude Test Club", Manage billing; no "Leave" for the club's owner), and ⋯ starts with "Your plan ·
 Pro · Manage" with no "Join my club" row.
 Evidence: screenshots.
 
@@ -261,7 +261,18 @@ currentSpeaker), and the idle card shows that snapshot's old times after a rules
 personal-Pro device with no club, ⋯ → "Join my club with a code" opens a Pro sheet with no code
 field. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 
+Run 2026-11-24 (factory/167 9d094d6, the steps #167 touches; dev e2c40064 with FLAGS_FORCE "1,pro=0", then
+c5175c33 with "1"): NL-01, NL-09, NL-10, NL-15, NL-16's club half and NL-17's club Pro half passed (no Leave for
+the owner; ⋯ has no "Join my club" row on a Pro device). NL-20 ⏭ (this device closed the note before), NL-17's
+free half ⏭ (no free account). The other steps were not rerun: #167 does not touch them; they last passed on
+61de1d8 (2026-11-19). Log: test-runs/2026-11-24-167-zoom-pass-2/run.md.
+
 ## Not covered
+- Reviewed against the #167 implementation: the Pro sheet's code field now reads "Already on Pro
+  with your club?" (its accessible name still starts "Already on Pro through your club?"), the
+  joined sheet reads "You're on Pro through <club>" with Leave behind an in-sheet confirm, and
+  guests are asked to sign in or approve before a code is sent ([club-membership](club-membership.md)).
+  NL-17 already says so; no step moves.
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
 - Audio of the sounds: timer-sounds.
 - The connection and club-renewal banners: unchanged by design B (they already sit at the top

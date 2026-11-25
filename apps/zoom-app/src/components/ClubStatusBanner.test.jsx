@@ -21,7 +21,7 @@ const DAY = 24 * 60 * 60 * 1000;
 /** A club an admin is about to lose tomorrow. */
 const endingTomorrow = () =>
   JSON.stringify({
-    clubToken: 'tok.sig',
+    uid: 'u-1',
     lastRefreshAt: Date.now(),
     ver: 1,
     club: { id: 'club-1', name: 'Downtown Speakers' },

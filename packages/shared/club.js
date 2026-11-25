@@ -3,23 +3,23 @@ import { areFlagsKnown, getFlags } from './flags.js';
 import { DEFAULT_BADGE_PLACEMENT, DEFAULT_PRIMARY_COLOR, normalizeBadgePlacement } from './clubBadge.js';
 
 /**
- * The club this device joined, as the device remembers it.
+ * The club this account is in, as this device last heard it.
  *
- * A club is a second credential, not a second identity. It is earned by typing
- * a code, cached here, and sent in its own `X-Club` header alongside whatever
- * session the device happens to have — or alongside nothing at all, which is
- * the case the feature exists for: whoever is timing on a borrowed laptop at
- * 6:55pm has no Zoom identity and still needs the club's presets.
+ * Club Pro belongs to a Zoom account (#167): it is joined with a code by a
+ * signed-in account, and from then on it follows that account through its
+ * session to every computer it signs in on. Nothing here is a credential.
+ * Every club request carries the session — the Bearer in Zoom, the cookie on
+ * the web — and the server finds the club from the account.
+ *
+ * What the device keeps is a copy, tied to the account (`uid`) it was read
+ * for, and applied only once identity has resolved: for that same account, or
+ * offline while Zoom says the app is authorized. Never for another account,
+ * and never for someone signed out or in guest mode (`syncClubWithIdentity`).
  *
  * Deliberately NOT a synced key. `toastmaster_role_rules` and friends travel in
  * the profile document (`profileMerge.js`), and putting the club in there would
- * push one device's club onto every other device the buyer owns. The three club
- * keys are device-local, always.
- *
- * The cache is also what keeps the first paint honest. Without it a club device
- * would set `known = true` from the session response and flash "Upgrade" before
- * the club refresh landed — the exact flash the `known` flag exists to prevent.
- * localStorage is synchronous, so reading it before render costs nothing.
+ * push one device's copy into the profile. The server is where the club
+ * follows the account; these keys are a device-local cache of it.
  */
 
 export const CLUB_STORAGE_KEY = 'toastmaster_club';
@@ -54,24 +54,10 @@ export const CLUB_BADGE_STORAGE_KEY = 'toastmaster_club_badge';
  * meeting, not for the rest of the grace window.
  */
 export const CLUB_GRACE_DISMISSED_STORAGE_KEY = 'toastmaster_club_grace_dismissed';
-/**
- * What this browser calls itself on a club roster.
- *
- * Deliberately outlives `leaveClub()` — it is the one club-adjacent key that
- * does. The server used to mint a fresh id on every activation, so a laptop
- * that left and rejoined arrived as a stranger and the roster grew a row each
- * time: "4 devices · 1 person" for one person with two browsers. It identifies
- * a browser, never a human, and it is worth nothing without the club code.
- */
-export const CLUB_DEVICE_ID_STORAGE_KEY = 'toastmaster_device_id';
-
 const ACTIVATE_ENDPOINT = '/api/club/activate';
 const CLUB_ENDPOINT = '/api/club';
 const CREATE_ENDPOINT = '/api/club/create';
 const LEAVE_ENDPOINT = '/api/club/leave';
-
-/** Once a day. A Tuesday publish reaches every device by the next meeting. */
-export const CLUB_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * The server's own grace window, mirrored here so the countdown the device
@@ -90,13 +76,21 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 let cached;
 let loaded = false;
 const listeners = new Set();
+/**
+ * The account identity last resolved to, so a code typed after that is cached
+ * for the right account. Null until `syncClubWithIdentity` has run.
+ */
+let accountUid = null;
 
 function readStored() {
   try {
     const raw = localStorage.getItem(CLUB_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || typeof parsed.clubToken !== 'string') return null;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.club?.id !== 'string') return null;
+    // A device-token entry saved before #167: no account to tie it to, so it
+    // is dropped and the account's own club arrives on the next refresh.
+    if (typeof parsed.clubToken === 'string') return null;
     return parsed;
   } catch {
     return null;
@@ -111,37 +105,6 @@ function writeStored(value) {
     // Private mode, or storage disabled. The in-memory copy still carries this
     // page load, which is all the club needs to work in this meeting.
   }
-}
-
-/**
- * This browser's device id, minted on first use and kept from then on.
- *
- * Never synced and never sent anywhere but the club it joins. A browser that
- * cannot store it simply gets a server-minted id per activation, which is where
- * this started.
- *
- * @returns {string|null}
- */
-export function clubDeviceId() {
-  try {
-    const stored = localStorage.getItem(CLUB_DEVICE_ID_STORAGE_KEY);
-    if (typeof stored === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored)) return stored;
-    const minted = newDeviceId();
-    localStorage.setItem(CLUB_DEVICE_ID_STORAGE_KEY, minted);
-    return minted;
-  } catch {
-    // Private mode. The server mints one; the row is simply not stable.
-    return null;
-  }
-}
-
-function newDeviceId() {
-  try {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
-  } catch {
-    // Fall through.
-  }
-  return `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
 /**
@@ -647,8 +610,10 @@ function notify() {
 /**
  * The cached club, or null.
  *
- * @returns {{clubToken: string, ver: number, club: {id: string, name: string|null},
+ * @returns {{uid: string|null, ver: number, club: {id: string, name: string|null},
  *   kit: Object|null, badge: Object|null, timezone: string|null,
+ *   role: string|null, isOwner: boolean, code: string|null,
+ *   placesUsed: number|null, placesTotal: number|null,
  *   plan: string, entitled: boolean, status: string|null,
  *   currentPeriodEnd: number|null, lastRefreshAt: number}|null}
  */
@@ -658,16 +623,6 @@ export function loadClub() {
     loaded = true;
   }
   return cached ?? null;
-}
-
-/**
- * The header every request carries once a device has joined a club.
- *
- * Spread into a headers object: `{ ...clubHeaders(), Authorization: … }`.
- */
-export function clubHeaders() {
-  const club = loadClub();
-  return club?.clubToken ? { 'X-Club': club.clubToken } : {};
 }
 
 /** @param {(club: Object|null) => void} listener @returns {() => void} unsubscribe */
@@ -696,9 +651,10 @@ function clubEntitlementOf(state) {
  * `resolveActiveRules()` can read it without parsing the whole club, and so
  * that applying it stays a separate, version-gated decision.
  */
-function toCacheEntry(state, { clubToken, lastRefreshAt }) {
+function toCacheEntry(state, { uid, lastRefreshAt }) {
   return {
-    clubToken,
+    // Whose club this is. A different account on this device never gets it.
+    uid: uid ?? null,
     ver: state?.ver ?? 1,
     club: state?.club ?? null,
     kit: state?.kit ?? null,
@@ -707,10 +663,14 @@ function toCacheEntry(state, { clubToken, lastRefreshAt }) {
     // Recomputed by the server on every request, never versioned: a promotion
     // takes effect on the next refresh with nothing republished.
     role: state?.role ?? null,
+    // The owner pays for the club and can't leave it, so no surface offers to.
+    isOwner: state?.isOwner === true,
     // Null for everyone but an admin — the server decides, not the client. A
-    // demoted officer loses both on their next refresh.
+    // demoted officer loses them on their next refresh.
     code: state?.code ?? null,
     shareUrl: state?.shareUrl ?? null,
+    placesUsed: typeof state?.placesUsed === 'number' ? state.placesUsed : null,
+    placesTotal: typeof state?.placesTotal === 'number' ? state.placesTotal : null,
     plan: state?.plan ?? 'free',
     entitled: Boolean(state?.entitled),
     status: state?.status ?? null,
@@ -730,17 +690,122 @@ function store(entry) {
 }
 
 /**
- * Seed the entitlement store from the cache, synchronously, before render.
+ * Read the cached club into memory, without applying it.
  *
- * Only ever an upgrade: a cached club that is not entitled says nothing, and
- * the session response is left to answer for a buyer who has their own plan.
+ * It used to set club Pro before the first paint. It no longer does (#167,
+ * Q4): the copy belongs to an account, and which account is signed in is only
+ * known once identity resolves, so `syncClubWithIdentity` decides then.
  *
  * @returns {Object|null} the cached club, if there was one
  */
 export function initClubFromCache() {
+  return loadClub();
+}
+
+/**
+ * Forget the club on this device without telling the server: the server
+ * refused it (removed, blocked, lapsed out of existence), or it belongs to an
+ * account that is not the one signed in now.
+ *
+ * A deletion, not a restore: the device's own presets and artwork were never
+ * written over while the club was active, so there is no backup to lose.
+ *
+ * @returns {boolean} whether there was a club to forget
+ */
+export function forgetClub() {
+  const had = Boolean(loadClub());
+  cached = null;
+  loaded = true;
+  writeStored(null);
+  saveClubPresets(null);
+  writePresetSource(null);
+  // The card set and its switch go too. The device's own sets were never
+  // touched, so its own choice is simply what shows again.
+  saveClubCards(null);
+  writeCardSource(null);
+  // The badge placement goes with the club: it is a position on the club's
+  // badge, and there is no badge to place once the club is gone.
+  clearClubBadgeOverride();
+  try {
+    // So a device that rejoins a club in grace is reminded on day one rather
+    // than inheriting a dismissal from the club it left.
+    localStorage.removeItem(CLUB_GRACE_DISMISSED_STORAGE_KEY);
+  } catch {
+    // Private mode; there was nothing stored to clear.
+  }
+  logoImage = null;
+  logoImageUrl = null;
+  // Only a club-derived plan goes away with the club. A buyer who leaves their
+  // own club keeps the subscription they paid for.
+  if (getEntitlement().source === 'club') setEntitlement(FREE_ENTITLEMENT);
+  notify();
+  return had;
+}
+
+/**
+ * Bring the club in line with who this is, once identity has resolved.
+ *
+ * The one place the cached copy is applied, and the one place it is thrown
+ * away for belonging to someone else:
+ *
+ *   identified, same account or no copy, session says a club     refresh; the answer replaces the copy
+ *   identified, session says no club                             forget the copy (a refusal)
+ *   identified as another account                                forget the copy first
+ *   session unreachable, Zoom says the app is authorized         keep the copy and apply its plan
+ *   signed out, guest mode, or anyone else we can't name         never apply it: forget it
+ *
+ * Runs after the session call, never before it: no club request goes out
+ * before the server can say which account is asking.
+ *
+ * @param {{identified: boolean, uid: string|null, authStatus: string|null,
+ *   reachable: boolean, entitlement: Object|null, getToken?: () => string|null,
+ *   fetchImpl?: typeof fetch}} identity
+ * @returns {Promise<Object|null>} the club as it now stands
+ */
+export async function syncClubWithIdentity({
+  identified,
+  uid,
+  authStatus,
+  reachable,
+  entitlement,
+  getToken,
+  fetchImpl,
+} = {}) {
   const club = loadClub();
-  if (club?.entitled) setEntitlement(clubEntitlementOf(club));
-  return club ?? null;
+
+  if (!reachable && authStatus === 'authorized') {
+    // Offline, and Zoom still says this is the account that approved the app.
+    // It can't say *which* account, so this is the one case the copy is
+    // trusted on the device's word (Q3). Only ever an upgrade: a lapsed copy
+    // says nothing, so a buyer with their own plan is not told they are free
+    // by a club while the session that knows better is out of reach.
+    if (club?.entitled) {
+      setEntitlement(clubEntitlementOf(club));
+      warmLogoQuietly();
+    }
+    return club;
+  }
+
+  if (!identified || !uid) {
+    // Signed out, guest mode, or a session that named nobody: this device has
+    // no account to hold a club for.
+    if (club) forgetClub();
+    return null;
+  }
+
+  accountUid = uid;
+  if (club && club.uid !== uid) forgetClub();
+  // Same account, another club: it left this one and joined that one
+  // somewhere else. Nothing of the old club's (its list, its cards, the badge
+  // placement) may ride along under the new club's name.
+  const sessionClubId = entitlement?.club?.id ?? null;
+  const copy = loadClub();
+  if (copy && sessionClubId && copy.club?.id !== sessionClubId) forgetClub();
+  if (!entitlement?.club) {
+    if (loadClub()) forgetClub();
+    return null;
+  }
+  return refreshClub({ getToken, fetchImpl, uid });
 }
 
 /** Decode the club's logo, if there is one, without making anyone wait. */
@@ -768,19 +833,24 @@ function applyPlan(entitlement) {
 }
 
 /**
- * Type a code and join the club on this device.
+ * Type a code and join the club with this account.
  *
- * Every failure is the same failure on the server, so there is exactly one line
- * of copy to show: "That code isn't active. Check with your club officer."
+ * The server's reason comes back as it is, with what each one needs said:
+ * `full` (with `placesUsed`/`placesTotal`), `already_in_club` (with the other
+ * club's `clubName`), `sign_in_required`, and `invalid_code`, which is every
+ * other refusal on purpose — a wrong code, a lapsed club and a blocked account
+ * look the same — so there is one line of copy for it: "That code isn't
+ * active. Check with your club officer."
  *
  * @param {string} code
- * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch}} [options]
- * @returns {Promise<{ok: true, club: Object}|{ok: false, error: string}>} never rejects
+ * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch, uid?: string|null}} [options]
+ *   `uid` is the account joining; defaults to the one identity last resolved to
+ * @returns {Promise<{ok: true, club: Object, placesUsed: number|null}|{ok: false,
+ *   error: string, clubName?: string, placesUsed?: number, placesTotal?: number}>}
+ *   never rejects
  */
-export async function activateClub(code, { getToken, fetchImpl } = {}) {
+export async function activateClub(code, { getToken, fetchImpl, uid = accountUid } = {}) {
   if (!code || !String(code).trim()) return { ok: false, error: 'invalid_code' };
-
-  const deviceId = clubDeviceId();
 
   let response;
   try {
@@ -793,7 +863,7 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
       },
       credentials: 'same-origin',
       cache: 'no-store',
-      body: JSON.stringify({ code, ...(deviceId ? { deviceId } : {}) }),
+      body: JSON.stringify({ code }),
     });
   } catch {
     // Offline, minutes before a meeting. Say so rather than blaming the code.
@@ -807,8 +877,22 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
     body = null;
   }
 
-  if (!response.ok || !body?.clubToken) {
-    return { ok: false, error: body?.error || (response.status === 429 ? 'too_many_attempts' : 'invalid_code') };
+  if (!response.ok || !body?.club) {
+    // A 5xx is never the code's fault, whatever the body says (`try_again`
+    // when the place counter can't be reached): the person sees the network
+    // message, not "That code isn't active".
+    if (response.status >= 500) return { ok: false, error: 'network' };
+    const fallback =
+      response.status === 429 ? 'too_many_attempts'
+        : response.status === 401 ? 'sign_in_required'
+          : 'invalid_code';
+    return {
+      ok: false,
+      error: body?.error || fallback,
+      ...(typeof body?.clubName === 'string' ? { clubName: body.clubName } : {}),
+      ...(typeof body?.placesUsed === 'number' ? { placesUsed: body.placesUsed } : {}),
+      ...(typeof body?.placesTotal === 'number' ? { placesTotal: body.placesTotal } : {}),
+    };
   }
 
   // Activation is the one moment a device has no club list at all, so the
@@ -817,14 +901,14 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
   // set lands the same way, behind its own switch in cardImages.js.
   saveClubPresets(body.presets ?? null);
   saveClubCards(body.cards ?? null);
-  const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
+  const entry = store(toCacheEntry(body, { uid, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
   warmLogoQuietly();
-  return { ok: true, club: entry };
+  return { ok: true, club: entry, placesUsed: typeof body.placesUsed === 'number' ? body.placesUsed : null };
 }
 
 /**
- * Mint the club this subscription pays for, and join it on this device.
+ * Mint the club this subscription pays for, and land on it with this account.
  *
  * The other half of `activateClub`: that one is for a timer who was given a
  * code, this one is for the person who paid and has none. A subscriber used to
@@ -839,9 +923,8 @@ export async function activateClub(code, { getToken, fetchImpl } = {}) {
  * @returns {Promise<{ok: true, club: Object, code: string, shareUrl: string|null,
  *   created: boolean}|{ok: false, error: string}>} never rejects
  */
-export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
+export async function createClub(details = {}, { getToken, fetchImpl, uid = accountUid } = {}) {
   const timezone = details.timezone ?? guessTimezone();
-  const deviceId = clubDeviceId();
 
   let response;
   try {
@@ -857,7 +940,6 @@ export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
       body: JSON.stringify({
         ...(details.clubName?.trim() ? { clubName: details.clubName.trim() } : {}),
         ...(timezone ? { timezone } : {}),
-        ...(deviceId ? { deviceId } : {}),
       }),
     });
   } catch {
@@ -871,15 +953,15 @@ export async function createClub(details = {}, { getToken, fetchImpl } = {}) {
     body = null;
   }
 
-  if (!response.ok || !body?.clubToken) {
+  if (!response.ok || !body?.club) {
     return { ok: false, error: body?.error || 'create_failed' };
   }
 
-  // Same landing as activation: the creator's device is on the club before this
-  // resolves, so nobody is ever shown a code and asked to type it back in.
+  // Same landing as activation: the creator's account is in the club before
+  // this resolves, so nobody is ever shown a code and asked to type it back in.
   saveClubPresets(body.presets ?? null);
   saveClubCards(body.cards ?? null);
-  const entry = store(toCacheEntry(body, { clubToken: body.clubToken, lastRefreshAt: Date.now() }));
+  const entry = store(toCacheEntry(body, { uid, lastRefreshAt: Date.now() }));
   applyPlan(clubEntitlementOf(entry));
   warmLogoQuietly();
 
@@ -902,31 +984,28 @@ function guessTimezone() {
 }
 
 /**
- * Re-check the club, at most once a day, on app start.
+ * Ask the server for this account's club, on every app open.
  *
- * Offline is a non-event: a failed refresh leaves the cache in place and the
- * device stays Pro, so a lapse can only land on a *successful* refresh at app
- * start and never mid-meeting.
+ * One GET per open, and only for an account the session says is in a club
+ * (`syncClubWithIdentity` decides). The answer replaces the copy. A refusal —
+ * 401, 403 or 404 — forgets the club on this device and tells the server
+ * nothing: there is nothing to tell it. Offline is a non-event: a failed
+ * refresh leaves the copy in place, so a lapse can only land on a *successful*
+ * refresh at app start and never mid-meeting.
  *
- * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch, force?: boolean,
- *   now?: number}} [options]
+ * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch, uid?: string|null,
+ *   now?: number}} [options] - `uid` is whose club this is; defaults to the
+ *   copy's own
  * @returns {Promise<Object|null>} the club as it now stands, or null if there is none
  */
-export async function refreshClub({ getToken, fetchImpl, force = false, now = Date.now() } = {}) {
-  const club = loadClub();
-  if (!club) return null;
-
-  const age = now - (club.lastRefreshAt ?? 0);
-  if (!force && age >= 0 && age < CLUB_REFRESH_INTERVAL_MS) return club;
+export async function refreshClub({ getToken, fetchImpl, uid, now = Date.now() } = {}) {
+  let club = loadClub();
 
   let response;
   try {
     const token = getToken?.();
     response = await (fetchImpl ?? fetch)(CLUB_ENDPOINT, {
-      headers: {
-        'X-Club': club.clubToken,
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       credentials: 'same-origin',
       cache: 'no-store',
     });
@@ -934,10 +1013,9 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
     return club;
   }
 
-  // The device was revoked, or the club is gone. Either way this credential is
-  // spent, so stop sending it — but leave the rest of the device alone.
+  // Removed, blocked, or no club for this account: the copy is wrong now.
   if (response.status === 401 || response.status === 403 || response.status === 404) {
-    leaveClub();
+    forgetClub();
     return null;
   }
   if (!response.ok) return club;
@@ -950,18 +1028,28 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
   }
   if (!body?.club) return club;
 
-  // Content moves only when `ver` moves. A plain daily refresh therefore leaves
-  // a device's list exactly as it was, and only an actual publish replaces it —
+  // Another club than the copy's: the account moved clubs on another
+  // computer. `ver` starts at 1 in every club, so comparing it alone would
+  // keep the old club's list and cards under the new club's name.
+  const copyUid = club?.uid;
+  if (club && club.club?.id !== body.club.id) {
+    forgetClub();
+    club = null;
+  }
+
+  // Content moves only when `ver` moves. A plain refresh therefore leaves a
+  // device's list exactly as it was, and only an actual publish replaces it —
   // and even then the switch is not touched, so a device sitting on its own
-  // presets stays there with a newer club list waiting behind the toggle.
-  const verMoved = (body.ver ?? 1) !== (club.ver ?? 1);
+  // presets stays there with a newer club list waiting behind the toggle. A
+  // device with no copy (a new computer for this account) takes the list.
+  const verMoved = !club || (body.ver ?? 1) !== (club.ver ?? 1);
   if (verMoved) saveClubPresets(body.presets ?? null);
   // The card set rides the same version. It is also taken when this device has
   // none at all, so a device that last refreshed on a bundle that did not know
   // about card sets still receives the one already published.
   if (verMoved || (!loadClubCards() && body.cards)) saveClubCards(body.cards ?? null);
 
-  const entry = store(toCacheEntry(body, { clubToken: body.clubToken ?? club.clubToken, lastRefreshAt: now }));
+  const entry = store(toCacheEntry(body, { uid: uid ?? copyUid ?? accountUid, lastRefreshAt: now }));
   applyPlan(clubEntitlementOf(entry));
   // The kit is club-wide and carries no device override, so it simply lands;
   // the badge *default* lands too, while whatever this device moved sits in its
@@ -971,62 +1059,42 @@ export async function refreshClub({ getToken, fetchImpl, force = false, now = Da
 }
 
 /**
- * Leave the club on this device.
+ * Leave the club with this account, everywhere it is signed in.
  *
- * A deletion, not a restore: the device's own presets and artwork were never
- * written over while the club was active, so there is no backup to lose.
+ * The server decides: the copy here is cleared only after a 2xx, so an owner
+ * (`owner`), the last admin of a club with no known owner (`last_admin`) or a
+ * dropped connection all leave the club exactly as it was, and the caller
+ * says why.
  *
- * The server is told, fire-and-forget, so the row leaves the roster too. Told
- * *first*, because the club token is the only thing that can say which row —
- * and the next two lines throw it away. A failure costs a stale row, which is
- * what every leave used to cost.
- *
- * @param {{fetchImpl?: typeof fetch}} [options]
+ * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch}} [options]
+ * @returns {Promise<{ok: true}|{ok: false, error: string}>} never rejects
  */
-export function leaveClub({ fetchImpl } = {}) {
-  const had = Boolean(loadClub());
-  const token = loadClub()?.clubToken ?? null;
-  if (token) {
-    try {
-      (fetchImpl ?? fetch)(LEAVE_ENDPOINT, {
-        method: 'POST',
-        headers: { 'X-Club': token },
-        credentials: 'same-origin',
-        cache: 'no-store',
-        keepalive: true,
-      })?.catch?.(() => {});
-    } catch {
-      // No fetch, or a tab already being torn down. The device leaves anyway.
-    }
-  }
-  cached = null;
-  loaded = true;
-  writeStored(null);
-  // A deletion, never a restore: the personal keys were not written over while
-  // the club was active, so there is nothing to put back.
-  saveClubPresets(null);
-  writePresetSource(null);
-  // The card set and its switch go too. The device's own sets were never
-  // touched, so its own choice is simply what shows again.
-  saveClubCards(null);
-  writeCardSource(null);
-  // The badge placement goes with the club: it is a position on the club's
-  // badge, and there is no badge to place once the club is gone.
-  clearClubBadgeOverride();
+export async function leaveClub({ getToken, fetchImpl } = {}) {
+  let response;
   try {
-    // So a device that rejoins a club in grace is reminded on day one rather
-    // than inheriting a dismissal from the club it left.
-    localStorage.removeItem(CLUB_GRACE_DISMISSED_STORAGE_KEY);
+    const token = getToken?.();
+    response = await (fetchImpl ?? fetch)(LEAVE_ENDPOINT, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
   } catch {
-    // Private mode; there was nothing stored to clear.
+    return { ok: false, error: 'network' };
   }
-  logoImage = null;
-  logoImageUrl = null;
-  // Only a club-derived plan goes away with the club. A buyer who leaves their
-  // own club keeps the subscription they paid for.
-  if (getEntitlement().source === 'club') setEntitlement(FREE_ENTITLEMENT);
-  notify();
-  return had;
+
+  if (!response?.ok) {
+    let body = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
+    return { ok: false, error: response.status >= 500 ? 'network' : body?.error || 'leave_failed' };
+  }
+
+  forgetClub();
+  return { ok: true };
 }
 
 /**
@@ -1067,6 +1135,7 @@ export function rememberPublishedCards(ver, cards) {
 export function resetClubForTests() {
   cached = undefined;
   loaded = false;
+  accountUid = null;
   cardsCache = undefined;
   cardsLoaded = false;
   listeners.clear();
