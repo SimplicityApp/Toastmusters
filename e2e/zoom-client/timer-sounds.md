@@ -134,6 +134,10 @@ log.
 - RESET clearing the speaker's name in the shared timer state too (`useLiveTimer.js`,
   2026-11-21). Reviewed: it changes the name, not the status the chime follows; no step here
   depends on the name. See [timer-core](timer-core.md) TC-14. Not rerun for it.
+- RESET also letting go of the agenda row and taking the role's current rules
+  (`useLiveTimer.js`, 2026-11-25). Reviewed: TS-03's Reset is on Custom, whose rules it keeps,
+  and the chime follows the status, not the speaker. See [timer-core](timer-core.md) TC-14.
+  Not rerun for it.
 
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): TS-09 passed with FLAGS_FORCE "0" on the club Pro device
 (the footer now shows the locked "Pro" coming-soon button, as on dev since 2026-11-14), and

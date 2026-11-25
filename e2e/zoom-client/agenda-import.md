@@ -190,3 +190,7 @@ Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
   rules (`TimerContext.jsx`, 2026-11-21). Reviewed: it touches `finishCurrentSpeech` and the
   current speaker's rules, not `importBulkSpeakers` or the rows it makes. See
   [timer-core](timer-core.md) TC-14. Not rerun for it.
+- RESET letting go of the agenda row and taking the role's current rules (`TimerContext.jsx`
+  `releaseSpeaker`, 2026-11-25). Reviewed: it clears `activeSpeakerId` and the current speaker,
+  not the rows the import made; no step here presses RESET. See [timer-core](timer-core.md)
+  TC-14. Not rerun for it.
