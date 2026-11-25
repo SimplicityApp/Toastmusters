@@ -28,9 +28,14 @@ and one set of labels keep the three from drifting apart.
   tabs next to the Agenda / Timer / Report tabs. Instead:
   - **Status is a dot, never a button:** "On the agenda · 2 of 3" or "Not on the agenda", plus
     "Unsaved changes" while an edit is pending.
-  - **Every button says what tapping it will do**, not what the state is: "Update Jordan on the
+  - **Every action says what tapping it will do**, not what the state is: "Update Jordan on the
     agenda", "Add Dana after Jordan", "Switch to quick timing", "Save Dana to the agenda", "Back
-    to agenda (next: Jordan, Table Topics)". No underlined text links.
+    to agenda (next: Jordan, Table Topics)".
+  - **At most one filled button** at a time: Update, or Add inside the add panel. Every other
+    action is a secondary text action in the accent colour, with a round leading icon, a trailing
+    "›" and a one-line note of the result (⇄ Switch to quick timing · "Jordan stays on the agenda,
+    not ticked off"; ↩ Back to agenda; ＋ Add a speaker after Jordan; ＋ Save Dana to the agenda;
+    ↶ Undo changes). No bare underlined links.
   - **Edit in place covers name and role.** Both are staged; the Update button lists every change
     ("name Jordan → Dana · role → Table Topics Speech") and "Undo changes" sits under it. Nothing on
     the agenda or the clock changes until Update (or Enter). The old look gets this visible Update
@@ -158,8 +163,9 @@ tab** (no stage there); the tests below run the same steps through each.
 - AC-4: Given either setting is changed on one surface, when the user opens another surface or
   reloads, then the same value shows, and both keys are in the synced profile keys.
 - AC-5: Given a row is loaded, then a status dot reads "On the agenda · <position> of <total>"; with
-  none loaded it reads "Not on the agenda". The status is not a button, and every button's label
-  names what tapping it does, with the words from `actionLabels`.
+  none loaded it reads "Not on the agenda". The status is not a button. Every action's label names
+  what tapping it does, with the words from `actionLabels`; at most one filled button shows at a
+  time, and every other action is an icon text action with its one-line result note.
 - AC-6: Given B is loaded and the user changes the name to "Dana", then nothing changes on the
   agenda or the clock and the status adds "Unsaved changes", until they tap "Update B on the
   agenda" (or press Enter); then B is renamed on both and keeps its place. "Undo changes" puts the
