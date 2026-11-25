@@ -10,6 +10,8 @@ covers:
   - apps/zoom-app/src/components/StageSpeakerPicker.jsx
   - apps/zoom-app/src/utils/zoomSdk.js
   - packages/shared/clubBadge.js
+  - packages/shared/speakerEntry.js
+  - packages/ui/SpeakerEntry.jsx
 automated:
   - e2e/zoom.timer-flow.spec.js
   - apps/zoom-app/src/utils/zoomSdk.test.js
@@ -18,6 +20,8 @@ automated:
   - e2e/zoom.speaker-entry.spec.js
   - apps/zoom-app/src/components/LiveTab.speakerEntry.test.jsx
   - packages/shared/__tests__/speakerEntry.test.js
+  - apps/zoom-app/src/components/SpeakerInput.test.jsx
+  - apps/zoom-app/src/components/StageSpeakerPicker.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting

@@ -9,6 +9,9 @@ covers:
   - apps/zoom-app/src/components/VideoPreviewLayer.jsx
   - apps/zoom-app/src/hooks/useRulesEditor.js
   - apps/zoom-app/src/components/TimerStage.jsx
+  - apps/zoom-app/src/components/StageSpeakerPicker.jsx
+  - packages/shared/speakerEntry.js
+  - packages/ui/SpeakerEntry.jsx
   - apps/zoom-app/src/components/ProLaunchModal.jsx
   - apps/zoom-app/src/components/ClubSurveyModal.jsx
   - apps/zoom-app/src/components/UpgradeModal.jsx
@@ -55,8 +58,9 @@ hint beside the chip ("Drag me to move. Point at me to resize or hide.") wraps i
 Evidence: screenshot; `localStorage.toastmaster_new_look_last` is "1".
 
 ### NL-02 · auto · The card drives the colour on real video
-Do: open "Who's speaking?", type `NL Test`, Enter. Pick Short Roles in the role list. Start,
-and let it run past 1:00. Finish.
+Do: open "Who's speaking?", type `NL Test` (with nobody loaded the name labels the timer; since
+#168 Enter adds nobody to the agenda). Pick Short Roles in the role list. Start, and let it run
+past 1:00. Finish.
 Expect: the card and the video turn green at 0:30, yellow at 0:45, red at 1:00; the status
 line follows ("Green · yellow at 0:45", …, "Red phase"). After Finish the card is blue and
 empty again, and the Report tab lists NL Test.
