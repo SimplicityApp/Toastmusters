@@ -5,3 +5,4 @@ export { default as ClubGraceBanner } from './ClubGraceBanner.jsx';
 export { default as ClubSetupCard } from './ClubSetupCard.jsx';
 export { default as ReportHistoryList } from './ReportHistoryList.jsx';
 export { default as ShareStep, shareMessage } from './ShareStep.jsx';
+export { SpeakerStatus, SpeakerEntryControls, SpeakerEntryOptions, AddSpeakerPanel, TextAction, useAddSpeakerPanel, SPEAKER_ICONS } from './SpeakerEntry.jsx';

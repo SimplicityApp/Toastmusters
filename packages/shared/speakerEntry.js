@@ -155,6 +155,7 @@ export function actionLabels({
     unsaved: changes ? 'Unsaved changes' : null,
     update: changes ? `Update ${nameOf(loaded)} on the agenda` : null,
     changes: changeList,
+    updateNote: changes && enter !== SPEAKER_ENTER_ADD ? 'Enter updates too' : null,
     undo: changes ? 'Undo changes' : null,
     undoNote: changes ? `Back to ${nameOf(loaded)}, ${loaded.role}; nothing saved` : null,
     enterAdd: enter === SPEAKER_ENTER_ADD ? `Add ${changes.name} ${where}` : null,
@@ -168,6 +169,11 @@ export function actionLabels({
     addOpener: `Add a speaker ${where}`,
     addOpenerNote: addResult,
     add: `Add ${addTyped ? `${addTyped} ` : ''}${where} as ${addRole || role}`,
+    // The add panel's parts: its heading, and its button in two lines (who
+    // goes where, then the role), which together read as `add`.
+    addHead: `New speaker · goes ${where}`,
+    addAction: `Add ${addTyped || 'speaker'} ${where}`,
+    addAs: `as ${addRole || role}`,
     addTaken: addTyped && findOnAgenda(agenda, addTyped) ? `${addTyped} is already on the agenda` : null,
   };
 }
