@@ -29,6 +29,7 @@ export function useLiveTimer() {
     resetTimer,
     setCurrentSpeaker,
     updateSpeakerName,
+    releaseSpeaker,
     clearActiveSpeaker,
     finishCurrentSpeech,
     roleRules,
@@ -731,8 +732,9 @@ export function useLiveTimer() {
     // The shared speaker too, not just the field: both looks unmount the timer
     // tab on a tab switch and seed the field from the shared speaker when it
     // comes back, so a name left there reappeared and START timed them under it.
+    // Its agenda row goes with it, as on FINISH (see releaseSpeaker).
     setSpeakerName('');
-    updateSpeakerName('');
+    releaseSpeaker();
     // Track timer reset
     (window.requestIdleCallback || setTimeout)(() => trackEvent('timer_reset', {
       previous_elapsed_time: previousElapsedTime,

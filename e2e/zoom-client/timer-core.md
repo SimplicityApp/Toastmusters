@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: current
+status: stale
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -186,16 +186,23 @@ Do: Live tab, any short role (as TC-02). Click the speaker name field and type
 5 s, press Finish (answer Zoom's reset prompt and the PostHog survey as the skill describes).
 Switch to Agenda, wait until it shows, then back to Live. Press Start, about 3 s, Finish.
 Then type `Reset Speaker`, Start, about 3 s, Stop, Reset, switch to Report and back to Live.
+Last, on the Agenda tab add `Reset Row` and pick them on Live. Start, about 3 s, Stop. Open
+Edit timing rules, set the short role's green 10 s earlier, Save. Reset, read the phase line,
+then Start, about 3 s, Finish; set green back.
 Expect:
 - After the first Finish the name field is empty and the role dropdown stays on the short
   role. After the Agenda/Live switch the field is still empty, the role unchanged.
 - The second speech has no name: the Report tab shows one `Spec Speaker` row, then a row with
   an empty name. No second `Spec Speaker` row.
 - After Reset the field is empty, and still empty after the Report/Live switch.
+- After the last Reset the field is empty, `Reset Row` is no longer the current agenda row, and
+  the phase line shows the green time saved during the pause. The Finish after it adds a row
+  with no name and leaves `Reset Row` not done on the Agenda tab.
 Evidence: screenshots of the name field after each switch, and of the Report tab. PostHog
 from this device: `speech_finished` with `speaker_name: "Spec Speaker"` once, the next with
 `"Unnamed"`.
-Then: if the Report tab held nothing before this step, Clear All; otherwise leave the rows.
+Then: delete `Reset Row` from the agenda. If the Report tab held nothing before this step, Clear
+All; otherwise leave the rows.
 Run 2026-11-21 (fix/finish-clears-speaker dea6993, dev 0bcc2458, Zoom on macOS): TC-01…TC-08,
 TC-10, TC-13 and TC-14 passed (device on Claude Test Club's role list: short role ChairToast1,
 TC-13 lines as in the 11-13 run). TC-14: after FINISH and an Agenda/Live switch the field stayed
@@ -203,6 +210,9 @@ empty; the next speech was reported with no name (one `Spec Speaker` row); after
 Report/Live switch the field stayed empty. TC-11 not verified: that deploy was built without
 the PostHog key, so no events reached PostHog. TC-09 and TC-12 not run (human).
 Log: test-runs/2026-11-21-finish-clears-speaker/run.md.
+2026-11-25: TC-14 gained the agenda-row Reset and the rules edit made during a pause (RESET now
+lets go of the agenda row and takes the role's current rules). Not run on that code, nor on the
+merge with `dev` (c29da41), so `status: stale` until the next run.
 
 ## Not covered
 - Colour accuracy on every camera/background setting.

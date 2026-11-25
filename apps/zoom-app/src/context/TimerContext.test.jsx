@@ -478,6 +478,31 @@ describe('the speaker the timer sits on once a speech is over', () => {
       rules: { green: 60, yellow: 90, red: 120 },
     });
   });
+
+  it('releaseSpeaker (RESET) drops the name and the agenda link, and takes rules edited during a pause', () => {
+    // RESET from a pause changes nothing the idle effect watches, so the
+    // rules edited during that pause come in here or not at all.
+    const edited = { green: 240, yellow: 270, red: 300, graceAfterRed: 30 };
+    const { result } = renderHook(() => ({ timer: useTimer(), tick: useTimerTick() }), { wrapper });
+    let aliceId;
+    act(() => {
+      aliceId = result.current.timer.addToAgenda({ name: 'Alice', role: 'Standard Speech' }, { activate: true });
+    });
+    act(() => { result.current.timer.startTimer(); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    act(() => { result.current.timer.stopTimer(); });
+    act(() => { result.current.timer.updateRoleRules('Standard Speech', edited); });
+    expect(result.current.timer.currentSpeaker.rules).not.toEqual(edited);
+
+    act(() => {
+      result.current.timer.resetTimer({ skipVideo: true });
+      result.current.timer.releaseSpeaker();
+    });
+
+    expect(result.current.timer.activeSpeakerId).toBeNull();
+    expect(result.current.timer.currentSpeaker).toEqual({ name: '', role: 'Standard Speech', rules: edited });
+    expect(result.current.timer.agenda.find((i) => i.id === aliceId).completed).toBe(false);
+  });
 });
 
 describe('surviving a webview teardown', () => {

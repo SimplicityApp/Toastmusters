@@ -399,6 +399,26 @@ export function TimerProvider({ children }) {
   }, []);
 
   /**
+   * Let go of whoever was up, once FINISH or RESET has ended their speech:
+   * no name, no agenda row, and the role's current rules.
+   *
+   * Here and not only in the timer tab's field. The tab unmounts on a tab
+   * switch and seeds its field from this speaker when it comes back: a name
+   * left here put the speaker back on the card, and the next START timed them
+   * again under their name (a second report row). The agenda link goes with
+   * the name, or that START would be reported with no name and still tick
+   * their row off and load the next one. The role stays, as the field always
+   * kept it, so a run of Table Topics needs no re-pick. The rules are looked
+   * up here because a rules edit made while the speech was paused was skipped
+   * by the idle effect below, and a RESET from that pause changes nothing it
+   * watches.
+   */
+  const releaseSpeaker = useCallback(() => {
+    setActiveSpeakerId(null);
+    setCurrentSpeaker((prev) => (prev ? withRoleRules({ ...prev, name: '' }, roleRules) : prev));
+  }, [roleRules]);
+
+  /**
    * Detach the timer from the agenda without touching the agenda itself.
    *
    * For sessions that interrupt the running order rather than advance it — an
@@ -606,17 +626,10 @@ export function TimerProvider({ children }) {
       recordSpeechFinished();
       if (activeSpeakerId) markCompleted(activeSpeakerId);
       resetTimer();
-      setActiveSpeakerId(null);
-      // Whoever just spoke is done, so their name goes here and not only from
-      // the Live tab's field. The tab unmounts on a tab switch and seeds its
-      // field from this speaker when it comes back: a name left here put the
-      // speaker who had finished back on the card, and the next START timed
-      // them again under their name (a second report row). The role stays, as
-      // the field always kept it, so a run of Table Topics needs no re-pick.
       // A next agenda speaker loaded right after this replaces it outright.
-      setCurrentSpeaker(withRoleRules({ ...currentSpeaker, name: '' }, roleRules));
+      releaseSpeaker();
     }
-  }, [currentSpeaker, elapsedTime, currentStatus, activeSpeakerId, roleRules, addReport, markCompleted, resetTimer, formatPassedRedComment, formatBeforeGreenComment]);
+  }, [currentSpeaker, elapsedTime, currentStatus, activeSpeakerId, addReport, markCompleted, resetTimer, releaseSpeaker, formatPassedRedComment, formatBeforeGreenComment]);
 
   // An idle speaker shows the rules START will use. Their copy of the role's
   // rules was taken when they were picked, and START looks the role up again,
@@ -725,6 +738,7 @@ export function TimerProvider({ children }) {
     resetTimer,
     setCurrentSpeaker: setCurrentSpeakerAction,
     updateSpeakerName,
+    releaseSpeaker,
     clearActiveSpeaker,
     addToAgenda,
     removeFromAgenda,
@@ -756,6 +770,7 @@ export function TimerProvider({ children }) {
     resetTimer,
     setCurrentSpeakerAction,
     updateSpeakerName,
+    releaseSpeaker,
     clearActiveSpeaker,
     addToAgenda,
     removeFromAgenda,

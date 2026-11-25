@@ -1,6 +1,6 @@
 import { render, renderHook, act } from '@testing-library/react';
 import { ToastProvider } from '../context/ToastContext';
-import { TimerProvider } from '../context/TimerContext';
+import { TimerProvider, useTimer } from '../context/TimerContext';
 import { useLiveTimer } from './useLiveTimer';
 import { applyOverlay, clearVideoPipelines, isOverlayActive } from '../utils/zoomSdk';
 
@@ -122,8 +122,10 @@ describe('useLiveTimer after a tab switch', () => {
   /** The hook in a tab that unmounts and remounts under one provider, as App renders it. */
   function renderRemountable() {
     const live = { current: null };
+    const timer = { current: null };
     function TimerTab() {
       live.current = useLiveTimer();
+      timer.current = useTimer();
       return null;
     }
     const tree = (showTab) => (
@@ -136,7 +138,7 @@ describe('useLiveTimer after a tab switch', () => {
       view.rerender(tree(false));
       view.rerender(tree(true));
     };
-    return { live, switchTabs };
+    return { live, timer, switchTabs };
   }
 
   beforeEach(() => {
@@ -186,5 +188,52 @@ describe('useLiveTimer after a tab switch', () => {
 
     expect(live.current.speakerName).toBe('');
     expect(live.current.currentSpeaker.name).toBe('');
+  });
+
+  it('lets go of the agenda row on Reset, so the next Finish ticks nothing off', async () => {
+    // A name cleared with the row still linked: the next Start was reported
+    // with no name, and its Finish ticked Priya off and loaded whoever was next.
+    const { live, switchTabs } = renderRemountable();
+    act(() => live.current.handleAddSpeaker('Priya'));
+    const priyaId = live.current.activeSpeakerId;
+    expect(priyaId).toBeTruthy();
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleStop());
+    await act(async () => {
+      await live.current.handleReset();
+    });
+
+    expect(live.current.activeSpeakerId).toBeNull();
+    act(() => switchTabs());
+    expect(live.current.speakerName).toBe('');
+
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleFinish());
+    expect(live.current.agenda.find((item) => item.id === priyaId).completed).toBe(false);
+  });
+
+  it('shows rules edited during a pause once Reset ends that speech', async () => {
+    const edited = { green: 240, yellow: 270, red: 300, graceAfterRed: 30 };
+    const { live, timer } = renderRemountable();
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleStop());
+    act(() => timer.current.updateRoleRules('Standard Speech', edited));
+    // Paused: the speech keeps the rules it started with.
+    expect(live.current.currentSpeaker.rules).not.toEqual(edited);
+
+    await act(async () => {
+      await live.current.handleReset();
+    });
+
+    expect(live.current.currentSpeaker.rules).toEqual(edited);
   });
 });

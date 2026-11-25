@@ -224,6 +224,7 @@ Expect:
   the Agenda/Timer switch.
 - The Report has one `NL Spec` row, then a row with no name. No second `NL Spec`.
 - After Reset, and after the Report/Timer switch, the card reads "Who's speaking?".
+- After Reset the Agenda tab shows `NL Reset` neither current nor done.
 - After Save the card's rules line shows the new green time at once, not the old one.
 Evidence: screenshots of the card after each switch, of the Report, and of the rules line
 before and after Save.
