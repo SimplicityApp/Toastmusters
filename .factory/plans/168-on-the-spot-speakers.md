@@ -26,11 +26,9 @@ and one set of labels keep the three from drifting apart.
   mockup).
 - **Old look: a visible Update button**, not only Enter. Editing the current speaker and adding
   another are both a click away, and Enter does the same as the button.
-- **Q7: the leaner control, accepted.** Every surface gets a switch ("Edit current" / "Add new"),
-  one button whose label says what it will do (Enter does the same), and a tag saying where the
-  speaker came from. In Add mode the role control is for the new speaker only; the new look shows
-  it inside the popover. This replaces the separate Update/Add buttons and the extra list rows in
-  steps 4–6 of the Approach; the oracle station writes the tests against this shape.
+- **Q7: a leaner control.** Accepted as a two-way switch with one action button, then reopened by
+  the owner: a switch reads as more tabs next to the Agenda / Timer / Report tabs, so the panel
+  feels busy. Replaced by the no-switch proposal in Q8.
 
 ## Findings
 The logic is already shared in the Zoom app; the pickers are not.
@@ -193,23 +191,30 @@ This is the third open factory PR while `wipLimit` is 2: started on the owner's 
 instruction, Nov 25.
 
 ## Open questions
-- **Q8. A third mode, "Time only" (proposed Nov 25, mockup shown to the owner).** The switch gets
-  a third side, "Edit current" / "Add new" / "Time only", so a quick timing never touches the
-  agenda:
-  - Only the switch's button (or Enter) writes to the agenda. START never does, in any mode.
-  - Time only: the name and role just label the timer; there is no button, and Enter does
-    nothing. FINISH still records the speech in the Timer's Report and the club history, as
-    `finishCurrentSpeech` already does for any timed speech (TimerContext:559-586); it ticks
-    nothing off.
-  - With a row loaded, picking Time only lets go of it (`clearActiveSpeaker`): the row stays in
-    the agenda, not ticked off, and the tag offers "Back to <row>". A running clock is not touched.
-  - Where the switch starts: Edit current when a row is loaded; **Time only when none is**. Today an
-    unloaded Enter adds to the agenda, so this changes what a club without an agenda gets: their
-    names are no longer added for them, but every speech still reaches the report. The setting
-    still lets the switch start on Add new.
-  - "Edit current" is hidden when no row is loaded, so the switch shows two sides then.
-  Default if unanswered: no third mode (with no row loaded, the switch starts on Add new as today).
+- **Q8. No mode switch (proposed Nov 25, mockup version 4 shown to the owner).** Same shape on all
+  three surfaces, and nothing that looks like tabs:
+  - **The name field is always the speaker on the clock.** A tag under it says where that speaker
+    came from: "From agenda · 2 of 3", or "Not on the agenda".
+  - **Actions appear only when there is something to do.** With an agenda row loaded and the name
+    changed, an "Update <row> to <name>" button appears (Enter does the same); a role change on a
+    loaded row writes back at once (AC-9). With no row loaded and a name typed, a quiet link
+    "Save <name> to the agenda" appears. Otherwise there is no button.
+  - **Adding is its own small panel.** "+ Add speaker" opens it with its own name and role fields
+    and one "Add <name> as <role>" button; it says where the row goes ("goes right after Table
+    Topics"). The speaker on the clock is never touched by it, so the role picked there can only
+    mean the new speaker. The new look shows the panel inside the speaker popover.
+  - **Quick timing needs no mode.** With no row loaded the field just labels the timer. With a row
+    loaded, a "Time without the agenda" link lets go of it (`clearActiveSpeaker`): the row stays,
+    not ticked off, and "Back to <row>" returns. START never writes to the agenda; FINISH still
+    records every timed speech in the Timer's Report and club history, as `finishCurrentSpeech`
+    already does (TimerContext:559-586).
+  - **Enter** does what the visible primary button does: Update in the field, Add in the panel.
+    With no row loaded, Enter in the field does nothing, so a quick timing never lands in the
+    agenda by accident. This changes today's Zoom behaviour, where an unloaded Enter adds the name.
+    The issue's "Enter adds" setting makes Enter in the field add the typed name as a new speaker
+    instead of updating.
+  Default if unanswered: the two-way switch from Q7.
 
 Answered Nov 25: Q1, Q4 and Q5 take their defaults (settings under "Speaker options" in the old
 look and in the new look's speaker popover; the Agenda tab form keeps appending; both settings
-sync); Q2, Q3, Q6 and Q7 as under Decisions.
+sync); Q2, Q3 and Q6 as under Decisions.
