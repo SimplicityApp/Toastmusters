@@ -87,9 +87,8 @@ export default memo(function LiveTab() {
     toggleDebugPanel,
     handleSpeakerChange,
     handleSelectSuggestion,
-    handleAddSpeaker,
     handleSelectAgendaSpeaker,
-    handleRenameSpeaker,
+    speakerEntry,
     handleRoleChange,
     handleCustomRuleChange,
     roleExplanation,
@@ -140,8 +139,7 @@ export default memo(function LiveTab() {
           agendaItems={agenda}
           activeSpeakerId={activeSpeakerId}
           onSelectSpeaker={handleSelectAgendaSpeaker}
-          onAddSpeaker={handleAddSpeaker}
-          onRenameSpeaker={handleRenameSpeaker}
+          speakerEntry={speakerEntry}
           clubKit={clubKit}
           badgePlacement={badgePlacement}
         />
@@ -355,9 +353,7 @@ export default memo(function LiveTab() {
         onEditRules={() => setShowEditRulesModal(true)}
         agendaItems={agenda}
         onSelectSuggestion={handleSelectSuggestion}
-        activeSpeakerId={activeSpeakerId}
-        onAddSpeaker={handleAddSpeaker}
-        onRenameSpeaker={handleRenameSpeaker}
+        entry={speakerEntry}
       />
 
       {selectedRole !== 'Custom' && selectedRole !== BREAK_ROLE && (

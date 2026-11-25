@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages, subscribeCardImages, agendaItemNeedsRole, formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle, loadSpeakerInsertPosition, saveSpeakerInsertPosition, loadSpeakerEnterAction, saveSpeakerEnterAction, addPlan, pendingChanges, findOnAgenda, nameFieldAction } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages, subscribeCardImages, agendaItemNeedsRole, formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle, loadSpeakerInsertPosition, saveSpeakerInsertPosition, loadSpeakerEnterAction, saveSpeakerEnterAction, addPlan, pendingChanges, findOnAgenda, nameFieldAction, actionLabels } from '@toastmaster-timer/shared';
 import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, getZoomParticipants, OVERLAY_MODE_STAGE, notifyCardImagesChanged, preloadBackgroundImages } from '../utils/zoomSdk';
 import { useClub } from './useClub';
 import { useSoundsAccess } from './useSounds';
@@ -1092,7 +1092,43 @@ export function useLiveTimer() {
     }
   };
 
+  /**
+   * What the speaker controls of both looks draw from (the SpeakerEntry bundle in
+   * packages/ui/SpeakerEntry.jsx): the words for the state the timer is in, and
+   * the actions behind them. The panel, the stage and design B's popover take
+   * the same bundle, so none of them decides what a tap or Enter does on its own.
+   */
+  const speakerEntry = {
+    labelsFor: (add = {}) => actionLabels({
+      agenda,
+      loadedRowId: loadedRow?.id ?? null,
+      releasedRowId,
+      name: speakerName,
+      role: selectedRole,
+      addName: add.name,
+      addRole: add.role,
+      enterAction: speakerEnterAction,
+      insertPosition: speakerInsertPosition,
+      speechActive,
+    }),
+    roleOptions,
+    // The add panel starts on the role on the clock, not on a staged one (AC-7).
+    clockRole: currentSpeaker?.role || selectedRole,
+    insertPosition: speakerInsertPosition,
+    enterAction: speakerEnterAction,
+    onCommit: handleCommitSpeakerName,
+    onUpdate: handleUpdate,
+    onUndo: handleUndo,
+    onAddSpeaker: handleAddSpeaker,
+    onSwitchToQuickTiming: handleSwitchToQuickTiming,
+    onBackToAgenda: handleBackToAgenda,
+    onSaveToAgenda: handleSaveToAgenda,
+    onInsertPositionChange: handleSpeakerInsertPositionChange,
+    onEnterActionChange: handleSpeakerEnterActionChange,
+  };
+
   return {
+    speakerEntry,
     isRunning,
     elapsedTime,
     currentStatus,

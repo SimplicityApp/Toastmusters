@@ -2,6 +2,7 @@ import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { actionLabels } from '@toastmaster-timer/shared';
 import StageSpeakerPicker from './StageSpeakerPicker';
 import { getZoomParticipants } from '../utils/zoomSdk';
 
@@ -14,23 +15,46 @@ beforeEach(() => {
 });
 
 function renderPicker(overrides = {}) {
+  const { loadedRowId = null, ...rest } = overrides;
   const props = {
-    role: 'Table Topics',
     agendaItems: [],
-    activeSpeakerId: null,
+    activeSpeakerId: loadedRowId,
     onSelectSpeaker: vi.fn(),
+    ...rest,
+  };
+  // The speaker bundle useLiveTimer passes: the real words for the field's
+  // value, spies for the actions.
+  const entry = {
+    roleOptions: ['Standard Speech', 'Table Topics'],
+    clockRole: 'Table Topics',
+    insertPosition: 'afterActive',
+    enterAction: 'update',
+    onCommit: vi.fn(),
+    onUpdate: vi.fn(),
+    onUndo: vi.fn(),
     onAddSpeaker: vi.fn(),
-    onRenameSpeaker: vi.fn(),
-    ...overrides,
+    onSwitchToQuickTiming: vi.fn(),
+    onBackToAgenda: vi.fn(),
+    onSaveToAgenda: vi.fn(),
+    onInsertPositionChange: vi.fn(),
+    onEnterActionChange: vi.fn(),
   };
 
   function Harness() {
     const [value, setValue] = useState(props.value || '');
-    return <StageSpeakerPicker {...props} value={value} onChange={setValue} />;
+    const labelsFor = (add = {}) => actionLabels({
+      agenda: props.agendaItems,
+      loadedRowId,
+      name: value,
+      role: 'Table Topics',
+      addName: add.name,
+      addRole: add.role,
+    });
+    return <StageSpeakerPicker {...props} value={value} onChange={setValue} entry={{ ...entry, labelsFor }} />;
   }
 
   render(<Harness />);
-  return props;
+  return { ...props, entry };
 }
 
 const openMenu = async (user) =>
@@ -47,16 +71,20 @@ describe('StageSpeakerPicker', () => {
       role: 'host',
       restricted: false,
     });
-    const { onAddSpeaker } = renderPicker();
+    const { entry } = renderPicker();
 
     await openMenu(user);
 
     expect(await screen.findByText('Zoom Participants')).toBeInTheDocument();
     await user.click(screen.getByText('Sam'));
 
-    // Adding is what Enter already does with a typed name, and the only outcome
-    // that puts the meeting on a running order the report can follow.
-    expect(onAddSpeaker).toHaveBeenCalledWith('Sam');
+    // Picking opens the add panel with the name in it (#168): it says where
+    // they go and under which role before anything is written, and adding puts
+    // the meeting on a running order the report can follow.
+    expect(screen.getByRole('textbox', { name: 'New speaker’s name' })).toHaveValue('Sam');
+    expect(entry.onAddSpeaker).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /Add Sam at the end/ }));
+    expect(entry.onAddSpeaker).toHaveBeenCalledWith('Sam', 'Table Topics');
   });
 
   it('labels both groups, and each on its own', async () => {
@@ -116,6 +144,39 @@ describe('StageSpeakerPicker', () => {
     await user.click(await screen.findByText('Dana'));
 
     expect(onSelectSpeaker).toHaveBeenCalledWith('a2');
+  });
+
+  it('stages a rename until Update, and Enter does what Update does (#168)', async () => {
+    const user = userEvent.setup();
+    const { entry } = renderPicker({
+      agendaItems: [{ id: 'a1', name: 'Priya', role: 'Table Topics' }],
+      loadedRowId: 'a1',
+      value: 'Priya',
+    });
+
+    expect(screen.getByText('On the agenda · 1 of 1')).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Speaker name'), 'nka');
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Update Priya on the agenda/ }));
+    expect(entry.onUpdate).toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText('Speaker name'), '{Enter}');
+    expect(entry.onCommit).toHaveBeenCalled();
+  });
+
+  it('keeps quick timing at the foot of the list (#168)', async () => {
+    const user = userEvent.setup();
+    const { entry } = renderPicker({
+      agendaItems: [{ id: 'a1', name: 'Priya', role: 'Table Topics' }],
+      loadedRowId: 'a1',
+      value: 'Priya',
+    });
+
+    await openMenu(user);
+    await user.click(screen.getByRole('button', { name: /Switch to quick timing/ }));
+
+    expect(entry.onSwitchToQuickTiming).toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
   it('offers no dropdown when there is nowhere to go', async () => {

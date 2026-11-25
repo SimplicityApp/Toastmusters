@@ -80,8 +80,8 @@ describe('the stage in design B', () => {
       status: 'green', elapsedTime: 267, rules: { green: 240, yellow: 300, red: 360 }, speakerName: 'Bob', role: 'Ice Breaker',
       isRunning: true, onStart() {}, onContinue() {}, onStop() {}, onReset() {}, onFinish() {}, onExit() {},
       clockHidden: false, onToggleClock() {}, isSharing: false, onToggleShare: vi.fn(), isPoppedOut: false, onTogglePopout() {},
-      canPopout: true, onSpeakerNameChange() {}, agendaItems: [], activeSpeakerId: null, onSelectSpeaker() {}, onAddSpeaker() {},
-      onRenameSpeaker() {}, clubKit: null, badgePlacement: null,
+      canPopout: true, onSpeakerNameChange() {}, agendaItems: [], activeSpeakerId: null, onSelectSpeaker() {},
+      clubKit: null, badgePlacement: null,
     };
     const view = inB(<TimerStage {...props} />);
     expect(screen.getByRole('button', { name: 'Share the timer to the meeting' })).toHaveTextContent('Share to the meeting');
