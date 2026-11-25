@@ -1,7 +1,7 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: stale
+status: current
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
@@ -213,6 +213,13 @@ Log: test-runs/2026-11-21-finish-clears-speaker/run.md.
 2026-11-25: TC-14 gained the agenda-row Reset and the rules edit made during a pause (RESET now
 lets go of the agenda row and takes the role's current rules). Not run on that code, nor on the
 merge with `dev` (c29da41), so `status: stale` until the next run.
+Run 2026-11-25 (fix/finish-clears-speaker 0088e3a = e8916e9 + dev 9542633, dev 2cd81298 with
+FLAGS_FORCE "1,new_look=0", Zoom 7.2.5 on macOS, role ChairToast1): TC-14 passed in full. FINISH
+and RESET left the field empty across Agenda/Live and Report/Live switches; one new `Spec Speaker`
+row, then an unnamed one. After a RESET from a pause, `Reset Row` stayed not done through the next
+FINISH, and the idle phase line read the green saved during the pause (00:20). PostHog evidence
+not verified (worktree build, no key). Only TC-14 ran, so `verified_at` stays on the last full
+run. Log: test-runs/2026-11-25-finish-clears-speaker-2/run.md.
 
 ## Not covered
 - Colour accuracy on every camera/background setting.

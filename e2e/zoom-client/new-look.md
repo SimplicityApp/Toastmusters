@@ -230,6 +230,11 @@ Evidence: screenshots of the card after each switch, of the Report, and of the r
 before and after Save.
 Then: delete `NL Spec` and `NL Reset` from the agenda; leave the Report rows unless it was
 empty before.
+Run 2026-11-25 (fix/finish-clears-speaker 0088e3a, dev 2a7f6ad7 with FLAGS_FORCE "1,pro=0", role
+ChairToast1): NL-21 passed. Finish and Reset left "Who's speaking?" across the Agenda/Timer and
+Report/Timer switches; Report: `NL Spec` 00:10, then Unnamed. After Reset, `NL Reset` showed as
+"Up next", neither current nor done. A Green 30→20 Save moved the idle rules line to 0:20 at once.
+Log: test-runs/2026-11-25-finish-clears-speaker-2/run.md.
 
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,pro=0", then
 "1" for NL-09's second half, NL-10, NL-15, NL-16's club half and NL-17): NL-01–NL-03, NL-05–NL-11,
