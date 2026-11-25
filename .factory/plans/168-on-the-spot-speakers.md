@@ -99,7 +99,7 @@ Smallest change that meets the criteria:
    was loaded, on the running one otherwise).
 5. **UI, same wording on all three surfaces**: the control shows "Editing <name> · <role>" when a row
    is loaded, an "Add new speaker" button, and a hint that names what Enter does ("Enter updates
-   Jon" / "Enter adds Dana after Jon as Table Topics Speaker").
+   Jon" / "Enter adds Dana after Jon as Table Topics Speech").
    - Old look: `SpeakerInput.jsx` (panel) and `StageSpeakerPicker.jsx` (stage).
    - New look: `b/SpeakerPicker.jsx`; its two rows become "Update <row>" (first, the default) and
      "Add <name> as <role>", and Enter follows the setting.
@@ -141,7 +141,7 @@ tab** (no stage there); the tests below run the same steps through each.
 - AC-8: Given the Enter setting is `add` and B is loaded, when the user types a name and presses
   Enter, then a new row is added per AC-1/AC-2 and B is unchanged. With no row loaded, Enter adds
   under either setting.
-- AC-9: Given B is loaded and being edited, when the role is changed to "Table Topics Speaker",
+- AC-9: Given B is loaded and being edited, when the role is changed to "Table Topics Speech",
   then B's agenda row takes that role and its rules, the timer shows those thresholds, and the Agenda
   tab shows the new role. Choosing Break still detaches B and leaves the row untouched.
 - AC-10: Given the user is adding a speaker, when they pick a role before the name is committed,
@@ -186,7 +186,7 @@ instruction, Nov 25.
 
 ## Open questions
 - **Q3. Which role does the new slot get?** Default: the role currently shown in the picker (as
-  today), now named on the add control, so Table Topics runs pick "Table Topics Speaker" before
+  today), now named on the add control, so Table Topics runs pick "Table Topics Speech" before
   adding. The owner was shown a mockup in chat and has not confirmed yet.
 
 Answered Nov 25: Q1, Q4 and Q5 take their defaults (settings under "Speaker options" in the old
