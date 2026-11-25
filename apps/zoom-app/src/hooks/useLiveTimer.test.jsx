@@ -160,6 +160,12 @@ describe('useLiveTimer: on-the-spot speakers (#168)', () => {
 
   const loadJordan = (r) => call(r, 'handleSelectAgendaSpeaker', 'b');
 
+  // Each test starts from an empty store: AC-2/AC-3 set "at the end", which must not
+  // carry into the tests that expect the default "right after".
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
