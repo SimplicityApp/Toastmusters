@@ -37,6 +37,22 @@ test.describe('reconnect page', () => {
     await expect(page.locator('.static-landing')).toHaveCount(0);
   });
 
+  // Three ways home, all a full page load to /?home. Behind the Worker, that
+  // request also stops a marked browser's bare / from coming back here
+  // (worker/reconnect.js, proven in the Worker tests: no Worker runs here).
+  test('the header offers the homepage too: its "Homepage" link and the logo', async ({ page }) => {
+    await page.goto('/reconnect');
+
+    const banner = page.getByRole('banner');
+    await expect(banner.getByRole('link', { name: 'Homepage' })).toBeVisible();
+    await expect(banner.getByRole('link', { name: 'Homepage' })).toHaveAttribute('href', '/?home');
+    await expect(banner.getByRole('link', { name: /^Toastmusters Timer app logo/ })).toHaveAttribute('href', '/?home');
+
+    await banner.getByRole('link', { name: 'Homepage' }).click();
+    await expect(page).toHaveURL(/\/\?home$/);
+    await expect(page.getByRole('heading', { level: 1, name: /Toastmasters Timer – Free Online Speech Timer/ })).toBeVisible();
+  });
+
   test('"Go to the homepage" goes to /?home and shows the homepage, also after a reload', async ({ page }) => {
     await page.goto('/reconnect');
 

@@ -12,7 +12,10 @@ import { trackEvent } from '../utils/posthog'
  *
  * The site cannot tell a lapsed user from a healthy one, so every line here has
  * to be true for anyone who reads it. Visitors who did not need to reconnect
- * get quiet ways out: open the app, or go to the homepage.
+ * get easy ways out: open the app, or go to the homepage (the header logo, the
+ * header's "Homepage" link, or the link under the buttons). Leaving for the
+ * homepage sticks: the Worker stops sending this browser here until it
+ * approves the app in Zoom again.
  *
  * Reached two ways. A browser that has added the app from our site before is
  * sent here by the Worker when it opens a bare / (worker/reconnect.js), which
@@ -26,9 +29,16 @@ import { trackEvent } from '../utils/posthog'
 const BTN_PRIMARY = 'inline-flex items-center justify-center rounded-full bg-ink px-7 py-3 text-base font-semibold text-white hover:bg-stone-700 transition-colors'
 const LINK = 'underline underline-offset-4 decoration-stone-300 hover:text-ink hover:decoration-ink transition-colors'
 
+// /?home, not /. The Worker sends a returning browser's bare / to this page
+// (#96). A full navigation, not a client-side <Link>, so the request reaches the
+// Worker: it remembers the choice, and the next bare / is the homepage
+// (worker/reconnect.js, reconnectDismissal).
+const HOME_URL = '/?home'
+
 // The homepage's click event, with this page's path. `cta` is what the click
-// does: approve_in_zoom, web_timer, open_in_zoom or home.
-const trackCta = (cta) => () => trackEvent('cta_clicked', { cta, location: 'hero', page: '/reconnect' })
+// does: approve_in_zoom, web_timer, open_in_zoom or home. `location` tells the
+// three ways home apart: hero (under the buttons), header or logo.
+const trackCta = (cta, location = 'hero') => () => trackEvent('cta_clicked', { cta, location, page: '/reconnect' })
 
 const REASSURANCES = [
   { title: 'Your agendas, roles and reports are safe.', body: 'Approving does not touch them.' },
@@ -45,13 +55,18 @@ export default function Reconnect() {
   return (
     <div className="min-h-screen bg-cream text-ink">
       <header className="bg-cream/85 backdrop-blur-md border-b border-stone-200/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-2.5">
-          <img
-            src="/Toastmasters-Timer-logo.jpg"
-            alt="Toastmusters Timer app logo"
-            className="h-9 w-9 rounded-xl object-cover"
-          />
-          <span className="font-display text-lg font-bold">Toastmusters Timer</span>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+          <a href={HOME_URL} onClick={trackCta('home', 'logo')} className="flex items-center gap-2.5">
+            <img
+              src="/Toastmasters-Timer-logo.jpg"
+              alt="Toastmusters Timer app logo"
+              className="h-9 w-9 rounded-xl object-cover"
+            />
+            <span className="font-display text-lg font-bold">Toastmusters Timer</span>
+          </a>
+          <a href={HOME_URL} onClick={trackCta('home', 'header')} className={`text-sm font-semibold text-stone-600 ${LINK}`}>
+            Homepage
+          </a>
         </div>
       </header>
 
@@ -94,17 +109,14 @@ export default function Reconnect() {
           <Link to="/timer/app" onClick={trackCta('web_timer')} className={`text-sm text-stone-600 ${LINK}`}>
             Use the browser timer instead
           </Link>
-          <p className="mt-1 border-t border-stone-200 pt-3 text-[13px] text-stone-500">
+          <p className="mt-1 border-t border-stone-200 pt-3 text-sm text-stone-600">
             <a href={ZOOM_APP_URL} onClick={trackCta('open_in_zoom')} className={LINK}>
               Already approved? Open in Zoom
             </a>
             <span aria-hidden>{' · '}</span>
-            {/* /?home, not /. The design sends a returning browser's bare /
-                to this page (#96); a query string always reaches the
-                homepage, and keeps it there on a reload. */}
-            <Link to="/?home" onClick={trackCta('home')} className={LINK}>
+            <a href={HOME_URL} onClick={trackCta('home')} className={LINK}>
               Go to the homepage
-            </Link>
+            </a>
           </p>
         </div>
 

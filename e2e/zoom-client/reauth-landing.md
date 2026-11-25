@@ -1,7 +1,7 @@
 ---
 id: reauth-landing
 title: Re-auth landing, the approved-before mark, the reconnect page and "You're reconnected" (#96)
-status: stale
+status: current
 covers:
   - worker/reconnect.js
   - worker/old-web-host.js
@@ -20,8 +20,8 @@ needs:
   - the Zoom desktop client signed in to the same account
   - for RL-03, a second browser profile with no cookies for www.timer-dev.simple-tech.app
   - for RL-04, a second Zoom account (B) in the authenticated state, in a meeting with the owner (docs/ZOOM_AUTH_AND_REDIRECTS.md, "Reaching the authenticated state deliberately"), and npx wrangler tail --env dev open
-verified_at: never
-verified_on: never
+verified_at: 3955a0a
+verified_on: 2026-11-25
 ---
 
 # Re-auth landing, the approved-before mark, the reconnect page and "You're reconnected" (#96)
@@ -39,9 +39,17 @@ DevTools (Application → Cookies → `https://www.timer-dev.simple-tech.app`) o
 entry for the `/oauth/redirect?code=…` request. To start over, delete the cookie there.
 
 A bare `/` on the web host from a browser that carries the mark gets a `302` to `/reconnect`,
-the page that explains why Zoom sent the user here. Any query string (the reconnect page's own
-"Go to the homepage" is `/?home`, marketing links carry `?utm_…`), any other path, an unmarked
-browser and the `zoom.` host are left alone. The design assumes Zoom lands a user whose
+the page that explains why Zoom sent the user here. Any query string (marketing links carry
+`?utm_…`), any other path, an unmarked browser and the `zoom.` host are left alone.
+
+The reconnect page has three ways home, all a full page load to `/?home`: the header logo, the
+header's **Homepage** link and **Go to the homepage** under the buttons. From a marked browser,
+`/?home` gets a `302` to `/` that sets a second cookie, the dismissal:
+
+`tt_reconnect_dismissed=1; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax` (host-only)
+
+With it, a bare `/` is the homepage again, so a healthy user is not sent back to the reconnect
+page on every visit. The next install landing clears it (`Max-Age=0`). The design assumes Zoom lands a user whose
 approval lapsed on that bare `/` of the dev web host (`WEB_ORIGIN`). RL-04 checks that
 assumption.
 
@@ -51,7 +59,8 @@ is never marked (so a returning user can never be recognised), a mark that page 
 read or that expires within days, a re-add greeted as a first install, and an "Open in Zoom"
 button that launches the production app from a dev build. Also catches a marked browser that
 still gets the marketing homepage at `/`, a visitor who can't leave the reconnect page (a loop
-back from "Go to the homepage" or a reload), a broken Zoom sidebar on the `zoom.` host, and
+back from "Go to the homepage" or a reload), a visitor sent back to the reconnect page on every
+visit after leaving it once, a broken Zoom sidebar on the `zoom.` host, and
 Zoom landing lapsed users somewhere the redirect never fires. The unit tests prove the rules;
 only the deployed Worker, a real Zoom authorize round trip and the real client show them end to
 end.
@@ -93,33 +102,50 @@ with `welcome: back`; `reqs.sh` shows the app loading from `zoom.timer-dev.simpl
 Last run (2026-11-01, dev f30c40a): PASS. The deeplink answered "The application is not found", as
 expected on dev. PostHog `zoom_app_installed` had `welcome: back`.
 
-### RL-03 · auto · A marked browser's bare / opens the reconnect page; /?home and the zoom host do not
+### RL-03 · auto · A marked browser's bare / opens the reconnect page; leaving for the homepage sticks
 Do: in the profile marked in RL-01, open `https://www.timer-dev.simple-tech.app/`. On the page
-it lands on, click **Go to the homepage**, then reload. In the same profile, open
+it lands on, check the header, then click **Go to the homepage**, then reload. Then open
+`https://www.timer-dev.simple-tech.app/` again. In the same profile, open
 `https://zoom.timer-dev.simple-tech.app/`. Last, in the second (unmarked) profile, open
 `https://www.timer-dev.simple-tech.app/`.
 Expect: the marked profile's address bar settles on
 `https://www.timer-dev.simple-tech.app/reconnect`, and the page shows "Welcome back", "Reconnect
 Toastmusters Timer to Zoom" and an **Approve in Zoom** button. The homepage never paints first:
-the Worker answers `/` with a redirect, not a document. **Go to the homepage** shows the
-homepage, and the reload keeps it. Since #98 the old web host's public pages live on the main
-site, so `/?home` 301s to `https://www.timer-dev.toastmusters.com/?home`, and the unmarked
+the Worker answers `/` with a redirect, not a document. The header shows the logo and a
+**Homepage** link, both pointing at `/?home`. **Go to the homepage** shows the homepage, and the
+reload keeps it. Since #98 the old web host's public pages live on the main site, so the
+homepage is `https://www.timer-dev.toastmusters.com/`. The second visit to the bare `/` also
+lands on the main site's homepage, not on `/reconnect`: leaving once sticks. The unmarked
 profile's `/` 301s to `https://www.timer-dev.toastmusters.com/`. The `zoom.` host shows the Zoom
 timer app, not the reconnect page.
 Evidence: final URLs (`osascript`, see gotchas.md). In the marked profile, the Network entry for
-`/` sends `tt_approved=1` and gets a `302` with `Location: https://www.timer-dev.simple-tech.app/reconnect`
-and `Cache-Control: no-store`, and no `text/html` response for `/`, never a `301` to the main
-site. PostHog `$pageview` for `/reconnect`. Cross-check without a browser:
-`curl -sI -H 'Cookie: tt_approved=1' https://www.timer-dev.simple-tech.app/` gives the `302`;
-the same against `/?home` gives a `301` to the main site, and against
+the first `/` sends `tt_approved=1` and gets a `302` with
+`Location: https://www.timer-dev.simple-tech.app/reconnect` and `Cache-Control: no-store`, and
+no `text/html` response for `/`, never a `301` to the main site. The `/?home` entry gets a `302`
+to `/` with `Set-Cookie: tt_reconnect_dismissed=1; … Max-Age=31536000 …`; the second `/` sends
+both cookies and gets a `301` to the main site. PostHog `$pageview` for `/reconnect`, and
+`cta_clicked` with `cta: home`, `page: /reconnect`. Cross-check without a browser:
+`curl -sI -H 'Cookie: tt_approved=1' https://www.timer-dev.simple-tech.app/` gives the `302` to
+`/reconnect`; the same against `/?home` gives the `302` to `/` with the dismissal cookie; with
+`Cookie: tt_approved=1; tt_reconnect_dismissed=1`, `/` gives a `301` to the main site; against
 `https://zoom.timer-dev.simple-tech.app/` a `200`. Without the cookie, `/` gives a `301` with
 `Cache-Control: no-store` (a cached one would hide the reconnect page once the browser is marked).
+To see the reconnect page again in this profile, rerun RL-02 (a re-add clears the dismissal) or
+delete `tt_reconnect_dismissed` in DevTools.
 
 Last run (2026-11-01, dev f30c40a): PASS. The unmarked check used curl, not a second profile. PostHog
 `$pageview` for `/reconnect` recorded. That run predates #98 (`/?home` and the unmarked `/` were
 still `200` here); rerun after #98 reaches dev.
 Reviewed 2026-11-02 against the master sync: `/tutorials` joined the moved pages; `/` and
 `/reconnect` are unchanged, so no step changes.
+Last run (2026-11-25, dev 3955a0a, PR #176): PASS. Browser half in the built-in browser pane, marked
+through the install landing with a fake `code` (the pane was not signed in to Zoom; the mark
+does not depend on the code exchange). `/` → `/reconnect`; logo, **Homepage** and **Go to the
+homepage** all `/?home`; each one, after a re-add, led to the main site's homepage and a second
+bare `/` stayed there. A re-add (`?welcome=back`) brought `/reconnect` back. The curl
+cross-check matched every line above, plus the landing's `tt_reconnect_dismissed=; Max-Age=0`.
+PostHog `cta_clicked` `cta: home` with `location` `hero`, `header` and `logo`. Unmarked `/`
+by curl only.
 
 ### RL-04 · human · Record where Zoom opens the browser after a guest approves the app
 Do: start `npx wrangler tail --env dev`. As account B, in the `authenticated` state, open the dev
@@ -159,8 +185,11 @@ browser opened `https://www.timer.simple-tech.app` and no request reached `timer
 - The redirect rules (back or new, the `zoom.` host left alone, cookie attributes, the code
   dropped; for `/`, only a bare `/` with the mark): `worker/reconnect.test.js` and
   `worker/routing.test.js`, which also prove the apex and legacy host redirects run first.
-- What each `?welcome=` value renders in a plain browser, the reconnect page's copy and links,
-  and homepage → "Reconnect it" → `/reconnect` → "Go to the homepage" → `/?home`:
+- The dismissal rules (only a marked `/?home` writes it, no loop once written, a re-add clears
+  it): `worker/reconnect.test.js` and `worker/routing.test.js`.
+- What each `?welcome=` value renders in a plain browser, the reconnect page's copy and links
+  (header logo and **Homepage** included), and homepage → "Reconnect it" → `/reconnect` →
+  "Go to the homepage" → `/?home`:
   `e2e/web.reconnect.spec.js`, `apps/web/src/pages/Reconnect.test.jsx`.
 - Web sign-in never writing the mark (a signed `state` goes to the sign-in callback):
   `worker/routing.test.js`.
