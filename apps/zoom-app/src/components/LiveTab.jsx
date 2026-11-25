@@ -42,6 +42,7 @@ export default memo(function LiveTab() {
     activeSpeakerId,
     speakerName,
     selectedRole,
+    roleOnClock,
     customRules,
     breakSeconds,
     timeInputMode,
@@ -120,7 +121,7 @@ export default memo(function LiveTab() {
           elapsedTime={elapsedTime}
           rules={currentSpeaker?.rules}
           speakerName={speakerName}
-          role={selectedRole}
+          role={roleOnClock}
           isRunning={isRunning}
           onStart={handleStart}
           onContinue={handleContinue}

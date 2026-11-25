@@ -7,6 +7,9 @@ import { useClub } from './useClub';
 import { useSoundsAccess } from './useSounds';
 import { trackEvent } from '../utils/posthog';
 
+/** Who is on the clock, as far as the name field and role picker care: the row, the name and the role. */
+const speakerKey = (rowId, speaker) => (speaker ? [rowId ?? '', speaker.name || '', speaker.role || ''].join('\u0000') : null);
+
 /**
  * Everything the timer tab does, apart from how it looks: the speaker and role
  * being timed, Start / Stop / Continue / Reset / Finish, and every conversation
@@ -38,6 +41,10 @@ export function useLiveTimer() {
     loadSpeakerFromAgenda,
     addToAgenda,
     updateAgendaItem,
+    releasedRowId,
+    setReleasedRowId,
+    rememberSpeakerDraft,
+    recallSpeakerDraft,
   } = useTimer();
   const { showToast } = useToast();
 
@@ -57,12 +64,16 @@ export function useLiveTimer() {
   // What the name field and the role picker show. With an agenda row loaded
   // these are a staged edit of that row, which only Update (or Enter) writes to
   // the row and the clock together (#168); with none loaded they label the
-  // clock as they change, as they always have.
-  const [speakerName, setSpeakerName] = useState(currentSpeaker?.name || '');
-  const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || defaultRole);
-  // The row let go of for a quick timing, so "Back to agenda" can load it again
-  // and a speaker added meanwhile still goes after it.
-  const [releasedRowId, setReleasedRowId] = useState(null);
+  // clock as they change, as they always have. A staged edit left behind by a
+  // tab switch (this hook's view unmounts) comes back with the same row loaded.
+  // The row let go of for a quick timing lives in the timer context for the
+  // same reason.
+  const [restoredDraft] = useState(() => {
+    const draft = recallSpeakerDraft();
+    return draft && activeSpeakerId && draft.rowId === activeSpeakerId ? draft : null;
+  });
+  const [speakerName, setSpeakerName] = useState(restoredDraft ? restoredDraft.name : currentSpeaker?.name || '');
+  const [selectedRole, setSelectedRole] = useState(restoredDraft ? restoredDraft.role : currentSpeaker?.role || defaultRole);
   // Where a speaker added on the spot goes, and what Enter does in the name
   // field. Synced settings, shared by both looks and the web Live tab.
   const [speakerInsertPosition, setSpeakerInsertPosition] = useState(loadSpeakerInsertPosition);
@@ -218,10 +229,16 @@ export function useLiveTimer() {
   // The agenda row the timer is on, if it is still on the agenda.
   const loadedRow = activeSpeakerId ? agenda.find((item) => item.id === activeSpeakerId) || null : null;
 
-  // Back on the agenda, so there is nothing to go back to.
+  // The role the timer uses: the loaded row's until Update, whatever the role
+  // picker holds; a quick timing takes the picker's at once. The rules line and
+  // the stage (which the meeting may see) say this one, not a staged one.
+  const roleOnClock = loadedRow && currentSpeaker ? currentSpeaker.role : selectedRole;
+
+  // Keep a staged edit where a remount can find it (see restoredDraft).
   useEffect(() => {
-    if (activeSpeakerId) setReleasedRowId(null);
-  }, [activeSpeakerId]);
+    const changes = pendingChanges({ row: loadedRow, name: speakerName, role: selectedRole });
+    rememberSpeakerDraft(changes ? { rowId: loadedRow.id, name: speakerName, role: selectedRole } : null);
+  }, [loadedRow, speakerName, selectedRole, rememberSpeakerDraft]);
 
   // The selected role left the list (removed in Edit Rules, or by a club
   // publish): move to the default rather than leave START with no rules. Never
@@ -317,14 +334,26 @@ export function useLiveTimer() {
     }
   }, [roleRules, selectedRole, currentSpeaker, setCurrentSpeaker]); // Include all dependencies
 
-  // Update local state when currentSpeaker changes (but preserve custom rules if Custom role)
+  // Update local state when currentSpeaker changes (but preserve custom rules if Custom role).
+  // START sets the loaded speaker again (a new object, same row, name and role),
+  // which must not wipe an edit staged for Update; any other change refills the
+  // fields. Seeded so a draft restored on mount survives the first run.
+  const syncedSpeakerRef = useRef(restoredDraft ? speakerKey(activeSpeakerId, currentSpeaker) : null);
   useEffect(() => {
     if (currentSpeaker) {
-      if (!isLocalNameEdit.current) {
-        setSpeakerName(currentSpeaker.name || '');
+      const key = speakerKey(activeSpeakerId, currentSpeaker);
+      const keepDraft =
+        Boolean(activeSpeakerId) &&
+        syncedSpeakerRef.current === key &&
+        Boolean(pendingChanges({ row: loadedRow, name: speakerName, role: selectedRole }));
+      syncedSpeakerRef.current = key;
+      if (!keepDraft) {
+        if (!isLocalNameEdit.current) {
+          setSpeakerName(currentSpeaker.name || '');
+        }
+        setSelectedRole(currentSpeaker.role);
       }
       isLocalNameEdit.current = false;
-      setSelectedRole(currentSpeaker.role);
       // If custom role and has custom rules, update local state (merge so missing graceAfterRed is filled)
       if (currentSpeaker.role === 'Custom' && currentSpeaker.rules) {
         setCustomRules({ ...DEFAULT_CUSTOM_RULES, ...currentSpeaker.rules });
@@ -581,6 +610,12 @@ export function useLiveTimer() {
       askForRole(item);
       return;
     }
+    // Picking a row shows that row, even the one already loaded with an edit
+    // staged on it, as picking it from the name field's suggestions does.
+    if (item) {
+      setSpeakerName(item.name || '');
+      setSelectedRole(item.role);
+    }
     loadSpeakerFromAgenda(id);
   };
 
@@ -640,9 +675,13 @@ export function useLiveTimer() {
     (window.requestIdleCallback || setTimeout)(() => trackEvent('quick_timing_switched', { overlay_mode: overlayMode }));
   };
 
-  /** Load the row let go of for a quick timing, as picking it from the list does. */
+  /**
+   * Load the row let go of for a quick timing, as picking it from the list does.
+   * Not while that timing is under way: loading resets the clock, and the
+   * speech would go unreported (actionLabels offers no button then either).
+   */
   const handleBackToAgenda = () => {
-    if (releasedRowId) handleSelectAgendaSpeaker(releasedRowId);
+    if (releasedRowId && !speechActive) handleSelectAgendaSpeaker(releasedRowId);
   };
 
   /** Put the quick-timed name on the agenda, under the role shown. */
@@ -725,10 +764,12 @@ export function useLiveTimer() {
     return `${mins} min ${secs} sec`;
   };
 
+  // The rules the timer uses: a role staged for a loaded row shows in the Update
+  // button, and here only once it is saved.
   const roleExplanation = useMemo(() => {
-    const rules = roleRules[selectedRole] || DEFAULT_ROLE_RULES[selectedRole] || DEFAULT_ROLE_RULES['Standard Speech'];
+    const rules = roleRules[roleOnClock] || DEFAULT_ROLE_RULES[roleOnClock] || DEFAULT_ROLE_RULES['Standard Speech'];
     return `Green: ${formatTimeReadable(rules.green)}, Yellow: ${formatTimeReadable(rules.yellow)}, Red: ${formatTimeReadable(rules.red)}`;
-  }, [selectedRole, roleRules]);
+  }, [roleOnClock, roleRules]);
 
   // Spelled in time-left terms, because that is what the countdown shows.
   const breakExplanation = useMemo(() => {
@@ -1092,6 +1133,11 @@ export function useLiveTimer() {
     }
   };
 
+  // The add panel starts on the role on the clock, not on a staged one (AC-7),
+  // and not on a break: whoever is added next is a speaker.
+  const timedRole = currentSpeaker?.role || selectedRole;
+  const addPanelRole = timedRole === BREAK_ROLE ? defaultRole : timedRole;
+
   /**
    * What the speaker controls of both looks draw from (the SpeakerEntry bundle in
    * packages/ui/SpeakerEntry.jsx): the words for the state the timer is in, and
@@ -1112,8 +1158,7 @@ export function useLiveTimer() {
       speechActive,
     }),
     roleOptions,
-    // The add panel starts on the role on the clock, not on a staged one (AC-7).
-    clockRole: currentSpeaker?.role || selectedRole,
+    clockRole: addPanelRole,
     insertPosition: speakerInsertPosition,
     enterAction: speakerEnterAction,
     onCommit: handleCommitSpeakerName,
@@ -1142,6 +1187,7 @@ export function useLiveTimer() {
     speakerEnterAction,
     speakerName,
     selectedRole,
+    roleOnClock,
     customRules,
     breakSeconds,
     timeInputMode,

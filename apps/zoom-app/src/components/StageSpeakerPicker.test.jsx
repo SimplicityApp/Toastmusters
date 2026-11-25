@@ -179,6 +179,40 @@ describe('StageSpeakerPicker', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
+  it('adds from its own panel, under a role picked there, without touching the field (#168 AC-7, AC-10)', async () => {
+    const user = userEvent.setup();
+    const { entry } = renderPicker({
+      agendaItems: [{ id: 'a1', name: 'Priya', role: 'Table Topics' }],
+      loadedRowId: 'a1',
+      value: 'Priya',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Add a speaker after Priya' }));
+    const role = screen.getByRole('combobox', { name: 'Role for the new speaker' });
+    expect(role).toHaveValue('Table Topics');
+    await user.type(screen.getByRole('textbox', { name: 'New speaker’s name' }), 'Dana');
+    await user.selectOptions(role, 'Standard Speech');
+
+    expect(screen.getByLabelText('Speaker name')).toHaveValue('Priya');
+    const add = screen.getByRole('button', { name: /Add Dana after Priya/ });
+    expect(add).toHaveTextContent('as Standard Speech');
+    await user.click(add);
+    expect(entry.onAddSpeaker).toHaveBeenCalledWith('Dana', 'Standard Speech');
+  });
+
+  it('saves a quick-timed name from the foot of the list (#168 AC-15)', async () => {
+    const user = userEvent.setup();
+    const { entry } = renderPicker({
+      agendaItems: [{ id: 'a1', name: 'Priya', role: 'Table Topics' }],
+      value: 'Eve',
+    });
+
+    await openMenu(user);
+    await user.click(screen.getByRole('button', { name: 'Save Eve to the agenda' }));
+
+    expect(entry.onSaveToAgenda).toHaveBeenCalled();
+  });
+
   it('offers no dropdown when there is nowhere to go', async () => {
     renderPicker({ agendaItems: [{ id: 'a1', name: 'Priya', role: 'Standard Speech' }] });
 

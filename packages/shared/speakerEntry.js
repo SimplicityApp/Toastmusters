@@ -142,6 +142,9 @@ export function actionLabels({
   const canSave = !loaded && Boolean(typed) && !findOnAgenda(agenda, typed);
   // Adding never moves the timer off a speech in progress (addPlan).
   const addResult = speechActive ? 'This speech keeps running; they wait on the agenda' : 'They go on the timer';
+  // Loading the row again resets the clock, so not while a quick timing is
+  // under way: FINISH (which reports it) or RESET first.
+  const canGoBack = Boolean(released) && !speechActive;
 
   const changeList = changes
     ? [
@@ -155,15 +158,17 @@ export function actionLabels({
     unsaved: changes ? 'Unsaved changes' : null,
     update: changes ? `Update ${nameOf(loaded)} on the agenda` : null,
     changes: changeList,
-    updateNote: changes && enter !== SPEAKER_ENTER_ADD ? 'Enter updates too' : null,
+    // Only when Enter does update: with the setting on "add" and a name already
+    // on the agenda, Enter does nothing.
+    updateNote: enter === SPEAKER_ENTER_UPDATE ? 'Enter updates too' : null,
     undo: changes ? 'Undo changes' : null,
     undoNote: changes ? `Back to ${nameOf(loaded)}, ${loaded.role}; nothing saved` : null,
     enterAdd: enter === SPEAKER_ENTER_ADD ? `Add ${changes.name} ${where}` : null,
     enterAddNote: enter === SPEAKER_ENTER_ADD ? `Enter adds them; ${nameOf(loaded)} stays as is` : null,
     quickTiming: loaded ? 'Switch to quick timing' : null,
     quickTimingNote: loaded ? `${nameOf(loaded)} stays on the agenda, not ticked off` : null,
-    backToAgenda: released ? 'Back to agenda' : null,
-    backToAgendaNote: released ? `next: ${nameOf(released)}, ${released.role}` : null,
+    backToAgenda: canGoBack ? 'Back to agenda' : null,
+    backToAgendaNote: canGoBack ? `next: ${nameOf(released)}, ${released.role}` : null,
     save: canSave ? `Save ${typed} to the agenda` : null,
     saveNote: canSave ? `Goes ${where}. ${addResult}` : null,
     addOpener: `Add a speaker ${where}`,

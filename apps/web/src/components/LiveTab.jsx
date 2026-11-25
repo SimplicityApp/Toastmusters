@@ -17,6 +17,9 @@ import { useClub } from '../hooks/useClub';
 import { SOUNDS_LOCK_MESSAGES, useSoundsAccess } from '../hooks/useSounds';
 import { clubBadgePlacement } from '@toastmaster-timer/shared';
 
+/** Who is on the clock, as far as the name field and role picker care: the row, the name and the role. */
+const speakerKey = (rowId, speaker) => (speaker ? [rowId ?? '', speaker.name || '', speaker.role || ''].join('\u0000') : null);
+
 const PREVIEW_COLORS = [
   { color: 'blue', hex: '#1e3a5f' },
   { color: 'green', hex: '#22c55e' },
@@ -42,6 +45,10 @@ export default memo(function LiveTab({ onTimerStart }) {
     loadSpeakerFromAgenda,
     addToAgenda,
     updateAgendaItem,
+    releasedRowId,
+    setReleasedRowId,
+    rememberSpeakerDraft,
+    recallSpeakerDraft,
   } = useTimer();
   const { showToast } = useToast();
   // The club's brand kit, so the card carries the club's identity here the same
@@ -64,12 +71,15 @@ export default memo(function LiveTab({ onTimerStart }) {
   // What the name field and the role picker show. With an agenda row loaded
   // these are a staged edit of that row, which only Update (or Enter) writes to
   // the row and the clock together (#168, as in the Zoom app); with none loaded
-  // they label the clock as they change.
-  const [speakerName, setSpeakerName] = useState(currentSpeaker?.name || '');
-  const [selectedRole, setSelectedRole] = useState(currentSpeaker?.role || defaultRole);
-  // The row let go of for a quick timing, so "Back to agenda" can load it again
-  // and a speaker added meanwhile still goes after it.
-  const [releasedRowId, setReleasedRowId] = useState(null);
+  // they label the clock as they change. A staged edit left behind by a tab
+  // switch (this tab unmounts) comes back with the same row loaded. The row let
+  // go of for a quick timing lives in the timer context for the same reason.
+  const [restoredDraft] = useState(() => {
+    const draft = recallSpeakerDraft();
+    return draft && activeSpeakerId && draft.rowId === activeSpeakerId ? draft : null;
+  });
+  const [speakerName, setSpeakerName] = useState(restoredDraft ? restoredDraft.name : currentSpeaker?.name || '');
+  const [selectedRole, setSelectedRole] = useState(restoredDraft ? restoredDraft.role : currentSpeaker?.role || defaultRole);
   // Where a speaker added on the spot goes, and what Enter does in the name
   // field. Synced settings, shared with both looks of the Zoom app.
   const [speakerInsertPosition, setSpeakerInsertPosition] = useState(loadSpeakerInsertPosition);
@@ -129,13 +139,28 @@ export default memo(function LiveTab({ onTimerStart }) {
     initializedRef.current = true;
   }, [roleRules, roleOptions, selectedRole, currentSpeaker, setCurrentSpeaker, isRunning]);
 
+  // The agenda row the timer is on, if it is still on the agenda.
+  const loadedRow = activeSpeakerId ? agenda.find((item) => item.id === activeSpeakerId) || null : null;
+
+  // START sets the loaded speaker again (a new object, same row, name and role),
+  // which must not wipe an edit staged for Update; any other change refills the
+  // fields. Seeded so a draft restored on mount survives the first run.
+  const syncedSpeakerRef = useRef(restoredDraft ? speakerKey(activeSpeakerId, currentSpeaker) : null);
   useEffect(() => {
     if (currentSpeaker) {
-      if (!isLocalNameEdit.current) {
-        setSpeakerName(currentSpeaker.name || '');
+      const key = speakerKey(activeSpeakerId, currentSpeaker);
+      const keepDraft =
+        Boolean(activeSpeakerId) &&
+        syncedSpeakerRef.current === key &&
+        Boolean(pendingChanges({ row: loadedRow, name: speakerName, role: selectedRole }));
+      syncedSpeakerRef.current = key;
+      if (!keepDraft) {
+        if (!isLocalNameEdit.current) {
+          setSpeakerName(currentSpeaker.name || '');
+        }
+        setSelectedRole(currentSpeaker.role);
       }
       isLocalNameEdit.current = false;
-      setSelectedRole(currentSpeaker.role);
       if (currentSpeaker.role === 'Custom' && currentSpeaker.rules) {
         setCustomRules({ ...DEFAULT_CUSTOM_RULES, ...currentSpeaker.rules });
       }
@@ -180,13 +205,16 @@ export default memo(function LiveTab({ onTimerStart }) {
     if (isRunning) setPreviewColor(null);
   }, [isRunning]);
 
-  // The agenda row the timer is on, if it is still on the agenda.
-  const loadedRow = activeSpeakerId ? agenda.find((item) => item.id === activeSpeakerId) || null : null;
+  // The role the timer uses: the loaded row's until Update, whatever the role
+  // picker holds; a quick timing takes the picker's at once. The rules line says
+  // this one, not a staged one.
+  const roleOnClock = loadedRow && currentSpeaker ? currentSpeaker.role : selectedRole;
 
-  // Back on the agenda, so there is nothing to go back to.
+  // Keep a staged edit where a remount can find it (see restoredDraft).
   useEffect(() => {
-    if (activeSpeakerId) setReleasedRowId(null);
-  }, [activeSpeakerId]);
+    const changes = pendingChanges({ row: loadedRow, name: speakerName, role: selectedRole });
+    rememberSpeakerDraft(changes ? { rowId: loadedRow.id, name: speakerName, role: selectedRole } : null);
+  }, [loadedRow, speakerName, selectedRole, rememberSpeakerDraft]);
 
   const handleSpeakerChange = (name) => {
     setSpeakerName(name || '');
@@ -299,14 +327,17 @@ export default memo(function LiveTab({ onTimerStart }) {
     updateSpeakerName('');
   };
 
-  /** Load the row let go of for a quick timing, as picking it from the list does. */
+  /**
+   * Load the row let go of for a quick timing, as picking it from the list does.
+   * Not while that timing is under way: loading resets the clock, and the
+   * speech would go unreported (actionLabels offers no button then either).
+   */
   const handleBackToAgenda = () => {
-    const row = releasedRowId ? agenda.find((item) => item.id === releasedRowId) : null;
+    const row = releasedRowId && !speechActive ? agenda.find((item) => item.id === releasedRowId) : null;
     if (row) handleSelectSuggestion(row);
   };
 
   /** Put the quick-timed name on the agenda, under the role shown. */
-
   const handleSaveToAgenda = () => {
     if (loadedRow) return;
     handleAddSpeaker(speakerName, selectedRole);
@@ -363,10 +394,12 @@ export default memo(function LiveTab({ onTimerStart }) {
     if (secs === 0) return `${mins} minute${mins !== 1 ? 's' : ''}`;
     return `${mins} min ${secs} sec`;
   };
+  // The rules the timer uses: a role staged for a loaded row shows in the Update
+  // button, and here only once it is saved.
   const roleExplanation = useMemo(() => {
-    const rules = roleRules[selectedRole] || DEFAULT_ROLE_RULES[selectedRole] || DEFAULT_ROLE_RULES['Standard Speech'];
+    const rules = roleRules[roleOnClock] || DEFAULT_ROLE_RULES[roleOnClock] || DEFAULT_ROLE_RULES['Standard Speech'];
     return `Green: ${formatTimeReadable(rules.green)}, Yellow: ${formatTimeReadable(rules.yellow)}, Red: ${formatTimeReadable(rules.red)}`;
-  }, [selectedRole, roleRules]);
+  }, [roleOnClock, roleRules]);
 
   const handlePreviewColor = (color) => {
     if (color === previewColor) {

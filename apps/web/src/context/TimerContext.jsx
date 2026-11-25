@@ -50,6 +50,20 @@ export function TimerProvider({ children }) {
   // --- stable state ---
   const [currentSpeaker, setCurrentSpeaker] = useState(null);
   const [activeSpeakerId, setActiveSpeakerId] = useState(null);
+  // Two things the Live tab's speaker controls keep here rather than in the
+  // tab, which unmounts on every tab switch (#168, as in the Zoom app): the row
+  // let go of for a quick timing ("Back to agenda", and where a speaker added
+  // meanwhile goes), and an edit of the loaded row not yet saved with Update. A
+  // ref for the draft: it is read once when the tab mounts, so a keystroke need
+  // not re-render everything that reads the timer.
+  const [releasedRowId, setReleasedRowId] = useState(null);
+  const speakerDraftRef = useRef(null);
+  const rememberSpeakerDraft = useCallback((draft) => { speakerDraftRef.current = draft; }, []);
+  const recallSpeakerDraft = useCallback(() => speakerDraftRef.current, []);
+  // Back on the agenda, so there is nothing to go back to.
+  useEffect(() => {
+    if (activeSpeakerId) setReleasedRowId(null);
+  }, [activeSpeakerId]);
 
   // --- lazy localStorage initializers (1f) ---
   const [agenda, setAgenda] = useState(() => {
@@ -467,6 +481,10 @@ export function TimerProvider({ children }) {
     currentSpeaker,
     agenda,
     activeSpeakerId,
+    releasedRowId,
+    setReleasedRowId,
+    rememberSpeakerDraft,
+    recallSpeakerDraft,
     reports,
     roleRules,
     roleOptions,
@@ -498,6 +516,9 @@ export function TimerProvider({ children }) {
     currentSpeaker,
     agenda,
     activeSpeakerId,
+    releasedRowId,
+    rememberSpeakerDraft,
+    recallSpeakerDraft,
     reports,
     roleRules,
     roleOptions,

@@ -80,6 +80,14 @@ describe('TimerCard', () => {
     expect(screen.queryByRole('button', { name: 'Finish' })).toBeNull();
   });
 
+  it('marks the speaker button while a role picked on the role chip waits for Update (#168)', () => {
+    renderCard({ selectedRole: 'Table Topics Speech', speakerEntry: speakerEntry({ role: 'Table Topics Speech' }) });
+    expect(button('Speaker: Bob. On the agenda · 1 of 3. Unsaved changes. Change speaker')).toHaveAttribute(
+      'title',
+      'On the agenda · 1 of 3. Unsaved changes'
+    );
+  });
+
   it('says who is speaking when nobody is', () => {
     renderCard({ speakerName: '', activeSpeakerId: null });
     expect(button("Who's speaking? Not on the agenda. Pick a speaker")).toHaveTextContent('Who’s speaking?');

@@ -50,6 +50,9 @@ export default function SpeakerPicker({
   const addPanel = useAddSpeakerPanel();
   const labels = entry.labelsFor(addPanel);
   const onAgenda = labels.status.startsWith('On the agenda');
+  // A role picked on the card's role chip is staged with the popover closed, so
+  // the button says so too; Update is inside.
+  const status = [labels.status, labels.unsaved].filter(Boolean).join('. ');
 
   const close = () => setOpen(false);
   usePopover(open, close, [buttonRef, popRef]);
@@ -103,8 +106,8 @@ export default function SpeakerPicker({
         onClick={() => (open ? close() : openList())}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={shown ? `Speaker: ${shown}. ${labels.status}. Change speaker` : `Who's speaking? ${labels.status}. Pick a speaker`}
-        title={labels.status}
+        aria-label={shown ? `Speaker: ${shown}. ${status}. Change speaker` : `Who's speaking? ${status}. Pick a speaker`}
+        title={status}
         style={{ background: palette.soft, color: palette.fg }}
         className="flex h-9 w-full items-center justify-between gap-1.5 rounded-[10px] px-2.5 text-sm font-semibold"
       >
@@ -117,6 +120,9 @@ export default function SpeakerPicker({
           <span aria-hidden="true" className="flex-shrink-0 text-[11px] font-medium opacity-85">
             {labels.status.replace('On the agenda · ', '')}
           </span>
+        )}
+        {labels.unsaved && (
+          <span aria-hidden="true" className="h-2 w-2 flex-shrink-0 rounded-full bg-amber-500 ring-1 ring-white" />
         )}
         <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
       </button>
