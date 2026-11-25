@@ -14,10 +14,9 @@ needs:
   - FLAGS_FORCE "1" on dev (`pro` on) for CR-01 to CR-03; "0" for CR-04
   - a club device (Claude Test Club on the test Mac)
   - for CR-02 and CR-03, the club record's `currentPeriodEnd` / `status` edited in dev KV
-    (save a backup first, restore after; ask the user once, as a list), and a club device
-    that can be made to refresh: a device re-reads its club only once its cache is 24 h old,
-    so use the web app in a browser (set `toastmaster_club.lastRefreshAt` to 0, reload)
-    rather than the Zoom client, whose localStorage cannot be reached
+    (save a backup first, restore after; ask the user once, as a list). Since #167 the app
+    re-reads its club on every open once the Zoom session exists (no 24 h cache), so closing
+    and reopening the timer in Zoom is the refresh; no localStorage edit is needed
   - since plan 13, FLAGS_FORCE "1" also turns on `new_look` (design B); these steps are written for
     today's panel, so wherever they say "1", deploy "1,new_look=0" ("0" already has it off)
 verified_at: 51534f9
@@ -45,8 +44,10 @@ Evidence: screenshot; the device refresh (`GET /api/club`) returns `cancelAtPeri
 `currentPeriodEnd` more than 60 days out.
 
 ### CR-02 · auto · The reminder appears inside the last 60 days
-Do: back up the club record, set its `currentPeriodEnd` to 29.5 days from now (dev KV), wait
-about 60 s for the KV cache, then make the device refresh (see needs) and reload.
+Do: on a member device (not the owner's: `GET /api/club` takes status and period end from the
+caller's combined entitlement, and the owner's own subscription wins), back up the club record,
+set its `currentPeriodEnd` to 29.5 days from now (dev KV), wait about 60 s for the KV cache,
+then close and reopen the timer in Zoom.
 Expect: "Claude Test Club's Pro ends in 30 days." with "Renew to keep your presets, branding
 and archive." for an admin, or "Ask your club admin to renew." otherwise, and an ×. The ×
 hides it for the rest of the day. Restore the record afterwards.
@@ -54,7 +55,7 @@ Evidence: screenshot; PostHog `club_grace_banner_shown` with `days_left: 30`.
 
 ### CR-03 · auto · A failed payment is warned about at once
 Do: with the backup from CR-02, set the club's `status` to `past_due`, `cancelAtPeriodEnd`
-to false and `currentPeriodEnd` to 2 days ago, then make the device refresh and reload.
+to false and `currentPeriodEnd` to 2 days ago, then close and reopen the timer in Zoom.
 Expect: the amber line shows straight away ("Pro ends in N days" counting down a week from
 the period end, or "payment did not go through" without a date). Restore the record
 afterwards.
@@ -68,8 +69,14 @@ Expect: no amber renewal line. Club features are off until Pro is released (see
 Evidence: screenshot.
 
 ## Not covered
-- CR-02 and CR-03 inside the Zoom client itself. Run 2026-11-14 on the web app instead (see
-  needs); the banner component and `clubGraceReminder` are shared, and the Zoom client showed
-  the same banner earlier the same day.
+- Reviewed against the #167 implementation: the club is re-read on every open once the
+  session exists (`syncClubWithIdentity` → `GET /api/club`), which is what CR-02/CR-03's
+  close-and-reopen relies on. The reminder's own logic is unchanged.
+- Reviewed against #167's verify fixes: `refreshClub` now also replaces the copy when the
+  answer is another club, and a 5xx on activate or leave reads as a network error. The
+  reminder and CR-02/CR-03's reopen are unchanged.
+- CR-02 and CR-03 ran 2026-11-14 on the web app as a second club device, because the Zoom
+  client then re-read its club only once a day. Since #167 they run in Zoom (reopen the timer);
+  not rerun yet.
 - Other club behaviour in `club.js` (joining, refresh, lapse, card sets). See
-  [club-card-sets](club-card-sets.md); `pro-club` is not migrated yet.
+  [club-membership](club-membership.md) and [club-card-sets](club-card-sets.md).

@@ -3,6 +3,7 @@ import { resolveWebIdentity, signInUrl, signOut, startWebSession, resetWebIdenti
 import { identifyUser } from './posthog';
 import {
   getEntitlement,
+  isEntitlementKnown,
   resetEntitlementForTests,
   getFlags,
   areFlagsKnown,
@@ -23,11 +24,11 @@ afterEach(() => {
 describe('resolveWebIdentity', () => {
   it('is anonymous on 401, network failure, or a body without a uid', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) })));
-    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: null });
+    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: null, reachable: true });
 
     resetWebIdentityForTests();
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
-    expect(await resolveWebIdentity()).toMatchObject({ identified: false });
+    expect(await resolveWebIdentity()).toMatchObject({ identified: false, reachable: false });
   });
 
   it('identifies from /api/me using the cookie, once per page load', async () => {
@@ -39,7 +40,7 @@ describe('resolveWebIdentity', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const [a, b] = await Promise.all([resolveWebIdentity(), resolveWebIdentity()]);
-    expect(a).toEqual({ identified: true, uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro: true } });
+    expect(a).toEqual({ identified: true, uid: 'u1', entitlement: { plan: 'pro', entitled: true }, flags: { pro: true }, reachable: true });
     expect(a).toBe(b);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     // The identity call is the one that asks for flags; the entitlement polls
@@ -52,12 +53,12 @@ describe('resolveWebIdentity', () => {
   // flags have to be read before the uid decides this is anonymous.
   it('keeps the flags for a signed-out visitor', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ uid: null, flags: { pro: true } }) })));
-    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: { pro: true } });
+    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: { pro: true }, reachable: true });
   });
 
   it('survives a body that is not JSON', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502, json: async () => { throw new SyntaxError('not json'); } })));
-    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: null });
+    expect(await resolveWebIdentity()).toEqual({ identified: false, uid: null, entitlement: null, flags: null, reachable: false });
   });
 });
 
@@ -123,5 +124,12 @@ describe('startWebSession', () => {
     await startWebSession();
     expect(areFlagsKnown()).toBe(true);
     expect(getFlags()).toEqual({});
+  });
+
+  // A club member offline keeps the Pro their club copy gives them (#167).
+  it('says nothing about the plan when the Worker cannot be reached', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    await startWebSession();
+    expect(isEntitlementKnown()).toBe(false);
   });
 });

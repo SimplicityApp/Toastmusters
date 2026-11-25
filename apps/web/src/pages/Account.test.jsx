@@ -332,7 +332,7 @@ describe('Account: setting up a club', () => {
         ok: true,
         status: 200,
         json: async () => ({
-          clubToken: 'tok.sig',
+          uid: 'u-1',
           created: true,
           code: 'DTSP-7K2QM9',
           shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
@@ -418,12 +418,12 @@ describe('Account: the pro flag, the ways into a club', () => {
     expect(setupButton()).toBeNull();
   });
 
-  it('still shows a browser already in a club its club, and lets it leave', async () => {
+  it('still shows an account already in a club its club, and lets it leave', async () => {
     const { CLUB_STORAGE_KEY, initClubFromCache } = await import('@toastmaster-timer/shared');
     localStorage.setItem(
       CLUB_STORAGE_KEY,
       JSON.stringify({
-        clubToken: 'tok.sig',
+        uid: 'u-1',
         lastRefreshAt: Date.now(),
         ver: 1,
         club: { id: 'club-1', name: 'Downtown Speakers' },
@@ -447,8 +447,8 @@ describe('Account: the pro flag, the ways into a club', () => {
     setFlags({ pro: false });
     renderAccount();
 
-    expect(await screen.findByText('This browser is on Pro through your club.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /leave this club on this device/i })).toBeInTheDocument();
+    expect(await screen.findByText("You're on Pro through Downtown Speakers.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^leave downtown speakers/i })).toBeInTheDocument();
     // The code is a door for somebody else, and that door is shut.
     expect(screen.queryByDisplayValue('DTSP-7K2QM9')).toBeNull();
   });

@@ -111,6 +111,19 @@
     ]
   },
 
+  // A club's code admits its owner plus 3 other Zoom accounts. One Durable
+  // Object per club (worker/club-places.js) counts the places, so two people
+  // who type the code at the same moment cannot make a 4th. Bindings are not
+  // inherited by environments: env.dev repeats this one, and its migrations.
+  //
+  // ⚠️ A migration can't simply be reverted: removing ClubPlaces later needs a
+  // `deleted_classes` migration of its own. Never edit a tag that has shipped;
+  // add the next one.
+  "durable_objects": {
+    "bindings": [{ "name": "CLUB_PLACES", "class_name": "ClubPlaces" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClubPlaces"] }],
+
   // Static Assets: serves the combined monorepo build in ./dist.
   //  - web app (apps/web)        -> served at /
   //  - zoom app (apps/zoom-app)  -> served at /zoom/
@@ -197,6 +210,11 @@
           }
         ]
       },
+      // The club place counter, as at the top level.
+      "durable_objects": {
+        "bindings": [{ "name": "CLUB_PLACES", "class_name": "ClubPlaces" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClubPlaces"] }],
       // FLAGS_FORCE "1" keeps dev working with every feature on, and makes no
       // flag requests. "0" exercises the dark path; clear it to test the real
       // PostHog round trip.

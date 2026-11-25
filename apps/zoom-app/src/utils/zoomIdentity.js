@@ -1,4 +1,3 @@
-import { clubHeaders } from '@toastmaster-timer/shared';
 import { readAppContext, readZoomUserSummary } from './zoomSdk';
 
 /**
@@ -50,9 +49,9 @@ const ANONYMOUS = Object.freeze({
 async function requestSession(context) {
   const response = await fetch(SESSION_ENDPOINT, {
     method: 'POST',
-    // The club rides along so the entitlement that comes back is the combined
-    // one; without it the answer would overwrite club-derived Pro with free.
-    headers: { 'Content-Type': 'application/json', ...clubHeaders() },
+    // The entitlement that comes back is the combined one: the Worker finds
+    // the account's club from the uid, so nothing club-shaped rides along.
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(context ? { context } : {}),
     // Identity is per-user; a cached response would hand us someone else's.
     cache: 'no-store',
@@ -148,6 +147,20 @@ export function resolveZoomIdentity() {
     identityPromise = resolveOnce().catch(() => ({ ...ANONYMOUS }));
   }
   return identityPromise;
+}
+
+/**
+ * Resolve who this is again, for everyone who asks from now on.
+ *
+ * For after the user approves the app in Zoom (guest mode → authorized): the
+ * answer the page loaded with is a guest's, and the club code they typed can
+ * only be sent with the session the new answer brings.
+ *
+ * @returns {Promise<Object>} the new identity; never rejects
+ */
+export function refreshZoomIdentity() {
+  identityPromise = null;
+  return resolveZoomIdentity();
 }
 
 /** Test seam: drop the cached single-flight result. */

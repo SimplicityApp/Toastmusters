@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { handleClubCreate } from './club.js';
 import { createClubForSubscriber, syncClubToSubscription } from './club-create.js';
-import { createClubFromPending, clubByCustomerKey, clubPendingKey, clubMemberKey } from './club-admin.js';
+import { createClubFromPending, clubByCustomerKey, clubPendingKey, clubMemberKey, clubOfKey } from './club-admin.js';
 import { clubKey, entitlementKey, resolveAccess } from './entitlements.js';
 import { customerByUidKey } from './billing.js';
 import { mintSessionToken } from './session-token.js';
-import { verifyClubToken } from './club-token.js';
 
 /**
  * Turning a payment into a club, without an operator in the loop.
@@ -229,14 +228,16 @@ describe('POST /api/club/create', () => {
     expect(res.status).toBe(401);
   });
 
-  it('hands the creator a working club token, so nobody types their own code', async () => {
+  it('makes the creator the owner and an admin by account, so nobody types their own code', async () => {
     seedSubscriber();
     const res = await handleClubCreate(createReq({ clubName: 'Downtown Speakers' }), env);
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toMatchObject({ created: true, role: 'admin', entitled: true });
-    expect(verifyClubToken(body.clubToken, SIGNING_KEY)).toMatchObject({ uid: 'u1' });
+    expect(body).toMatchObject({ created: true, role: 'admin', isOwner: true, entitled: true });
+    expect(body).not.toHaveProperty('clubToken');
+    expect(JSON.parse(kv.store.get(clubOfKey('u1')))).toMatchObject({ clubId: body.club.id });
+    expect(clubOf(body.club.id)).toMatchObject({ ownerUid: 'u1' });
   });
 
   it('shows the admin the code and a link they can send', async () => {

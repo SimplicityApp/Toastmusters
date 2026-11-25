@@ -1,12 +1,13 @@
 import { test, expect } from '@playwright/test';
 
 // Club features are on only when the club is active AND Pro is released. A club
-// device whose `pro` flag is off behaves as a lapsed one: no badge, no club
+// member whose `pro` flag is off is treated as a lapsed one: no badge, no club
 // strip on the Report tab, no renewal line; nothing is deleted.
-const CLUB = {
-  clubToken: 'club-token',
-  // Fresh, so the app does not refresh the club against the (unmocked) server.
-  lastRefreshAt: Date.now(),
+//
+// The club belongs to the Zoom account (#167): the session names it, and the
+// app reads it with GET /api/club once the session has answered.
+const UID = 'e2e-club';
+const CLUB_STATE = {
   ver: 1,
   club: { id: 'club-1', name: 'Downtown Speakers' },
   kit: { name: 'Downtown Speakers', logoUrl: null, primaryColor: '#772432', showOnCards: true, showOnReports: true },
@@ -22,6 +23,8 @@ const CLUB = {
   cancelAtPeriodEnd: true,
   source: 'club',
 };
+/** This account's copy from its last open. */
+const CLUB = { uid: UID, lastRefreshAt: Date.now(), ...CLUB_STATE };
 
 async function openAsClubDevice(page, flags) {
   await page.addInitScript((club) => {
@@ -33,12 +36,13 @@ async function openAsClubDevice(page, flags) {
     route.fulfill({
       json: {
         identified: true,
-        uid: 'e2e-club',
-        entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'club' },
+        uid: UID,
+        entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'club', club: CLUB_STATE.club },
         flags,
       },
     })
   );
+  await page.route('**/api/club', (route) => route.fulfill({ json: CLUB_STATE }));
   await page.goto('/zoom/');
   await expect(page.getByRole('button', { name: /START/i })).toBeVisible();
 }

@@ -17,6 +17,7 @@ import { handleAuthStart, handleOAuthCallback } from './auth.js';
 import { handleClub } from './club.js';
 import { createClubFromPending, clubByCodeKey } from './club-admin.js';
 import { ADMIN_COOKIE, magicKey, mintAdminSession } from './club-magic.js';
+import { makeClubPlacesNamespace } from './club-places-fake.js';
 import { entitlementKey } from './entitlements.js';
 import { mintSessionToken } from './session-token.js';
 import worker from './index.js';
@@ -466,15 +467,20 @@ function makeEmail() {
   return { sent, send: async (message) => { sent.push(message); } };
 }
 
-const clubEnv = (over = {}) => ({
-  PROFILES: makeKv(),
-  EMAIL: makeEmail(),
-  SESSION_SIGNING_KEY: SIGNING_KEY,
-  ENTITLEMENT_ENFORCE: '1',
-  WEB_ORIGIN: 'https://www.example.test',
-  MAGIC_LINK_FROM: 'no-reply@example.test',
-  ...over,
-});
+const clubEnv = (over = {}) => {
+  const env = {
+    PROFILES: makeKv(),
+    EMAIL: makeEmail(),
+    SESSION_SIGNING_KEY: SIGNING_KEY,
+    ENTITLEMENT_ENFORCE: '1',
+    WEB_ORIGIN: 'https://www.example.test',
+    MAGIC_LINK_FROM: 'no-reply@example.test',
+    ...over,
+  };
+  // The place counter a join claims from (worker/club-places.js).
+  env.CLUB_PLACES ??= makeClubPlacesNamespace(() => env);
+  return env;
+};
 
 /** A club to be let into, seeded once per store whoever asks first. */
 async function seedClubOnce(env) {
@@ -598,7 +604,9 @@ const GATED = [
     run: (env, { uid }) => runClubDoor(env, { uid, path: '/api/club/activate', body: { code: 'DTSP-7K2QM9' }, prepare: withClub }),
     onStatus: 200,
     off: 'not found',
-    needsSession: false,
+    // Joining is by Zoom account (#167).
+    needsSession: true,
+    noSession: 404,
   },
   {
     flag: 'pro',
@@ -642,8 +650,8 @@ async function expectDark(off, res) {
 
 describe('gated endpoints', () => {
   describe.each(GATED)('$name ($flag)', ({ flag, env: makeEnv, run, onStatus, off, needsSession, noSession }) => {
-    // A billing route (or club creation) needs a session to do anything; a
-    // sign-in route, or a club code typed by a guest, is usually called by nobody.
+    // A billing route (or joining or creating a club) needs a session to do
+    // anything; a sign-in route is usually called by nobody.
     const caller = { uid: needsSession ? 'u1' : null };
 
     it('behaves as it always has when the flag is on', async () => {
@@ -745,20 +753,23 @@ describe('gated endpoints', () => {
 
   /**
    * The pro flag closes the doors and nothing else. Two clients read a 404
-   * from inside a club as final: refreshClub leaves the club on a 404 from
-   * GET /api/club, and drainOutbox drops a queued speech on any 4xx. So a
-   * device that joined while pro was on has to keep working, unchanged, once
-   * it goes off — these are what stop a future edit from evicting club devices.
+   * from inside a club as final: refreshClub forgets the club on a 404 from
+   * GET /api/club, and drainOutbox drops a queued speech on a 403 or 404. So
+   * an account that joined while pro was on has to keep working, unchanged,
+   * once it goes off — these are what stop a future edit from evicting club
+   * members.
    */
-  describe('the pro flag leaves a device already in a club alone', () => {
-    /** One store; a device joins while pro is on, then the flag moves. */
+  describe('the pro flag leaves an account already in a club alone', () => {
+    const member = { authorization: `Bearer ${mintSessionToken('member-uid', SIGNING_KEY)}` };
+
+    /** One store; an account joins while pro is on, then the flag moves. */
     async function joined() {
       const store = makeKv();
       const envAt = (FLAGS_FORCE) => clubEnv({ PROFILES: store, FLAGS_FORCE });
       const clubId = await seedClubOnce(envAt('1'));
-      const { res } = await runClubDoor(envAt('1'), { path: '/api/club/activate', body: { code: 'DTSP-7K2QM9' } });
-      const { clubToken } = await res.json();
-      return { clubId, clubToken, envAt };
+      const { res } = await runClubDoor(envAt('1'), { uid: 'member-uid', path: '/api/club/activate', body: { code: 'DTSP-7K2QM9' } });
+      expect(res.status).toBe(200);
+      return { clubId, envAt };
     }
 
     const call = (env, path, { method = 'GET', headers = {}, body } = {}) => {
@@ -775,31 +786,31 @@ describe('gated endpoints', () => {
       );
     };
 
-    it('answers the daily refresh, GET /api/club, with 200 while pro is off', async () => {
-      const { clubToken, envAt } = await joined();
+    it('answers the refresh, GET /api/club, with 200 while pro is off', async () => {
+      const { envAt } = await joined();
 
-      const res = await call(envAt('0'), '/api/club', { headers: { 'x-club': clubToken } });
+      const res = await call(envAt('0'), '/api/club', { headers: member });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ club: { name: 'Downtown Speakers' }, entitled: true });
     });
 
     it('still takes a queued speech while pro is off', async () => {
-      const { clubToken, envAt } = await joined();
+      const { envAt } = await joined();
 
       const res = await call(envAt('0'), '/api/club/meetings/20260929/speeches', {
         method: 'POST',
-        headers: { 'x-club': clubToken },
+        headers: member,
         body: { speechId: 's1', name: 'Alice', role: 'Standard Speech', duration: '5:50', color: 'green', finishedAt: 1_000 },
       });
       expect(res.status).toBe(200);
     });
 
     it('answers presets, meetings, the admin routes and admin sign-out the same in both positions', async () => {
-      const { clubId, clubToken, envAt } = await joined();
+      const { clubId, envAt } = await joined();
       const adminCookie = `${ADMIN_COOKIE}=${mintAdminSession({ clubId, email: BILLING_EMAIL }, SIGNING_KEY)}`;
       const requests = [
-        ['/api/club/presets', { method: 'PUT', headers: { 'x-club': clubToken }, body: {} }],
-        ['/api/club/meetings', { headers: { 'x-club': clubToken } }],
+        ['/api/club/presets', { method: 'PUT', headers: member, body: {} }],
+        ['/api/club/meetings', { headers: member }],
         ['/api/club/roster', { headers: { cookie: adminCookie } }],
         ['/api/club/manage/signout', { method: 'POST' }],
       ];

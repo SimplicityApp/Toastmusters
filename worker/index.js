@@ -16,6 +16,10 @@ import { handleClubAsset } from './club-assets.js';
 import { handleSharedReport } from './club-share.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 
+// The Durable Object class behind the CLUB_PLACES binding (wrangler.jsonc). The
+// runtime finds a Durable Object class among the entry point's exports.
+export { ClubPlaces } from './club-places.js';
+
 // Content-Security-Policy for the marketing + web app (root). Mirrors the
 // "/(.*)" rule from the old vercel.json.
 const ROOT_CSP =

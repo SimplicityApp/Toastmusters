@@ -1,0 +1,21 @@
+{
+  "issue": 167,
+  "files": [
+    "worker/club-places-fake.js",
+    "worker/club-membership-helpers.js",
+    "worker/club-places.test.js",
+    "worker/club-membership.test.js",
+    "worker/club-membership-admin.test.js",
+    "worker/no-club-token.test.js",
+    "packages/shared/__tests__/clubAccount.test.js",
+    "packages/shared/__tests__/clubOutbox.test.js",
+    "apps/zoom-app/src/components/UpgradeModal.clubJoin.test.jsx",
+    "apps/zoom-app/src/utils/zoomIdentity.refresh.test.js",
+    "apps/zoom-app/src/main.clubOrder.test.jsx",
+    "apps/web/src/pages/ProActivate.test.jsx",
+    "apps/web/src/components/ClubCodeSection.test.jsx",
+    "apps/web/src/pages/ClubAdmin.members.test.jsx",
+    "e2e/zoom.club-join.spec.js",
+    "e2e/web.club-join.spec.js"
+  ]
+}

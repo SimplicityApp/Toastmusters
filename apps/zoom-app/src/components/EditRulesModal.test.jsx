@@ -63,7 +63,7 @@ const clubState = (over = {}) => ({
 function joinClub({ role = null, presets = { rules: CLUB_RULES, order: ['Contest Speech'], hiddenBuiltins: ['Ice Breaker'], publishedBy: 'buyer-uid', publishedAt: 1_700_000_000_000 } } = {}) {
   localStorage.setItem(
     CLUB_STORAGE_KEY,
-    JSON.stringify({ clubToken: 'tok.sig', lastRefreshAt: Date.now(), ...clubState({ role }) })
+    JSON.stringify({ uid: 'u-1', lastRefreshAt: Date.now(), ...clubState({ role }) })
   );
   if (presets) localStorage.setItem(CLUB_PRESETS_STORAGE_KEY, JSON.stringify(presets));
   resetClubForTests();
@@ -192,7 +192,9 @@ describe('the publish panel', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     const [path, init] = global.fetch.mock.calls[0];
     expect(path).toBe('/api/club/presets');
-    expect(init.headers['X-Club']).toBe('tok.sig');
+    // The Zoom session is the credential; nothing club-shaped rides along.
+    expect(init.headers.Authorization).toBe('Bearer session-token');
+    expect(init.headers).not.toHaveProperty('X-Club');
 
     const sent = JSON.parse(init.body);
     expect(sent.rules['Contest Speech']).toEqual(CLUB_RULES['Contest Speech']);

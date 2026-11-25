@@ -7,10 +7,10 @@ import {
   parseMeetingId,
   speechKey,
 } from './club-meetings.js';
-import { handleClubActivate } from './club.js';
-import { createClubFromPending, clubDeviceKey } from './club-admin.js';
-import { verifyClubToken } from './club-token.js';
+import { createClubFromPending, clubMemberKey } from './club-admin.js';
+import { mintSessionToken } from './session-token.js';
 import { clubKey } from './entitlements.js';
+import { seedMember } from './club-membership-helpers.js';
 
 /**
  * The archive, from the Worker's side.
@@ -25,10 +25,7 @@ const SIGNING_KEY = 'test-session-signing-key';
 const MEETING = '20260929';
 /** Mid-meeting: 7pm Eastern on the 29th, which is already the 30th in UTC. */
 const LIVE_NOW = Date.UTC(2026, 8, 29, 23, 0);
-/**
- * Past the 38-hour settling window for 2026-09-29, and still inside the club
- * token's 24-hour life, so one activation covers both halves of a test.
- */
+/** Past the 38-hour settling window for 2026-09-29. */
 const SETTLED_NOW = Date.UTC(2026, 8, 30, 15, 0);
 
 /**
@@ -69,9 +66,7 @@ let env;
 beforeEach(() => {
   kv = makeKv();
   env = { PROFILES: kv, SESSION_SIGNING_KEY: SIGNING_KEY, ENTITLEMENT_ENFORCE: '1' };
-  // Every test times its speeches on the evening of 2026-09-29. The club token
-  // is minted against this clock too, so a test that jumps forward has to land
-  // inside the token's 24-hour life.
+  // Every test times its speeches on the evening of 2026-09-29.
   vi.setSystemTime(LIVE_NOW);
 });
 
@@ -79,36 +74,23 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** Seed a club and activate one anonymous device on it. */
-async function activated() {
-  const { clubId } = await createClubFromPending(
-    env,
-    { clubName: 'Downtown Speakers', uid: 'buyer-uid' },
-    { code: 'DTSP7K2QM9' }
-  );
-  const res = await handleClubActivate(
-    new Request('https://x/api/club/activate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'DTSP-7K2QM9' }),
-    }),
-    env
-  );
-  const body = await res.json();
-  return { clubId, clubToken: body.clubToken, deviceId: verifyClubToken(body.clubToken, SIGNING_KEY).deviceId };
+/** Seed a club and put one member account in it, the way a join leaves it. */
+async function activated({ code = 'DTSP7K2QM9', uid = 'member-uid' } = {}) {
+  const { clubId } = await createClubFromPending(env, { clubName: 'Downtown Speakers', uid: 'buyer-uid' }, { code });
+  await seedMember(env, clubId, uid);
+  return { clubId, uid };
 }
 
-const appendReq = (clubToken, meetingId, speech) =>
+const session = (uid) => (uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {});
+
+const appendReq = (uid, meetingId, speech) =>
   new Request(`https://x/api/club/meetings/${meetingId}/speeches`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(clubToken ? { 'x-club': clubToken } : {}) },
+    headers: { 'content-type': 'application/json', ...session(uid) },
     body: JSON.stringify(speech),
   });
 
-const readReq = (clubToken, path = '') =>
-  new Request(`https://x/api/club/meetings${path}`, {
-    headers: clubToken ? { 'x-club': clubToken } : {},
-  });
+const readReq = (uid, path = '') => new Request(`https://x/api/club/meetings${path}`, { headers: session(uid) });
 
 const route = (path) => `meetings${path}`;
 
@@ -157,34 +139,35 @@ describe('meeting ids and the keys they imply', () => {
 
 describe('appending a speech', () => {
   it('never reads before it writes', async () => {
-    const { clubToken, clubId } = await activated();
+    const { uid, clubId } = await activated();
     const before = kv.gets;
 
-    const res = await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    const res = await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
 
     expect(res.status).toBe(200);
-    // The speech key itself is never read: the reads are the device record and
-    // the club record, both of which exist to refuse a revoked or lapsed club.
-    expect(kv.gets - before).toBe(2);
+    // The speech key itself is never read: the reads are the account's index,
+    // its member row and the club record, which exist to refuse a removed
+    // account or a lapsed club.
+    expect(kv.gets - before).toBe(3);
     expect(kv.store.has(speechKey(clubId, MEETING, 's1'))).toBe(true);
   });
 
   it('is safe to send twice: the same bytes land on the same key', async () => {
-    const { clubToken, clubId } = await activated();
+    const { uid, clubId } = await activated();
 
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
     const first = kv.store.get(speechKey(clubId, MEETING, 's1')).value;
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
 
     expect(kv.store.get(speechKey(clubId, MEETING, 's1')).value).toBe(first);
     expect([...kv.store.keys()].filter((k) => k.startsWith('speech:'))).toHaveLength(1);
   });
 
   it('stores whether the speech ran over on the key, so a live count needs no gets', async () => {
-    const { clubToken, clubId } = await activated();
+    const { uid, clubId } = await activated();
 
     await handleClubMeetings(
-      appendReq(clubToken, MEETING, speech({ speechId: 's2', color: 'red' })),
+      appendReq(uid, MEETING, speech({ speechId: 's2', color: 'red' })),
       route(`/${MEETING}/speeches`),
       env
     );
@@ -193,10 +176,10 @@ describe('appending a speech', () => {
   });
 
   it('refuses a speech with no usable id, rather than inventing one', async () => {
-    const { clubToken } = await activated();
+    const { uid } = await activated();
 
     const res = await handleClubMeetings(
-      appendReq(clubToken, MEETING, speech({ speechId: '' })),
+      appendReq(uid, MEETING, speech({ speechId: '' })),
       route(`/${MEETING}/speeches`),
       env
     );
@@ -206,47 +189,47 @@ describe('appending a speech', () => {
   });
 
   it('refuses a meetingId that is not one we mint', async () => {
-    const { clubToken } = await activated();
+    const { uid } = await activated();
 
-    const res = await handleClubMeetings(appendReq(clubToken, 'tuesday', speech()), route('/tuesday/speeches'), env);
+    const res = await handleClubMeetings(appendReq(uid, 'tuesday', speech()), route('/tuesday/speeches'), env);
 
     expect(res.status).toBe(400);
   });
 
-  it('turns away a request with no club at all', async () => {
-    const res = await handleClubMeetings(appendReq(null, MEETING, speech()), route(`/${MEETING}/speeches`), env);
-    expect(res.status).toBe(401);
+  it('turns away a request with no session (401) or from an account in no club (403)', async () => {
+    await activated();
+    const anonymous = await handleClubMeetings(appendReq(null, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    expect(anonymous.status).toBe(401);
+    const stranger = await handleClubMeetings(appendReq('stranger-uid', MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    expect(stranger.status).toBe(403);
   });
 
-  // Revocation has to bite on the write path, because the token itself is
-  // HMAC-only and nothing reads state to verify it.
-  it('refuses a revoked device on append but still lets it read', async () => {
-    const { clubToken, clubId, deviceId } = await activated();
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+  // Removal bites on the very next request, write or read.
+  it('refuses an account removed from the club', async () => {
+    const { uid, clubId } = await activated();
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
 
-    const device = await kv.get(clubDeviceKey(clubId, deviceId), 'json');
-    await kv.put(clubDeviceKey(clubId, deviceId), JSON.stringify({ ...device, revokedAt: 1 }));
+    await kv.delete(clubMemberKey(clubId, uid));
 
     const append = await handleClubMeetings(
-      appendReq(clubToken, MEETING, speech({ speechId: 's2' })),
+      appendReq(uid, MEETING, speech({ speechId: 's2' })),
       route(`/${MEETING}/speeches`),
       env
     );
     expect(append.status).toBe(403);
 
-    const read = await handleClubMeetings(readReq(clubToken, `/${MEETING}`), route(`/${MEETING}`), env);
-    expect(read.status).toBe(200);
-    expect((await read.json()).meeting.speeches).toHaveLength(1);
+    const read = await handleClubMeetings(readReq(uid, `/${MEETING}`), route(`/${MEETING}`), env);
+    expect(read.status).toBe(403);
   });
 
   // A club that stopped paying stops accumulating storage. Same rule the
   // presets route already runs.
   it('refuses an append once the club has lapsed', async () => {
-    const { clubToken, clubId } = await activated();
+    const { uid, clubId } = await activated();
     const club = await kv.get(clubKey(clubId), 'json');
     await kv.put(clubKey(clubId), JSON.stringify({ ...club, status: 'canceled', currentPeriodEnd: 1 }));
 
-    const res = await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    const res = await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
 
     expect(res.status).toBe(402);
   });
@@ -254,11 +237,11 @@ describe('appending a speech', () => {
 
 describe('compaction', () => {
   it('folds the speeches into one key, writes the counts into metadata, and deletes them', async () => {
-    const { clubToken, clubId } = await activated();
+    const { uid, clubId } = await activated();
     for (const [id, over] of [['s1', {}], ['s2', { color: 'red', finishedAt: 2_000 }], ['s3', { finishedAt: 500 }]]) {
       // eslint-disable-next-line no-await-in-loop
       await handleClubMeetings(
-        appendReq(clubToken, MEETING, speech({ speechId: id, ...over })),
+        appendReq(uid, MEETING, speech({ speechId: id, ...over })),
         route(`/${MEETING}/speeches`),
         env
       );
@@ -273,8 +256,8 @@ describe('compaction', () => {
   });
 
   it('is a no-op the second time', async () => {
-    const { clubToken, clubId } = await activated();
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    const { uid, clubId } = await activated();
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
     await compactMeeting(env, clubId, MEETING, { now: SETTLED_NOW });
 
     const puts = kv.puts;
@@ -286,12 +269,12 @@ describe('compaction', () => {
 
   // The laptop that was offline all evening, draining its outbox the next day.
   it('merges a speech that arrives after the meeting was folded', async () => {
-    const { clubToken, clubId } = await activated();
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    const { uid, clubId } = await activated();
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
     await compactMeeting(env, clubId, MEETING, { now: SETTLED_NOW });
 
     await handleClubMeetings(
-      appendReq(clubToken, MEETING, speech({ speechId: 'late', finishedAt: 3_000 })),
+      appendReq(uid, MEETING, speech({ speechId: 'late', finishedAt: 3_000 })),
       route(`/${MEETING}/speeches`),
       env
     );
@@ -308,15 +291,15 @@ describe('compaction', () => {
 
 describe('reading the archive back', () => {
   it('lists a live meeting from its speech keys alone, with no header yet', async () => {
-    const { clubToken, clubId } = await activated();
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    const { uid, clubId } = await activated();
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
     await handleClubMeetings(
-      appendReq(clubToken, MEETING, speech({ speechId: 's2', color: 'red' })),
+      appendReq(uid, MEETING, speech({ speechId: 's2', color: 'red' })),
       route(`/${MEETING}/speeches`),
       env
     );
 
-    const res = await handleClubMeetings(readReq(clubToken), route(''), env);
+    const res = await handleClubMeetings(readReq(uid), route(''), env);
     const { meetings } = await res.json();
 
     expect(meetings).toEqual([
@@ -326,11 +309,11 @@ describe('reading the archive back', () => {
   });
 
   it('folds a meeting whose day has passed on the way past, then serves it from metadata', async () => {
-    const { clubToken, clubId } = await activated();
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    const { uid, clubId } = await activated();
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
 
     vi.setSystemTime(SETTLED_NOW);
-    const res = await handleClubMeetings(readReq(clubToken), route(''), env);
+    const res = await handleClubMeetings(readReq(uid), route(''), env);
     const { meetings } = await res.json();
 
     expect(meetings).toEqual([
@@ -342,33 +325,33 @@ describe('reading the archive back', () => {
 
   it('returns meetings newest first', async () => {
     vi.setSystemTime(SETTLED_NOW);
-    const { clubToken, clubId } = await activated();
+    const { uid, clubId } = await activated();
     for (const id of ['20260901', '20260929', '20260915']) {
       // eslint-disable-next-line no-await-in-loop
-      await handleClubMeetings(appendReq(clubToken, id, speech()), route(`/${id}/speeches`), env);
+      await handleClubMeetings(appendReq(uid, id, speech()), route(`/${id}/speeches`), env);
       // eslint-disable-next-line no-await-in-loop
       await compactMeeting(env, clubId, id, { now: SETTLED_NOW });
     }
 
-    const res = await handleClubMeetings(readReq(clubToken), route(''), env);
+    const res = await handleClubMeetings(readReq(uid), route(''), env);
 
     expect((await res.json()).meetings.map((m) => m.meetingId)).toEqual(['20260929', '20260915', '20260901']);
   });
 
   it('serves one meeting with every speech in it', async () => {
-    const { clubToken } = await activated();
+    const { uid } = await activated();
     await handleClubMeetings(
-      appendReq(clubToken, MEETING, speech({ speechId: 'b', finishedAt: 2_000, name: 'Bob' })),
+      appendReq(uid, MEETING, speech({ speechId: 'b', finishedAt: 2_000, name: 'Bob' })),
       route(`/${MEETING}/speeches`),
       env
     );
     await handleClubMeetings(
-      appendReq(clubToken, MEETING, speech({ speechId: 'a', finishedAt: 1_000, name: 'Alice' })),
+      appendReq(uid, MEETING, speech({ speechId: 'a', finishedAt: 1_000, name: 'Alice' })),
       route(`/${MEETING}/speeches`),
       env
     );
 
-    const res = await handleClubMeetings(readReq(clubToken, `/${MEETING}`), route(`/${MEETING}`), env);
+    const res = await handleClubMeetings(readReq(uid, `/${MEETING}`), route(`/${MEETING}`), env);
     const { meeting } = await res.json();
 
     expect(meeting.meetingId).toBe(MEETING);
@@ -378,21 +361,21 @@ describe('reading the archive back', () => {
 
   // Folding a meeting somebody else is still timing would end it for them.
   it('does not fold a meeting that is still live when it is read', async () => {
-    const { clubToken, clubId } = await activated();
-    await handleClubMeetings(appendReq(clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    const { uid, clubId } = await activated();
+    await handleClubMeetings(appendReq(uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
 
-    await handleClubMeetings(readReq(clubToken, `/${MEETING}`), route(`/${MEETING}`), env);
+    await handleClubMeetings(readReq(uid, `/${MEETING}`), route(`/${MEETING}`), env);
 
     expect([...kv.store.keys()].filter((k) => k.startsWith('speech:'))).toHaveLength(1);
   });
 
   it('404s a meeting the club never held', async () => {
-    const { clubToken } = await activated();
-    const res = await handleClubMeetings(readReq(clubToken, '/20200101'), route('/20200101'), env);
+    const { uid } = await activated();
+    const res = await handleClubMeetings(readReq(uid, '/20200101'), route('/20200101'), env);
     expect(res.status).toBe(404);
   });
 
-  it('turns away a read with no club token', async () => {
+  it('turns away a read with no session', async () => {
     const res = await handleClubMeetings(readReq(null), route(''), env);
     expect(res.status).toBe(401);
   });
@@ -402,21 +385,12 @@ describe('reading the archive back', () => {
   it('never shows one club another club’s meetings', async () => {
     vi.setSystemTime(SETTLED_NOW);
     const first = await activated();
-    await handleClubMeetings(appendReq(first.clubToken, MEETING, speech()), route(`/${MEETING}/speeches`), env);
+    await handleClubMeetings(appendReq(first.uid, MEETING, speech()), route(`/${MEETING}/speeches`), env);
 
-    const { clubId: otherId } = await createClubFromPending(env, { clubName: 'Uptown' }, { code: 'UPTN000001' });
-    const otherRes = await handleClubActivate(
-      new Request('https://x/api/club/activate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: 'UPTN-000001' }),
-      }),
-      env
-    );
-    const { clubToken: otherToken } = await otherRes.json();
-    expect(otherId).not.toBe(first.clubId);
+    const other = await activated({ code: 'UPTN000001', uid: 'other-member' });
+    expect(other.clubId).not.toBe(first.clubId);
 
-    const res = await handleClubMeetings(readReq(otherToken), route(''), env);
+    const res = await handleClubMeetings(readReq(other.uid), route(''), env);
 
     expect((await res.json()).meetings).toEqual([]);
   });
