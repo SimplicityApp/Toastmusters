@@ -16,19 +16,31 @@ and one set of labels keep the three from drifting apart.
 - **Q2: adding never interferes with a running timer.** A speaker added while a speech is in
   progress (running, or paused with time on the clock) goes into the agenda but is not loaded, and
   the timer, its label, the colour and the video overlay are untouched. They come up when the
-  running speech is finished (FINISH already advances to the next row). *Consequence to confirm:*
-  with the Table Topics block row running, a speaker added then waits behind it and the display
-  does not switch to their 1–2 min timer until the block is finished or reset. Switching at once is
-  what the Table Topics section mode would do, which the issue puts out of scope.
-- **Q6: the web follows the Zoom app** (rules, two settings, wording), in this issue.
-- **Q1, Q4, Q5: the defaults** below.
-- **Q3: the default.** The new slot takes the role shown on the add control (confirmed on a
-  mockup).
-- **Old look: a visible Update button**, not only Enter. Editing the current speaker and adding
-  another are both a click away, and Enter does the same as the button.
-- **Q7: a leaner control.** Accepted as a two-way switch with one action button, then reopened by
-  the owner: a switch reads as more tabs next to the Agenda / Timer / Report tabs, so the panel
-  feels busy. Replaced by the no-switch proposal in Q8.
+  running speech is finished (FINISH already advances to the next row). *Consequence:* with the
+  Table Topics block row running, a speaker added then waits behind it and the display does not
+  switch to their 1–2 min timer until the block is finished or reset. Switching at once is what the
+  Table Topics section mode would do, which the issue puts out of scope.
+- **Q6: the web follows the Zoom app** (controls, rules, two settings, wording), in this issue.
+- **Q1, Q4, Q5: the defaults** (settings under a collapsed "Speaker options"; the Agenda tab's own
+  add form keeps appending; both settings sync across devices).
+- **Q3:** the new speaker starts with the role on the clock, shown and changeable in the add panel.
+- **The control (Q7 → Q8, settled on mockup version 5).** No mode switch: a switch reads as more
+  tabs next to the Agenda / Timer / Report tabs. Instead:
+  - **Status is a dot, never a button:** "On the agenda · 2 of 3" or "Not on the agenda", plus
+    "Unsaved changes" while an edit is pending.
+  - **Every button says what tapping it will do**, not what the state is: "Update Jordan on the
+    agenda", "Add Dana after Jordan", "Switch to quick timing", "Save Dana to the agenda", "Back
+    to agenda (next: Jordan, Table Topics)". No underlined text links.
+  - **Edit in place covers name and role.** Both are staged; the Update button lists every change
+    ("name Jordan → Dana · role → Table Topics Speech") and "Undo changes" sits under it. Nothing on
+    the agenda or the clock changes until Update (or Enter). The old look gets this visible Update
+    button, not only Enter.
+  - **Adding is its own small panel** ("+ Add a speaker after Jordan"), with its own name and role
+    and one button. It never touches the speaker on the clock.
+  - **Quick timing needs no mode.** With no row loaded the field just labels the timer; with a row
+    loaded, "Switch to quick timing" lets go of it and "Back to agenda (next: …)" returns.
+  - **START never writes to the agenda.** FINISH records every timed speech in the Timer's Report
+    and club history, agenda or not.
 
 ## Findings
 The logic is already shared in the Zoom app; the pickers are not.
@@ -45,6 +57,9 @@ The logic is already shared in the Zoom app; the pickers are not.
   `updateAgendaItem` (TimerContext:444, web :219) already writes name, role and rules to a row and
   the current speaker; nothing in the Live tab calls it. Break detaches the row on purpose
   (`clearActiveSpeaker`, useLiveTimer:~555) and stays that way.
+- **FINISH records any timed speech**: `finishCurrentSpeech` (TimerContext:559-586) adds the report
+  and the club record whenever there is a current speaker with time on the clock, and ticks off a
+  row only if one is loaded. Quick timing needs nothing new here.
 - **Old look, Enter is implicit** — `components/SpeakerInput.jsx:82-93` (`pendingRename` when a
   row is loaded, `pendingAdd` when none is; hint text at :245-252) and, on the stage,
   `components/StageSpeakerPicker.jsx:57-58, 82-87, 136-139` (same rule). `TimerStage.jsx:242`
@@ -53,8 +68,8 @@ The logic is already shared in the Zoom app; the pickers are not.
   or adds; Rename exists only as a list row below the Add row. So the two looks already disagree on
   what Enter does with a row loaded.
 - **Typing relabels the timer**: in the old look, typing in the name field updates the current
-  speaker's label at once (`handleSpeakerChange` → `updateSpeakerName`). An add flow that reused
-  that field would relabel a speaker who is on the clock, so add mode needs its own draft text.
+  speaker's label at once (`handleSpeakerChange` → `updateSpeakerName`). With staged edits, a loaded
+  speaker's label changes on Update instead; a quick timing still relabels as you type.
 - **Web** (`apps/web/src/components/LiveTab.jsx:140-190`, `SpeakerInput.jsx`): typing only labels
   the timer; picking a suggestion copies name and role and does **not** load the agenda row, so the
   Live tab has no "loaded row" at all (only the Agenda tab's load button sets `activeSpeakerId`);
@@ -65,7 +80,7 @@ The logic is already shared in the Zoom app; the pickers are not.
   display stays on the 5–10 min block thresholds.
 - **Settings**: persisted booleans live in `packages/shared/storage.js` (e.g.
   `REVEAL_FACE_WHEN_IDLE`, :27, :255-277) and sync via `packages/shared/profileMerge.js`
-  `SYNCED_KEYS`. `packages/shared` holds no React, so each app builds its own options UI.
+  `SYNCED_KEYS`. `packages/shared` holds no React, so each app builds its own UI.
 - **Specs**: `e2e/zoom-client/timer-core.md` covers `LiveTab.jsx` (Zoom and web), `useLiveTimer.js`,
   `TimerContext.jsx` but not `SpeakerInput.jsx` or `StageSpeakerPicker.jsx`; `new-look.md` covers
   `apps/zoom-app/src/b` and `TimerStage.jsx`. Last IDs: TC-13, NL-20.
@@ -75,53 +90,58 @@ The logic is already shared in the Zoom app; the pickers are not.
 ## Approach
 Smallest change that meets the criteria:
 
-1. **Pure logic + two settings in `packages/shared`.** `speakerEntry.js`:
-   `insertAfter(agenda, afterId, item)` (append when `afterId` is null or not found);
-   `resolveEnter({ loadedRow, typed, enterSetting })` → `'edit' | 'add' | 'none'`;
-   `addPlan({ speechActive, insertPosition, loadedRowId })` → `{ insertAfter, activate }`
-   (`activate` is false while a speech is in progress). Two settings in `storage.js` with
-   load/save: `speakerInsertPosition` (`'afterActive'` default | `'end'`) and `speakerEnterAction`
-   (`'edit'` default | `'add'`). Both keys join `SYNCED_KEYS`.
+1. **Pure logic, labels and two settings in `packages/shared/speakerEntry.js`.**
+   - `insertAfter(agenda, afterId, item)`: append when `afterId` is null or not found.
+   - `addPlan({ speechActive, insertPosition, anchorId })` → `{ insertAfter, activate }`, where the
+     anchor is the loaded row, or the row let go of for a quick timing; `activate` is false while a
+     speech is in progress.
+   - `pendingChanges({ row, name, role })` → `{ name?, role? }` or null.
+   - `actionLabels(state)` → the exact button and status strings, so all three surfaces say the
+     same words ("Update Jordan on the agenda", "Back to agenda (next: Jordan, Table Topics)" …).
+   - Settings in `storage.js` with load/save: `speakerInsertPosition` (`'afterActive'` default |
+     `'end'`) and `speakerEnterAction` (`'update'` default | `'add'`). Both keys join `SYNCED_KEYS`.
 2. **`addToAgenda(speaker, { activate, insertAfter })`** in both contexts: `insertAfter` is an
    agenda id; absent means append, so the Agenda tab and imports are unchanged. The web context also
    gains `renameAgendaSpeaker`, mirroring the Zoom one.
-3. **One edit/add model per app, built from those functions.** Zoom: in `useLiveTimer` (both looks).
+3. **One speaker model per app, built from those functions.** Zoom: in `useLiveTimer` (both looks).
    Web: in `LiveTab.jsx`.
-   - `editingItem` = the loaded agenda row, if any. On the web, picking a suggestion now loads the row
-     through `loadSpeakerFromAgenda`, as the Zoom app does.
-   - `handleAddSpeaker(name, role?)` asks `addPlan` where to insert and whether to load. While a
-     speech is in progress it only inserts and says so in a toast; it never resets the timer or
-     touches the label.
-   - `handleCommitName(name)` is what Enter calls, through `resolveEnter`. No row loaded means add,
-     whatever the setting says.
-   - `handleRoleChange(role)` while a row is loaded and being edited also calls `updateAgendaItem`
-     (name, role, rules). Break still detaches (Zoom). In add mode it never touches the row.
+   - `loadedRow` (from `activeSpeakerId`) and `releasedRowId` (the row let go of for a quick timing).
+   - Staged edits: `draftName`, `draftRole` while a row is loaded. `handleUpdate()` writes both with
+     `updateAgendaItem` (name, role, rules), so the row and the clock change together;
+     `handleUndo()` resets the drafts. Choosing Break still detaches at once (Zoom), as today.
+   - Quick timing (no row loaded): name and role apply to the clock directly, as today, and never to
+     the agenda. `handleSwitchToQuickTiming()` calls `clearActiveSpeaker` and remembers the row;
+     `handleBackToAgenda()` loads it again.
+   - `handleSaveToAgenda()` inserts the quick-timed name with its role, via `addPlan`.
+   - `handleAddSpeaker(name, role)` (the panel) inserts via `addPlan` and loads only when no speech is
+     in progress; otherwise a toast says the speaker comes up after this speech.
+   - Enter: in the name field it does what the primary button does (Update by default; with the
+     setting on "add", the primary button becomes "Add <name> after <row>"); with no row loaded it
+     does nothing. In the add panel it adds.
+   - Picking a guest from "In this meeting" opens the add panel with the name filled in; picking an
+     agenda row loads it (as today). On the web, picking an agenda suggestion now loads the row.
    - A typed name that exactly matches an agenda row is still never added a second time.
-4. **Add mode.** An explicit "Add new speaker" action. With a name typed it adds at once, with the
-   role shown. With the field empty it opens a draft field that holds the new name **apart from the
-   timer's label**, and keeps the role picker, so a role picked before the name goes to the new row
-   and never to the loaded one. Once added, the control returns to edit mode (on the new row when it
-   was loaded, on the running one otherwise).
-5. **UI, same wording on all three surfaces**: the control shows "Editing <name> · <role>" when a row
-   is loaded, an "Add new speaker" button, and a hint that names what Enter does ("Enter updates
-   Jon" / "Enter adds Dana after Jon as Table Topics Speech").
-   - Old look: `SpeakerInput.jsx` (panel) and `StageSpeakerPicker.jsx` (stage), each with a
-     visible Update button beside the add action; Enter does what that button does.
-   - New look: `b/SpeakerPicker.jsx`; its two rows become "Update <row>" (first, the default) and
-     "Add <name> as <role>", and Enter follows the setting.
-   - Web: `SpeakerInput.jsx` and `LiveTab.jsx`, same labels.
-6. **Settings UI.** Zoom: one `SpeakerEntryOptions` component used by both looks, collapsed
-   "Speaker options" under the old look's name field and the last section of the new look's speaker
-   popover (the stage reads the settings, shows none). Web: the same two options under its name
-   field. The wording of both options is one shared string table in `speakerEntry.js`.
-7. **Specs.** Add TC-14 (old look) to `timer-core.md` and NL-21 (new look) to `new-look.md`; add
+4. **UI, same parts and words on every surface.** A status dot under the name field; the contextual
+   buttons (Update + Undo changes, Switch to quick timing, Save to the agenda, Back to agenda); and
+   "+ Add a speaker after <row>" opening the add panel.
+   - Old look: `SpeakerInput.jsx` (panel); `StageSpeakerPicker.jsx` (stage, compact: status dot,
+     field, the Update button when there are changes, "+ Add", with quick timing and Back to agenda
+     in its dropdown).
+   - New look: `b/TimerCard.jsx` speaker chip carries the status; `b/SpeakerPicker.jsx` popover holds
+     the field, buttons, add panel and the Agenda / In this meeting lists. The card's role chip edits
+     the speaker on the clock (staged for a loaded row, like the old look's role picker).
+   - Web: `SpeakerInput.jsx` and `LiveTab.jsx`.
+5. **Settings UI.** Zoom: one `SpeakerEntryOptions` component used by both looks, collapsed
+   "Speaker options" under the old look's name field and at the foot of the new look's speaker
+   popover (the stage reads the settings, shows none). Web: the same two options under its name field.
+6. **Specs.** Add TC-14 (old look) to `timer-core.md` and NL-21 (new look) to `new-look.md`; add
    `SpeakerInput.jsx` and `StageSpeakerPicker.jsx` to `timer-core.md` `covers`. Run TC-14 with
    FLAGS_FORCE `"1,new_look=0"` and NL-21 with `"1,pro=0"`. The web is covered by Playwright
    (`e2e/web.*`), since the Zoom client does not host it.
 
-Rejected: a "section mode" (the issue puts it out of scope); making the Agenda tab form follow the
-insert setting (it builds the running order, and the user places rows there); a dedicated settings
-sheet in the new look (more layout work for two toggles); a shared React component for the options
+Rejected: a mode switch, two- or three-way (reads as more tabs); writing a role change to the row at
+once (the button would no longer say everything it saves); a "section mode" (out of scope); making
+the Agenda tab form follow the insert setting (it builds the running order); a shared React component
 (`packages/shared` has none).
 
 ## Acceptance criteria
@@ -129,92 +149,82 @@ Each criterion holds in the **old look** (panel and stage), the **new look** and
 tab** (no stage there); the tests below run the same steps through each.
 
 - AC-1: Given the agenda [A, B, C] with B loaded, no speech in progress and the insert setting at its
-  default, when a new speaker D is added (typed name or a guest from "In this meeting"), then the
-  agenda is [A, B, D, C], D is loaded, and the timer shows D's role rules.
+  default, when a new speaker D is added from the add panel, then the agenda is [A, B, D, C], D is
+  loaded, and the timer shows D's role rules.
 - AC-2: Given the same agenda and the setting on "at the end", when D is added, then the agenda is
   [A, B, C, D] and D is loaded.
-- AC-3: Given no row is loaded, when a speaker is added, then they go to the end, whichever
-  setting is on.
+- AC-3: Given no row is loaded and none was let go of, when a speaker is added, then they go to the
+  end, whichever setting is on.
 - AC-4: Given either setting is changed on one surface, when the user opens another surface or
   reloads, then the same value shows, and both keys are in the synced profile keys.
-- AC-5: Given a row is loaded, then the speaker control shows which row is being edited (name and
-  role) and offers "Add new speaker"; with no row loaded it shows neither the label nor the edit
-  hint.
-- AC-6: Given B is loaded, the Enter setting is `edit`, and the user types "Dana" and presses Enter,
-  then B is renamed to Dana in the agenda and on the timer, no row is added, and B keeps its place.
-- AC-7: Given B is loaded and a name is typed, when the user uses "Add new speaker" (or the Add row),
-  then a new row is added per AC-1/AC-2, B is unchanged, and the Enter setting makes no difference.
-- AC-8: Given the Enter setting is `add` and B is loaded, when the user types a name and presses
-  Enter, then a new row is added per AC-1/AC-2 and B is unchanged. With no row loaded, Enter adds
-  under either setting.
-- AC-9: Given B is loaded and being edited, when the role is changed to "Table Topics Speech",
-  then B's agenda row takes that role and its rules, the timer shows those thresholds, and the Agenda
-  tab shows the new role. Choosing Break still detaches B and leaves the row untouched.
-- AC-10: Given the user is adding a speaker, when they pick a role before the name is committed,
-  then the new row gets that role and B's row keeps its own. The add control names the role the new
-  row will get.
+- AC-5: Given a row is loaded, then a status dot reads "On the agenda · <position> of <total>"; with
+  none loaded it reads "Not on the agenda". The status is not a button, and every button's label
+  names what tapping it does, with the words from `actionLabels`.
+- AC-6: Given B is loaded and the user changes the name to "Dana", then nothing changes on the
+  agenda or the clock and the status adds "Unsaved changes", until they tap "Update B on the
+  agenda" (or press Enter); then B is renamed on both and keeps its place. "Undo changes" puts the
+  fields back with nothing saved.
+- AC-7: Given B is loaded, when the user taps "+ Add a speaker after B", then a panel opens with its
+  own name and role (the role starts as the one on the clock); "Add D after B" inserts per AC-1/AC-2,
+  and the panel never changes B's row or the clock.
+- AC-8: Given the Enter setting is at its default, Enter in the name field does what the Update
+  button does, and Enter in the add panel adds. With the setting on "add", changing a loaded
+  speaker's name makes "Add <name> after B" the primary button (Update stays beside it) and Enter
+  adds; B is unchanged. With no row loaded, Enter in the name field does nothing under either setting.
+- AC-9: Given B is loaded, when the role is changed (with or without a name change), then the Update
+  button lists every change ("name B → Dana · role → Table Topics Speech"); tapping it writes the
+  name, the role and its rules to B's row and to the clock together, and the Agenda tab shows them.
+  Choosing Break still detaches B at once and leaves the row untouched.
+- AC-10: Given the add panel is open, when its role is changed, then the clock's role and B's row
+  stay as they were, and the Add button names the role ("as Table Topics Speech").
 - AC-11: Given the same sequence of actions on each surface, then the agenda and the timer end up
   identical (a parity test over the shared functions and each surface's handlers, plus the
   real-client steps).
-- AC-12: Given the web Live tab, then the same rules apply as in the Zoom app: Enter edits the
-  loaded row, "Add new speaker" adds, the insert and Enter settings apply and sync with the Zoom
-  app, and picking a suggestion loads its agenda row.
+- AC-12: Given the web Live tab, then it has the same controls and rules as the Zoom app (status
+  dot, staged Update with Undo, add panel, quick timing, Back to agenda, both settings synced with
+  the Zoom app), and picking an agenda suggestion loads its row.
 - AC-13: Given B is running (or paused with time on the clock) and the user adds D, then D is
-  inserted per AC-1/AC-2 but not loaded, B's timer, label, colour and overlay are untouched, typing
-  D's name never relabels B, and finishing B moves to D.
+  inserted per AC-1/AC-2 but not loaded, B's timer, label, colour and overlay are untouched, and
+  finishing B moves to D.
+- AC-14: Given B is loaded, when the user taps "Switch to quick timing", then the timer lets go of B
+  (B stays on the agenda, not ticked off), the name field labels the timer only, and a timed speech
+  is recorded in the Timer's Report on FINISH with the agenda unchanged; "Back to agenda (next: B,
+  B's role)" loads B again.
+- AC-15: Given no row is loaded and a name is typed, when the user taps "Save <name> to the agenda",
+  then it is inserted with the role shown, after the row let go of or at the end (per AC-1–AC-3), and
+  loaded unless a speech is in progress.
+- AC-16: Given any state, when START is pressed, then no agenda row is added or changed.
 
 ## Test list
 | AC | Unit | Playwright | Zoom-client spec |
 |---|---|---|---|
 | AC-1, 2, 3 | `packages/shared/__tests__/speakerEntry.test.js` (NEW); both `TimerContext.test.jsx` (`insertAfter`); `useLiveTimer.test.jsx` | `e2e/zoom.timer-flow.spec.js` (old look); `e2e/zoom.new-look.spec.js`; `e2e/web.agenda-flow.spec.js` | TC-14 (NEW, old look); NL-21 (NEW, new look) |
 | AC-4 | `packages/shared/__tests__/storage.test.js`; `profileMerge.test.js` | `e2e/zoom.new-look.spec.js` (value shared by both looks) | NL-21 |
-| AC-5, 7 | zoom `SpeakerInput.test.jsx`, `StageSpeakerPicker.test.jsx`; `b/TimerCard.test.jsx`, `b/Phase3.test.jsx`; web `SpeakerInput.test.jsx`, `LiveTab.test.jsx` | the three above | TC-14, NL-21 |
-| AC-6, 8 | same component tests; `useLiveTimer.test.jsx`; web `LiveTab.test.jsx` | the three above | TC-14, NL-21 |
-| AC-9, 10 | `useLiveTimer.test.jsx`; both `TimerContext.test.jsx`; web `LiveTab.test.jsx` | the three above | TC-14, NL-21 |
+| AC-5 | `speakerEntry.test.js` (`actionLabels`); zoom `SpeakerInput.test.jsx`, `StageSpeakerPicker.test.jsx`; `b/TimerCard.test.jsx`, `b/Phase3.test.jsx`; web `SpeakerInput.test.jsx` | the three above | TC-14, NL-21 |
+| AC-6, 9 | `speakerEntry.test.js` (`pendingChanges`); `useLiveTimer.test.jsx`; both `TimerContext.test.jsx`; web `LiveTab.test.jsx` | the three above | TC-14, NL-21 |
+| AC-7, 10 | zoom `SpeakerInput.test.jsx`, `StageSpeakerPicker.test.jsx`; `b/Phase3.test.jsx`; web `SpeakerInput.test.jsx` | the three above | TC-14, NL-21 |
+| AC-8 | `useLiveTimer.test.jsx`; web `LiveTab.test.jsx`; the component tests above | `e2e/zoom.timer-flow.spec.js`; `e2e/web.timer-flow.spec.js` | TC-14 |
 | AC-11 | `useLiveTimer.test.jsx` and web `LiveTab.test.jsx` run one sequence through `speakerEntry` | — | TC-14 and NL-21 end states compared in `run.md` |
 | AC-12 | web `SpeakerInput.test.jsx`, `LiveTab.test.jsx`, `TimerContext.test.jsx` | `e2e/web.timer-flow.spec.js`, `e2e/web.agenda-flow.spec.js` | — |
 | AC-13 | `speakerEntry.test.js` (`addPlan`); `useLiveTimer.test.jsx`; web `LiveTab.test.jsx` | `e2e/zoom.timer-flow.spec.js`; `e2e/web.timer-flow.spec.js` | TC-14 (add while running, real video colour unchanged) |
+| AC-14, 15 | `useLiveTimer.test.jsx`; both `TimerContext.test.jsx` (report on FINISH without a row); web `LiveTab.test.jsx` | `e2e/zoom.timer-flow.spec.js`; `e2e/zoom.new-look.spec.js`; `e2e/web.report-flow.spec.js` | TC-14, NL-21 |
+| AC-16 | `useLiveTimer.test.jsx`; web `LiveTab.test.jsx` | `e2e/zoom.timer-flow.spec.js` | TC-14 |
 
 ## Risk
 **Low.** No `config.json` `riskHigh` path is touched (`packages/shared/storage.js` and
 `profileMerge.js` are not on the list). Size is **medium-large**: three surfaces, two apps. Watch:
-- **Enter changes in the new look**: with a row loaded, Enter used to add and now edits (the issue's
-  default). The visible hint and the "Add new speaker" action make this findable, and the setting
-  restores the old behaviour.
+- **Behaviour changes users will notice**: with nothing loaded, Enter no longer adds the typed name
+  to the agenda (Zoom); a loaded speaker's name and role change on Update, not as you type or pick;
+  in the new look, Enter with a row loaded updates instead of adding. Each is visible on screen (the
+  status dot, the button's label), and the Enter setting restores adding.
 - **Web picks load the row**: on the web, choosing a suggestion now loads its agenda row (as in
   Zoom), so FINISH ticks it off and advances; before, it only copied the name.
 - **Synced keys**: two more keys in `SYNCED_KEYS`; `profileMerge.test.js` lists them.
-- **Merge conflicts**: a new prop on `TimerStage.jsx` (to pass the add handler to the stage picker)
-  overlaps draft PR #143. Whichever merges second rebases; #143 already conflicts with `dev`.
+- **Merge conflicts**: new props on `TimerStage.jsx` (to pass the handlers to the stage picker)
+  overlap draft PR #143. Whichever merges second rebases; #143 already conflicts with `dev`.
 
 This is the third open factory PR while `wipLimit` is 2: started on the owner's explicit
 instruction, Nov 25.
 
 ## Open questions
-- **Q8. No mode switch (proposed Nov 25, mockup version 4 shown to the owner).** Same shape on all
-  three surfaces, and nothing that looks like tabs:
-  - **The name field is always the speaker on the clock.** A tag under it says where that speaker
-    came from: "From agenda · 2 of 3", or "Not on the agenda".
-  - **Actions appear only when there is something to do.** With an agenda row loaded and the name
-    changed, an "Update <row> to <name>" button appears (Enter does the same); a role change on a
-    loaded row writes back at once (AC-9). With no row loaded and a name typed, a quiet link
-    "Save <name> to the agenda" appears. Otherwise there is no button.
-  - **Adding is its own small panel.** "+ Add speaker" opens it with its own name and role fields
-    and one "Add <name> as <role>" button; it says where the row goes ("goes right after Table
-    Topics"). The speaker on the clock is never touched by it, so the role picked there can only
-    mean the new speaker. The new look shows the panel inside the speaker popover.
-  - **Quick timing needs no mode.** With no row loaded the field just labels the timer. With a row
-    loaded, a "Time without the agenda" link lets go of it (`clearActiveSpeaker`): the row stays,
-    not ticked off, and "Back to <row>" returns. START never writes to the agenda; FINISH still
-    records every timed speech in the Timer's Report and club history, as `finishCurrentSpeech`
-    already does (TimerContext:559-586).
-  - **Enter** does what the visible primary button does: Update in the field, Add in the panel.
-    With no row loaded, Enter in the field does nothing, so a quick timing never lands in the
-    agenda by accident. This changes today's Zoom behaviour, where an unloaded Enter adds the name.
-    The issue's "Enter adds" setting makes Enter in the field add the typed name as a new speaker
-    instead of updating.
-  Default if unanswered: the two-way switch from Q7.
-
-Answered Nov 25: Q1, Q4 and Q5 take their defaults (settings under "Speaker options" in the old
-look and in the new look's speaker popover; the Agenda tab form keeps appending; both settings
-sync); Q2, Q3 and Q6 as under Decisions.
+None. Answered Nov 25: Q1–Q8 as under Decisions.
