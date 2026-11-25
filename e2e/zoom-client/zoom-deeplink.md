@@ -1,7 +1,7 @@
 ---
 id: zoom-deeplink
 title: "Open in Zoom" deeplink launches the right app
-status: draft
+status: current
 covers:
   - packages/shared/appLinks.js
   - apps/web/src/pages/Landing.jsx
@@ -15,8 +15,8 @@ automated:
 needs:
   - dev deployed (VITE_ZOOM_OAUTH_REDIRECT is set by `npm run cf:deploy:dev`)
   - in a meeting, dev app closed in the panel before DL-02
-verified_at: never
-verified_on: never
+verified_at: 3955a0a
+verified_on: 2026-11-25
 ---
 
 # "Open in Zoom" deeplink launches the right app
@@ -46,6 +46,9 @@ unchanged, so no step changes.
 Reviewed 2026-11-24 against the reconnect page's new ways home (header logo, header
 **Homepage**, all to `/?home`): "Approve in Zoom" and "Open in Zoom" are unchanged, so no step
 changes.
+Last run (2026-11-25, dev 3955a0a, PR #176): PASS. Landing: four "Add to Zoom" hrefs and the one in the
+demo dialog all carry `kgpoX2A6TY2BvdctzK9iw`; `/reconnect`'s "Approve in Zoom" and "Already
+approved? Open in Zoom" too; the production id appears nowhere on either page.
 
 ### DL-02 · auto · Zoom resolves the link
 Do: `curl -s -o /dev/null -w '%{http_code} %{redirect_url}' <deeplink>` for the page's link,

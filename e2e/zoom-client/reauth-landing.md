@@ -1,7 +1,7 @@
 ---
 id: reauth-landing
 title: Re-auth landing, the approved-before mark, the reconnect page and "You're reconnected" (#96)
-status: stale
+status: current
 covers:
   - worker/reconnect.js
   - worker/old-web-host.js
@@ -20,8 +20,8 @@ needs:
   - the Zoom desktop client signed in to the same account
   - for RL-03, a second browser profile with no cookies for www.timer-dev.simple-tech.app
   - for RL-04, a second Zoom account (B) in the authenticated state, in a meeting with the owner (docs/ZOOM_AUTH_AND_REDIRECTS.md, "Reaching the authenticated state deliberately"), and npx wrangler tail --env dev open
-verified_at: never
-verified_on: never
+verified_at: 3955a0a
+verified_on: 2026-11-25
 ---
 
 # Re-auth landing, the approved-before mark, the reconnect page and "You're reconnected" (#96)
@@ -138,6 +138,14 @@ Last run (2026-11-01, dev f30c40a): PASS. The unmarked check used curl, not a se
 still `200` here); rerun after #98 reaches dev.
 Reviewed 2026-11-02 against the master sync: `/tutorials` joined the moved pages; `/` and
 `/reconnect` are unchanged, so no step changes.
+Last run (2026-11-25, dev 3955a0a, PR #176): PASS. Browser half in the built-in browser pane, marked
+through the install landing with a fake `code` (the pane was not signed in to Zoom; the mark
+does not depend on the code exchange). `/` → `/reconnect`; logo, **Homepage** and **Go to the
+homepage** all `/?home`; each one, after a re-add, led to the main site's homepage and a second
+bare `/` stayed there. A re-add (`?welcome=back`) brought `/reconnect` back. The curl
+cross-check matched every line above, plus the landing's `tt_reconnect_dismissed=; Max-Age=0`.
+PostHog `cta_clicked` `cta: home` with `location` `hero`, `header` and `logo`. Unmarked `/`
+by curl only.
 
 ### RL-04 · human · Record where Zoom opens the browser after a guest approves the app
 Do: start `npx wrangler tail --env dev`. As account B, in the `authenticated` state, open the dev
