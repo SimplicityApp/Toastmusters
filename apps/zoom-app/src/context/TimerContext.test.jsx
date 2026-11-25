@@ -563,3 +563,75 @@ describe('surviving a webview teardown', () => {
     expect(applyOverlay).not.toHaveBeenCalled();
   });
 });
+
+// #168: a speaker added on the spot goes right after the loaded row (AC-1), or at
+// the end when told to (AC-2). `insertAfter` is an agenda id; without it the add
+// appends, which is what the Agenda tab's form and the imports rely on.
+describe('addToAgenda with insertAfter (#168)', () => {
+  const SEED = [
+    { id: 'a', name: 'Ana', role: 'Standard Speech', rules: { green: 300, yellow: 360, red: 420, graceAfterRed: 30 }, completed: false },
+    { id: 'b', name: 'Jordan', role: 'Ice Breaker', rules: { green: 240, yellow: 300, red: 360, graceAfterRed: 30 }, completed: false },
+    { id: 'c', name: 'Cole', role: 'Standard Speech', rules: { green: 300, yellow: 360, red: 420, graceAfterRed: 30 }, completed: false },
+  ];
+  const TABLE_TOPICS = { green: 60, yellow: 90, red: 120, graceAfterRed: 30 };
+  const names = (agenda) => agenda.map((item) => item.name);
+
+  beforeEach(() => {
+    localStorage.setItem('toastmaster_agenda', JSON.stringify(SEED));
+  });
+
+  it('AC-1: inserts right after the given row, with its role\'s rules; without it, appends', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+
+    let id;
+    act(() => {
+      id = result.current.addToAgenda({ name: 'Dana', role: 'Table Topics Speech' }, { insertAfter: 'b' });
+    });
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(result.current.agenda[2]).toMatchObject({ id, name: 'Dana', role: 'Table Topics Speech', rules: TABLE_TOPICS, completed: false });
+
+    act(() => {
+      result.current.addToAgenda({ name: 'Eve', role: 'Standard Speech' });
+    });
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole', 'Eve']);
+  });
+
+  it('AC-1: with activate, the inserted speaker is the one on the timer, under their own rules', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+    act(() => {
+      result.current.loadSpeakerFromAgenda('b');
+    });
+
+    let id;
+    act(() => {
+      id = result.current.addToAgenda({ name: 'Dana', role: 'Table Topics Speech' }, { insertAfter: 'b', activate: true });
+    });
+
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(result.current.activeSpeakerId).toBe(id);
+    expect(result.current.currentSpeaker).toMatchObject({ name: 'Dana', role: 'Table Topics Speech', rules: TABLE_TOPICS });
+  });
+
+  it('AC-13: without activate, the speaker on the timer stays exactly as they were', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+    act(() => {
+      result.current.loadSpeakerFromAgenda('b');
+    });
+
+    act(() => {
+      result.current.addToAgenda({ name: 'Dana', role: 'Table Topics Speech' }, { insertAfter: 'b' });
+    });
+
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(result.current.activeSpeakerId).toBe('b');
+    expect(result.current.currentSpeaker).toMatchObject({ name: 'Jordan', role: 'Ice Breaker' });
+  });
+
+  it('appends when the row to go after is no longer on the agenda', () => {
+    const { result } = renderHook(() => useTimer(), { wrapper });
+    act(() => {
+      result.current.addToAgenda({ name: 'Dana', role: 'Table Topics Speech' }, { insertAfter: 'gone' });
+    });
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Cole', 'Dana']);
+  });
+});

@@ -21,6 +21,8 @@ automated:
   - apps/zoom-app/src/b/AgendaReport.test.jsx
   - apps/zoom-app/src/b/Phase3.test.jsx
   - apps/zoom-app/src/hooks/useNewLook.test.js
+  - e2e/zoom.new-look.speakers.spec.js
+  - apps/zoom-app/src/b/TimerTab.speakerEntry.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting
@@ -209,6 +211,37 @@ Expect: "New look: the timer sits in the middle now, with your settings under Lo
 is coming soon." above the top row (see announcement-banner AB-05).
 Evidence: screenshot.
 
+### NL-21 · auto · On-the-spot speakers in the new look (#168)
+Do: with FLAGS_FORCE "1,pro=0", import the same three rows as timer-core TC-14 (Ana, Jordan, Cole;
+same substitutions). Agenda tab → "Put Jordan on the timer". Then, on the Timer tab:
+1. Open the speaker chip's list. Read the status, then click "Add a speaker after Jordan", type
+   "Dana", pick Table Topics Speech in the panel, click "Add Dana after Jordan".
+2. Pick Ice Breaker on the card's role chip, open the speaker list, change the name to "Dani",
+   press Return.
+3. Press Start; at about 0:10 add "Eve" from the speaker list ("Add a speaker after Dani"); press
+   Finish at about 0:20.
+4. Open the speaker list, click "Switch to quick timing", type "Guest", click "Save Guest to the
+   agenda". Click "Switch to quick timing" again, then "Back to agenda".
+5. At the foot of the speaker list open "Speaker options", choose "at the end", then ⋯ → Refresh app
+   and open it again.
+Expect:
+- 1: the chip carries the status ("On the agenda · 2 of 3"), and it is not a separate button; the
+  list shows "Switch to quick timing" with its note and "Add a speaker after Jordan". The panel's
+  role starts on Ice Breaker and the Add button names "as Table Topics Speech". After Add: Agenda
+  order Ana, Jordan, Dana, Cole; the card shows Dana with "Green 1:00 · Yellow 1:30 · Red 2:00"; on
+  real video the card turns green at 1:00.
+- 2: before Return, "Unsaved changes" and "Update Dana on the agenda" listing "name Dana → Dani ·
+  role → Ice Breaker"; the card's clock and colour do not change. After Return the Agenda tab
+  shows Dani, Ice Breaker, in Dana's place.
+- 3: the count-up and the colour on real video carry on untouched when Eve is added; Eve sits
+  right after Dani; Finish loads Eve.
+- 4: "Not on the agenda" and "Back to agenda" naming "next: Eve"; Guest is saved right after Eve
+  and loaded; Back to agenda loads the row let go of.
+- 5: "Speaker options" starts collapsed; after the refresh it still shows "at the end".
+Evidence: screenshots; page script: `toastmaster_agenda` after steps 1, 2, 3 and 4, and
+`toastmaster_speaker_insert_position` = `end` after step 5. PostHog `speech_finished` for Dani.
+Then: delete the rows added here.
+
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,pro=0", then
 "1" for NL-09's second half, NL-10, NL-15, NL-16's club half and NL-17): NL-01–NL-03, NL-05–NL-11,
 NL-13–NL-18 and NL-20 passed. ❌ NL-04 at the bottom right: the status line under the clock
@@ -241,6 +274,10 @@ field. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 
 ## Not covered
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
+- The Speaker options value showing the same in the old look and on the web (#168 AC-4): one
+  device's looks share `localStorage`, proven in `e2e/zoom.new-look.speakers.spec.js`; another
+  device gets both keys through profile sync (`profileMerge.test.js`). Checking it here would need
+  a redeploy with FLAGS_FORCE "1,new_look=0" or a web sign-in.
 - Audio of the sounds: timer-sounds.
 - The connection and club-renewal banners: unchanged by design B (they already sit at the top
   as the boards draw them); connection-notice and club-renewal-reminder cover them.

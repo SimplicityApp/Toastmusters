@@ -1,8 +1,9 @@
 import { renderHook, act } from '@testing-library/react';
 import { ToastProvider } from '../context/ToastContext';
-import { TimerProvider } from '../context/TimerContext';
+import { TimerProvider, useTimer, useTimerTick } from '../context/TimerContext';
 import { useLiveTimer } from './useLiveTimer';
-import { applyOverlay, clearVideoPipelines, isOverlayActive } from '../utils/zoomSdk';
+import { applyOverlay, clearVideoPipelines, isOverlayActive, removeOverlay } from '../utils/zoomSdk';
+import { BREAK_ROLE, DEFAULT_ROLE_RULES } from '@toastmaster-timer/shared';
 
 // Same stub as LiveTab.test.jsx: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom.
@@ -109,5 +110,314 @@ describe('useLiveTimer', () => {
     ]) {
       expect(typeof result.current[handler], handler).toBe('function');
     }
+  });
+});
+
+/**
+ * #168, on-the-spot speakers: the one speaker model both looks draw (the old
+ * look's panel and stage, and design B). Named as in the plan:
+ *
+ *   handleSpeakerChange(name), handleRoleChange(role)   with a row loaded these only
+ *                                                        stage an edit; in quick timing
+ *                                                        they label the clock, as today
+ *   handleUpdate() / handleUndo()                        write / drop the staged edit
+ *   handleAddSpeaker(name, role)                         the add panel
+ *   handleSwitchToQuickTiming() / handleBackToAgenda()   let go of the row / load it again
+ *   handleSaveToAgenda()                                 put a quick-timed name on the agenda
+ *
+ * Asserted through the timer context (the agenda, the loaded row, the clock's
+ * speaker, the report), which is what every view and the Agenda tab read.
+ */
+describe('useLiveTimer: on-the-spot speakers (#168)', () => {
+  const RULES = {
+    'Standard Speech': DEFAULT_ROLE_RULES['Standard Speech'],
+    'Ice Breaker': DEFAULT_ROLE_RULES['Ice Breaker'],
+    'Table Topics Speech': DEFAULT_ROLE_RULES['Table Topics Speech'],
+  };
+  const SEED = [
+    { id: 'a', name: 'Ana', role: 'Standard Speech', rules: RULES['Standard Speech'], completed: false },
+    { id: 'b', name: 'Jordan', role: 'Ice Breaker', rules: RULES['Ice Breaker'], completed: false },
+    { id: 'c', name: 'Cole', role: 'Standard Speech', rules: RULES['Standard Speech'], completed: false },
+  ];
+  const TT = 'Table Topics Speech';
+  const names = (r) => r.current.ctx.agenda.map((item) => item.name);
+  const row = (r, name) => r.current.ctx.agenda.find((item) => item.name === name);
+
+  /** Calls a handler the plan names, failing on an assertion when it is missing. */
+  const call = (r, name, ...args) => {
+    expect(typeof r.current.t[name], `useLiveTimer returns ${name}()`).toBe('function');
+    act(() => {
+      r.current.t[name](...args);
+    });
+  };
+
+  function setup({ insertPosition } = {}) {
+    localStorage.setItem('toastmaster_agenda', JSON.stringify(SEED));
+    if (insertPosition) localStorage.setItem('toastmaster_speaker_insert_position', insertPosition);
+    const view = renderHook(() => ({ t: useLiveTimer(), ctx: useTimer(), tick: useTimerTick() }), { wrapper });
+    return { r: view.result, unmount: view.unmount };
+  }
+
+  const loadJordan = (r) => call(r, 'handleSelectAgendaSpeaker', 'b');
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('AC-1: a speaker added after the loaded row is inserted there and loaded, under their own rules', () => {
+    const { r } = setup();
+    loadJordan(r);
+
+    call(r, 'handleAddSpeaker', 'Dana', TT);
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(r.current.ctx.activeSpeakerId).toBe(row(r, 'Dana').id);
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Dana', role: TT, rules: RULES[TT] });
+  });
+
+  it('AC-2: with the setting on "at the end", the speaker goes last and is loaded', () => {
+    const { r } = setup({ insertPosition: 'end' });
+    loadJordan(r);
+
+    call(r, 'handleAddSpeaker', 'Dana', TT);
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Cole', 'Dana']);
+    expect(r.current.ctx.activeSpeakerId).toBe(row(r, 'Dana').id);
+  });
+
+  it('AC-3: with nothing loaded and nothing let go of, the speaker goes last, whichever setting is on', () => {
+    for (const insertPosition of ['afterActive', 'end']) {
+      localStorage.clear();
+      const { r, unmount } = setup({ insertPosition });
+
+      call(r, 'handleAddSpeaker', 'Dana', TT);
+
+      expect(names(r), insertPosition).toEqual(['Ana', 'Jordan', 'Cole', 'Dana']);
+      unmount();
+    }
+  });
+
+  it('AC-6: a name change is staged: nothing moves until Update, then the row is renamed in place', () => {
+    const { r } = setup();
+    loadJordan(r);
+
+    call(r, 'handleSpeakerChange', 'Dana');
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Cole']);
+    expect(r.current.ctx.currentSpeaker.name).toBe('Jordan');
+
+    call(r, 'handleUpdate');
+    expect(names(r)).toEqual(['Ana', 'Dana', 'Cole']);
+    expect(r.current.ctx.agenda[1].id).toBe('b');
+    expect(r.current.ctx.activeSpeakerId).toBe('b');
+    expect(r.current.ctx.currentSpeaker.name).toBe('Dana');
+  });
+
+  it('AC-6: Undo changes puts both fields back, and saves nothing', () => {
+    const { r } = setup();
+    loadJordan(r);
+    call(r, 'handleSpeakerChange', 'Dana');
+    call(r, 'handleRoleChange', TT);
+
+    call(r, 'handleUndo');
+    expect(r.current.t.speakerName).toBe('Jordan');
+    expect(r.current.t.selectedRole).toBe('Ice Breaker');
+
+    // Nothing left to write.
+    call(r, 'handleUpdate');
+    expect(r.current.ctx.agenda[1]).toMatchObject({ id: 'b', name: 'Jordan', role: 'Ice Breaker' });
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Jordan', role: 'Ice Breaker' });
+  });
+
+  it('AC-9: a role change is staged with the name, and Update writes both and the rules to the row and the clock', () => {
+    const { r } = setup();
+    loadJordan(r);
+
+    call(r, 'handleSpeakerChange', 'Dana');
+    call(r, 'handleRoleChange', TT);
+    expect(r.current.ctx.agenda[1]).toMatchObject({ name: 'Jordan', role: 'Ice Breaker', rules: RULES['Ice Breaker'] });
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Jordan', role: 'Ice Breaker', rules: RULES['Ice Breaker'] });
+
+    call(r, 'handleUpdate');
+    expect(r.current.ctx.agenda[1]).toMatchObject({ id: 'b', name: 'Dana', role: TT, rules: RULES[TT] });
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Dana', role: TT, rules: RULES[TT] });
+    expect(r.current.ctx.activeSpeakerId).toBe('b');
+  });
+
+  it('AC-9: choosing Take a Break still lets go of the row at once and leaves it untouched', () => {
+    const { r } = setup();
+    loadJordan(r);
+
+    call(r, 'handleRoleChange', BREAK_ROLE);
+
+    expect(r.current.ctx.activeSpeakerId).toBeNull();
+    expect(r.current.ctx.agenda[1]).toMatchObject({ id: 'b', name: 'Jordan', role: 'Ice Breaker', completed: false });
+  });
+
+  it('AC-13: adding during a speech inserts but leaves the timer, its label and the video alone; FINISH moves to them', () => {
+    vi.useFakeTimers();
+    const { r } = setup();
+    loadJordan(r);
+    call(r, 'handleStart');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    const elapsed = r.current.tick.elapsedTime;
+    expect(elapsed).toBeGreaterThan(0);
+    applyOverlay.mockClear();
+    removeOverlay.mockClear();
+
+    call(r, 'handleAddSpeaker', 'Dana', TT);
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(r.current.ctx.activeSpeakerId).toBe('b');
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Jordan', role: 'Ice Breaker', rules: RULES['Ice Breaker'] });
+    expect(r.current.tick.isRunning).toBe(true);
+    expect(r.current.tick.elapsedTime).toBeGreaterThanOrEqual(elapsed);
+    expect(applyOverlay).not.toHaveBeenCalled();
+    expect(removeOverlay).not.toHaveBeenCalled();
+
+    call(r, 'handleFinish');
+    expect(r.current.ctx.activeSpeakerId).toBe(row(r, 'Dana').id);
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Dana', role: TT, rules: RULES[TT] });
+  });
+
+  it('AC-13: a paused speech counts as in progress too', () => {
+    vi.useFakeTimers();
+    const { r } = setup();
+    loadJordan(r);
+    call(r, 'handleStart');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    call(r, 'handleStop');
+    const elapsed = r.current.tick.elapsedTime;
+
+    call(r, 'handleAddSpeaker', 'Dana', TT);
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(r.current.ctx.activeSpeakerId).toBe('b');
+    expect(r.current.tick.elapsedTime).toBe(elapsed);
+  });
+
+  it('AC-14: quick timing lets go of the row, the name labels the clock, FINISH reports it and the agenda is unchanged', () => {
+    vi.useFakeTimers();
+    const { r } = setup();
+    loadJordan(r);
+
+    call(r, 'handleSwitchToQuickTiming');
+    expect(r.current.ctx.activeSpeakerId).toBeNull();
+    expect(r.current.ctx.agenda[1]).toMatchObject({ id: 'b', name: 'Jordan', completed: false });
+
+    call(r, 'handleSpeakerChange', 'Guest');
+    expect(r.current.ctx.currentSpeaker.name).toBe('Guest');
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Cole']);
+
+    call(r, 'handleStart');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    call(r, 'handleFinish');
+
+    expect(r.current.ctx.reports.at(-1)).toMatchObject({ name: 'Guest' });
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Cole']);
+    expect(r.current.ctx.agenda.every((item) => !item.completed)).toBe(true);
+  });
+
+  it('AC-14: Back to agenda loads the row that was let go of', () => {
+    const { r } = setup();
+    loadJordan(r);
+    call(r, 'handleSwitchToQuickTiming');
+    expect(r.current.ctx.activeSpeakerId).toBeNull();
+
+    call(r, 'handleBackToAgenda');
+
+    expect(r.current.ctx.activeSpeakerId).toBe('b');
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Jordan', role: 'Ice Breaker', rules: RULES['Ice Breaker'] });
+  });
+
+  it('AC-15: a quick-timed name is saved after the row let go of, with the role shown, and loaded', () => {
+    const { r } = setup();
+    loadJordan(r);
+    call(r, 'handleSwitchToQuickTiming');
+    call(r, 'handleSpeakerChange', 'Eve');
+    const shownRole = r.current.t.selectedRole;
+
+    call(r, 'handleSaveToAgenda');
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Eve', 'Cole']);
+    expect(row(r, 'Eve').role).toBe(shownRole);
+    expect(r.current.ctx.activeSpeakerId).toBe(row(r, 'Eve').id);
+  });
+
+  it('AC-15: with no row let go of, the saved name goes last', () => {
+    const { r } = setup();
+    call(r, 'handleSpeakerChange', 'Eve');
+
+    call(r, 'handleSaveToAgenda');
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Cole', 'Eve']);
+    expect(r.current.ctx.activeSpeakerId).toBe(row(r, 'Eve').id);
+  });
+
+  it('AC-15: saved during a speech, the name is inserted but not loaded', () => {
+    vi.useFakeTimers();
+    const { r } = setup();
+    call(r, 'handleSpeakerChange', 'Eve');
+    call(r, 'handleStart');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    call(r, 'handleSaveToAgenda');
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Cole', 'Eve']);
+    expect(r.current.ctx.activeSpeakerId).toBeNull();
+    expect(r.current.tick.isRunning).toBe(true);
+  });
+
+  it('AC-16: START never adds or changes an agenda row', () => {
+    vi.useFakeTimers();
+    const { r } = setup();
+    // A quick timing with a typed name.
+    call(r, 'handleSpeakerChange', 'Guest');
+    call(r, 'handleStart');
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Cole']);
+    expect(r.current.ctx.activeSpeakerId).toBeNull();
+    call(r, 'handleStop');
+    act(() => {
+      r.current.t.handleReset();
+    });
+
+    // A loaded row with a staged rename.
+    loadJordan(r);
+    call(r, 'handleSpeakerChange', 'Dana');
+    call(r, 'handleStart');
+    expect(r.current.ctx.agenda).toHaveLength(3);
+    expect(r.current.ctx.agenda[1]).toMatchObject({ id: 'b', name: 'Jordan', role: 'Ice Breaker' });
+  });
+
+  it('AC-11: the shared sequence ends on the same agenda and clock as every other surface', () => {
+    vi.useFakeTimers();
+    const { r } = setup();
+    loadJordan(r);
+    call(r, 'handleAddSpeaker', 'Dana', TT);
+    act(() => {
+      vi.advanceTimersByTime(10);
+    });
+    call(r, 'handleSpeakerChange', 'Dane');
+    call(r, 'handleUpdate');
+    call(r, 'handleSwitchToQuickTiming');
+    call(r, 'handleSpeakerChange', 'Eve');
+    act(() => {
+      vi.advanceTimersByTime(10);
+    });
+    call(r, 'handleSaveToAgenda');
+
+    expect(names(r)).toEqual(['Ana', 'Jordan', 'Dane', 'Eve', 'Cole']);
+    expect(r.current.ctx.agenda.map((item) => item.role)).toEqual([
+      'Standard Speech', 'Ice Breaker', TT, TT, 'Standard Speech',
+    ]);
+    expect(r.current.ctx.activeSpeakerId).toBe(row(r, 'Eve').id);
+    expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Eve', role: TT, rules: RULES[TT] });
   });
 });

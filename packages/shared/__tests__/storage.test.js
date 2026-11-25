@@ -20,6 +20,8 @@ import {
   clearTimerSession,
   clearAllStorage,
 } from '../storage.js';
+import * as storageModule from '../storage.js';
+import { onLocalWrite, resetLocalWriteListeners } from '../storageEvents.js';
 
 // The vitest jsdom environment provides localStorage globally.
 // We clear it before each test to guarantee isolation.
@@ -273,5 +275,67 @@ describe('Timer session storage', () => {
   it('normalizes a non-string agenda link to null', () => {
     saveTimerSession({ ...session, activeSpeakerId: 42 });
     expect(loadTimerSession().activeSpeakerId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Speaker entry settings (#168 AC-4)
+// ---------------------------------------------------------------------------
+// Where a new speaker goes ('afterActive', the default, or 'end') and what Enter
+// does in the name field ('update', the default, or 'add'). Read through the
+// module namespace so a missing export fails an assertion, not the import.
+describe('Speaker entry settings (#168)', () => {
+  const INSERT_KEY = 'toastmaster_speaker_insert_position';
+  const ENTER_KEY = 'toastmaster_speaker_enter_action';
+
+  const fn = (name) => {
+    expect(typeof storageModule[name], `storage.js exports ${name}()`).toBe('function');
+    return storageModule[name];
+  };
+
+  afterEach(() => resetLocalWriteListeners());
+
+  it('a new speaker goes after the loaded one unless told otherwise', () => {
+    expect(fn('loadSpeakerInsertPosition')()).toBe('afterActive');
+  });
+
+  it('remembers "at the end", under its own key', () => {
+    fn('saveSpeakerInsertPosition')('end');
+    expect(fn('loadSpeakerInsertPosition')()).toBe('end');
+    expect(localStorage.getItem(INSERT_KEY)).toBe('end');
+
+    fn('saveSpeakerInsertPosition')('afterActive');
+    expect(fn('loadSpeakerInsertPosition')()).toBe('afterActive');
+  });
+
+  it('reads anything else as the default', () => {
+    localStorage.setItem(INSERT_KEY, 'sideways');
+    expect(fn('loadSpeakerInsertPosition')()).toBe('afterActive');
+  });
+
+  it('Enter updates the loaded speaker unless told otherwise', () => {
+    expect(fn('loadSpeakerEnterAction')()).toBe('update');
+  });
+
+  it('remembers "add", under its own key', () => {
+    fn('saveSpeakerEnterAction')('add');
+    expect(fn('loadSpeakerEnterAction')()).toBe('add');
+    expect(localStorage.getItem(ENTER_KEY)).toBe('add');
+
+    fn('saveSpeakerEnterAction')('update');
+    expect(fn('loadSpeakerEnterAction')()).toBe('update');
+  });
+
+  it('reads anything else as the default', () => {
+    localStorage.setItem(ENTER_KEY, 'shout');
+    expect(fn('loadSpeakerEnterAction')()).toBe('update');
+  });
+
+  it('announces both writes, which is how profile sync learns of them', () => {
+    const written = [];
+    onLocalWrite((key) => written.push(key));
+    fn('saveSpeakerInsertPosition')('end');
+    fn('saveSpeakerEnterAction')('add');
+    expect(written).toEqual([INSERT_KEY, ENTER_KEY]);
   });
 });
