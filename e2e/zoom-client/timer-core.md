@@ -221,14 +221,18 @@ Expect:
   card turns green at 1:00, not at Jordan's 4:00. Finish ticks Dana off and loads Cole.
 - 3: before Return, "Unsaved changes" shows and the filled button reads "Update Cole on the agenda"
   with "name Cole → Colin · role → Table Topics Speech"; the Agenda tab still says Cole, Standard
-  Speech, and nothing on the video changes. After Return: the Agenda tab shows Colin, Table Topics
-  Speech, in Cole's place, and the rules line shows 1:00 / 1:30 / 2:00.
+  Speech, the rules line still shows Standard Speech's times, and nothing on the video changes.
+  Back on the Live tab after the Agenda tab, the name field still says Colin and the role Table
+  Topics Speech (the staged edit survives the tab switch). After Return: the Agenda tab shows
+  Colin, Table Topics Speech, in Cole's place, and the rules line shows 1:00 / 1:30 / 2:00.
 - 4: a toast says Eve comes up after this speech. The count-up keeps running from where it was,
   the card colour on real video does not change or reset, and the name field still says Colin.
   The Agenda tab shows Eve right after Colin. Finish loads Eve.
 - 5: status "Not on the agenda"; "Back to agenda" names "next: Eve". The name field labels the
-  timer only. After Finish the Timer's Report has Guest; the agenda is unchanged and Eve is not
-  ticked off. "Back to agenda" loads Eve again.
+  timer only. While Guest is being timed "Back to agenda" is not offered (loading Eve would reset
+  the clock); it is back after Finish. After Finish the Timer's Report has Guest; the agenda is
+  unchanged and Eve is not ticked off. Back on the Live tab after the Report tab, "Back to agenda"
+  is still there and loads Eve again.
 - 6: Undo puts "Eve" back with nothing saved. Return with nothing loaded adds nobody (no Zed row).
   Start never adds or changes a row, here or after any Start above. Back to agenda loads Eve.
 - 7: the stage shows the status; after Update the Agenda tab shows Evie in Eve's place; Finn lands
@@ -241,6 +245,10 @@ device: `speech_finished` for Dana (`role` Table Topics Speech), Colin and Guest
 Then: delete the rows added here (Clear All if the agenda held nothing else).
 
 ## Not covered
+- START with an edit staged for a loaded row (#168): the speech is timed as the row stands and
+  the edit stays staged ("Unsaved changes", Update and Undo still offered); Update mid-speech
+  changes the row and the rules without restarting the clock. Unit tests:
+  `useLiveTimer.speakerState.test.jsx`, web `LiveTab.speakerState.test.jsx`.
 - The new look's speaker controls (#168): new-look NL-21. The web Live tab's: Playwright
   (`e2e/web.speaker-entry.spec.js`) and `apps/web/src/components/LiveTab.speakerEntry.test.jsx`;
   the Zoom client does not host it. The two Speaker options syncing to another device:

@@ -189,3 +189,7 @@ Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 - Adding a speaker from the Live tab (#168, timer-core TC-14). Reviewed against 12c85ee:
   `addToAgenda` gains an `insertAfter` id that only the Live tab's add panel passes; imports and
   the Agenda tab's form still append, so no step here moves. Not rerun.
+- Reviewed against #168's verify fixes (review round 1): the speaker controls keep a staged
+  edit and the row let go of for a quick timing in the timer context across tab switches, and
+  hide "Back to agenda" while a quick timing runs; imports and the Agenda tab's form are
+  untouched. Not rerun.

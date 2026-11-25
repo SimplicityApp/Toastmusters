@@ -234,9 +234,11 @@ Expect:
   role starts on Ice Breaker and the Add button names "as Table Topics Speech". After Add: Agenda
   order Ana, Jordan, Dana, Cole; the card shows Dana with "Green 1:00 · Yellow 1:30 · Red 2:00"; on
   real video the card turns green at 1:00.
-- 2: before Return, "Unsaved changes" and "Update Dana on the agenda" listing "name Dana → Dani ·
-  role → Ice Breaker"; the card's clock and colour do not change. After Return the Agenda tab
-  shows Dani, Ice Breaker, in Dana's place.
+- 2: right after picking Ice Breaker on the role chip, with the popover closed, the speaker chip
+  shows an amber dot and its label (hover) ends "Unsaved changes"; the card's rules line still
+  shows Dana's 1:00 · 1:30 · 2:00. Before Return, "Unsaved changes" and "Update Dana on the agenda"
+  listing "name Dana → Dani · role → Ice Breaker"; the card's clock and colour do not change.
+  After Return the Agenda tab shows Dani, Ice Breaker, in Dana's place.
 - 3: the count-up and the colour on real video carry on untouched when Eve is added; Eve sits
   right after Dani; Finish loads Eve.
 - 4: "Not on the agenda" and "Back to agenda" naming "next: Eve"; Guest is saved right after Eve
