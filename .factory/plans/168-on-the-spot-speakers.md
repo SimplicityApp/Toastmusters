@@ -26,6 +26,11 @@ and one set of labels keep the three from drifting apart.
   mockup).
 - **Old look: a visible Update button**, not only Enter. Editing the current speaker and adding
   another are both a click away, and Enter does the same as the button.
+- **Q7: the leaner control, accepted.** Every surface gets a switch ("Edit current" / "Add new"),
+  one button whose label says what it will do (Enter does the same), and a tag saying where the
+  speaker came from. In Add mode the role control is for the new speaker only; the new look shows
+  it inside the popover. This replaces the separate Update/Add buttons and the extra list rows in
+  steps 4–6 of the Approach; the oracle station writes the tests against this shape.
 
 ## Findings
 The logic is already shared in the Zoom app; the pickers are not.
@@ -188,18 +193,23 @@ This is the third open factory PR while `wipLimit` is 2: started on the owner's 
 instruction, Nov 25.
 
 ## Open questions
-- **Q7. A leaner control (proposed Nov 25, mockup shown to the owner).** Instead of separate
-  Update and Add buttons plus list rows, every surface gets the same three parts:
-  - a two-way switch, "Edit current" / "Add new", that starts on Edit when a row is loaded (the
-    Enter setting becomes "which side the switch starts on");
-  - one button whose label says exactly what it will do ("Update Table Topics to Dana", "Add Dana
-    as Table Topics Speech"), with Enter doing the same;
-  - a tag saying where the speaker came from ("From agenda · 2 of 3", or "New speaker · goes right
-    after Table Topics").
-  In Add mode the role control is for the new speaker only; the new look shows it inside the
-  popover, so the card's role chip always means the current speaker. Default if unanswered: the
-  current plan (separate Update and Add actions), with the old look's visible Update button.
+- **Q8. A third mode, "Time only" (proposed Nov 25, mockup shown to the owner).** The switch gets
+  a third side, "Edit current" / "Add new" / "Time only", so a quick timing never touches the
+  agenda:
+  - Only the switch's button (or Enter) writes to the agenda. START never does, in any mode.
+  - Time only: the name and role just label the timer; there is no button, and Enter does
+    nothing. FINISH still records the speech in the Timer's Report and the club history, as
+    `finishCurrentSpeech` already does for any timed speech (TimerContext:559-586); it ticks
+    nothing off.
+  - With a row loaded, picking Time only lets go of it (`clearActiveSpeaker`): the row stays in
+    the agenda, not ticked off, and the tag offers "Back to <row>". A running clock is not touched.
+  - Where the switch starts: Edit current when a row is loaded; **Time only when none is**. Today an
+    unloaded Enter adds to the agenda, so this changes what a club without an agenda gets: their
+    names are no longer added for them, but every speech still reaches the report. The setting
+    still lets the switch start on Add new.
+  - "Edit current" is hidden when no row is loaded, so the switch shows two sides then.
+  Default if unanswered: no third mode (with no row loaded, the switch starts on Add new as today).
 
 Answered Nov 25: Q1, Q4 and Q5 take their defaults (settings under "Speaker options" in the old
 look and in the new look's speaker popover; the Agenda tab form keeps appending; both settings
-sync); Q2, Q3 and Q6 as under Decisions.
+sync); Q2, Q3, Q6 and Q7 as under Decisions.
