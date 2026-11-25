@@ -186,3 +186,6 @@ Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 - The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
   `apps/web/src/context/TimerContext.test.jsx`, and `e2e/web.agenda-flow.spec.js` runs this
   import (IM-01, IM-02) in a plain browser.
+- Adding a speaker from the Live tab (#168, timer-core TC-14). Reviewed against 12c85ee:
+  `addToAgenda` gains an `insertAfter` id that only the Live tab's add panel passes; imports and
+  the Agenda tab's form still append, so no step here moves. Not rerun.
