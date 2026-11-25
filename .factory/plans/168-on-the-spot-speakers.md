@@ -22,8 +22,10 @@ and one set of labels keep the three from drifting apart.
   what the Table Topics section mode would do, which the issue puts out of scope.
 - **Q6: the web follows the Zoom app** (rules, two settings, wording), in this issue.
 - **Q1, Q4, Q5: the defaults** below.
-- **Q3 (new slot's role): default stands for now.** The owner was shown a mockup in chat and has
-  not confirmed yet.
+- **Q3: the default.** The new slot takes the role shown on the add control (confirmed on a
+  mockup).
+- **Old look: a visible Update button**, not only Enter. Editing the current speaker and adding
+  another are both a click away, and Enter does the same as the button.
 
 ## Findings
 The logic is already shared in the Zoom app; the pickers are not.
@@ -100,7 +102,8 @@ Smallest change that meets the criteria:
 5. **UI, same wording on all three surfaces**: the control shows "Editing <name> · <role>" when a row
    is loaded, an "Add new speaker" button, and a hint that names what Enter does ("Enter updates
    Jon" / "Enter adds Dana after Jon as Table Topics Speech").
-   - Old look: `SpeakerInput.jsx` (panel) and `StageSpeakerPicker.jsx` (stage).
+   - Old look: `SpeakerInput.jsx` (panel) and `StageSpeakerPicker.jsx` (stage), each with a
+     visible Update button beside the add action; Enter does what that button does.
    - New look: `b/SpeakerPicker.jsx`; its two rows become "Update <row>" (first, the default) and
      "Add <name> as <role>", and Enter follows the setting.
    - Web: `SpeakerInput.jsx` and `LiveTab.jsx`, same labels.
@@ -185,10 +188,18 @@ This is the third open factory PR while `wipLimit` is 2: started on the owner's 
 instruction, Nov 25.
 
 ## Open questions
-- **Q3. Which role does the new slot get?** Default: the role currently shown in the picker (as
-  today), now named on the add control, so Table Topics runs pick "Table Topics Speech" before
-  adding. The owner was shown a mockup in chat and has not confirmed yet.
+- **Q7. A leaner control (proposed Nov 25, mockup shown to the owner).** Instead of separate
+  Update and Add buttons plus list rows, every surface gets the same three parts:
+  - a two-way switch, "Edit current" / "Add new", that starts on Edit when a row is loaded (the
+    Enter setting becomes "which side the switch starts on");
+  - one button whose label says exactly what it will do ("Update Table Topics to Dana", "Add Dana
+    as Table Topics Speech"), with Enter doing the same;
+  - a tag saying where the speaker came from ("From agenda · 2 of 3", or "New speaker · goes right
+    after Table Topics").
+  In Add mode the role control is for the new speaker only; the new look shows it inside the
+  popover, so the card's role chip always means the current speaker. Default if unanswered: the
+  current plan (separate Update and Add actions), with the old look's visible Update button.
 
 Answered Nov 25: Q1, Q4 and Q5 take their defaults (settings under "Speaker options" in the old
 look and in the new look's speaker popover; the Agenda tab form keeps appending; both settings
-sync); Q2 and Q6 as under Decisions.
+sync); Q2, Q3 and Q6 as under Decisions.
