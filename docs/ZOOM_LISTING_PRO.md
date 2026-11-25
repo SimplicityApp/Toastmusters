@@ -10,8 +10,9 @@ Free plan: the full timer — speech timing, agenda, roles, reports, timing
 cards on your video, virtual backgrounds. No account, no sign-in.
 
 Pro plan (paid, per Zoom user, monthly or yearly, billed by Stripe outside
-Zoom): one Pro account for a whole Toastmasters club. The club's shared timing
-presets arrive on every timer's device; the club's name, logo and colour render
+Zoom): one Pro account for a whole Toastmasters club, shared with up to 3 other
+Zoom accounts through a club code. The club's shared timing presets follow each of
+those accounts to every computer it signs in on; the club's name, logo and colour render
 on the timing cards and on the timing report; every meeting is saved to the
 club's archive and can be shared as a branded image or link. The buyer's own
 timing rules, roles, agenda and display options also follow them between
@@ -20,10 +21,10 @@ at checkout.
 
 ## Description paragraph to add
 
-> **Pro (optional):** One Pro account for your whole club. Your club's timing
-> presets and branding arrive on every timer's device — they enter a short club
-> code once, no sign-in needed — and every meeting is saved to your club's
-> archive and shareable in one tap. Your own setup also follows you between
+> **Pro (optional):** One Pro account for your whole club. Share a short club
+> code with up to 3 other Zoom accounts: your club's timing presets and branding
+> follow each of them to every computer they sign in on, and every meeting is
+> saved to your club's archive and shareable in one tap. Your own setup also follows you between
 > computers, in Zoom and at timer.simple-tech.app. The timer itself stays free.
 
 ## Scopes / capabilities to declare and justify
@@ -116,8 +117,10 @@ the system browser follows the 301 after it has left Zoom. The Zoom app itself
    features on top: shared presets, club branding on cards and reports, and the
    club archive.
 5. To see the club layer without paying, ask us for a test club code and enter it
-   under **Upgrade → "Already on Pro through your club?"**. It works with no
-   sign-in at all.
+   under **Upgrade → "Already on Pro with your club?"**, signed in to Zoom with the
+   app approved. The club then follows that Zoom account to any computer it signs
+   in on. Signed out, the panel asks to sign in to Zoom first; in guest mode it
+   offers Approve and sends the code once approved.
 6. To see the `authorize` request, open the app with an account that has added
    it but has not yet approved the updated scopes, and leave the timer idle for
    a few seconds. Zoom's consent screen opens. Close it without approving (or

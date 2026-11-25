@@ -167,11 +167,10 @@ test('the count-up chip stays inside the preview when dropped past its edge', as
   expect(box.y).toBeGreaterThanOrEqual(frame.y - 0.5);
 });
 
-// A club device with Pro released, so the club's badge is on the preview.
-const CLUB = {
-  clubToken: 'club-token',
-  // Fresh, so the app does not refresh the club against the (unmocked) server.
-  lastRefreshAt: Date.now(),
+// A club member with Pro released, so the club's badge is on the preview. The
+// club follows the account (#167): the session names it and GET /api/club
+// answers with it.
+const CLUB_STATE = {
   ver: 1,
   club: { id: 'club-1', name: 'Claude Test Club' },
   kit: { name: 'Claude Test Club', logoUrl: null, primaryColor: '#0f766e', showOnCards: true, showOnReports: true },
@@ -186,6 +185,8 @@ const CLUB = {
   cancelAtPeriodEnd: false,
   source: 'club',
 };
+/** The account's copy from its last open; openPanel's session is 'e2e-new-look'. */
+const CLUB = { uid: 'e2e-new-look', lastRefreshAt: Date.now(), ...CLUB_STATE };
 
 // 2026-11-17 Zoom rerun (NL-10): dragged to the far left, the badge ran past
 // the preview and the card; at its top-right spot the club's name was cut to
@@ -196,11 +197,12 @@ test('the club badge stays inside the preview, with its whole name, at either ed
     sessionStorage.setItem('e2e_seeded', '1');
     localStorage.setItem('toastmaster_club', JSON.stringify(club));
   }, CLUB);
+  await page.route('**/api/club', (route) => route.fulfill({ json: CLUB_STATE }));
   // 340px: about the width Zoom's side panel gives the app.
   await openPanel(page, {
     width: 340,
     flags: { new_look: true, pro: true, sounds: true },
-    entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'club' },
+    entitlement: { plan: 'pro', status: 'active', entitled: true, source: 'club', club: CLUB_STATE.club },
   });
   const handle = page.getByRole('button', { name: "Drag to place your club's badge on your video" });
   const anchor = handle.locator('..');
@@ -330,7 +332,7 @@ test('the Pro chip opens Upgrade as a sheet once Pro is released', async ({ page
   await page.getByRole('button', { name: 'Upgrade to Pro' }).click();
   const sheet = page.getByRole('dialog', { name: 'One Pro account for your whole club' });
   await expect(sheet).toBeVisible();
-  await expect(sheet.getByText('Already on Pro through your club?')).toBeVisible();
+  await expect(sheet.getByText('Already on Pro with your club?')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
 });

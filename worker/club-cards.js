@@ -1,9 +1,8 @@
 import crypto from 'node:crypto';
-import { readSession, readClub } from './auth.js';
+import { readSession } from './auth.js';
 import { json, methodNotAllowed, unauthorized } from './http.js';
 import { entitlementStore, clubKey, readClubRecord, resolveAccess } from './entitlements.js';
-import { canPublish, clubCardsKey, readMemberRole } from './club-admin.js';
-import { verifiedClubId } from './club.js';
+import { canPublish, clubCardsKey, memberClub } from './club-admin.js';
 import { readAdminContext } from './club-admin-routes.js';
 
 /**
@@ -146,31 +145,27 @@ export function buildCards(record) {
 }
 
 /**
- * Who may upload or publish: a named admin or editor on a device that still
- * holds the club. The same checks, in the same order, as a presets publish.
+ * Who may upload or publish: an admin or editor of the club their account is
+ * in. The same checks, in the same order, as a presets publish.
  *
  * @returns {Promise<{store: Object, clubId: string, club: Object, uid: string}|{response: Response}>}
  */
 async function requirePublisher(request, env) {
   const session = readSession(request, env);
   if (!session?.uid) return { response: unauthorized() };
-  const claims = readClub(request, env);
-  if (!claims) return { response: unauthorized() };
 
   const store = entitlementStore(env);
   if (!store) return { response: json({ error: 'Club storage is not configured' }, 503) };
   if (!env.CARD_ASSETS) return { response: json({ error: 'Asset storage is not configured' }, 503) };
 
-  const clubId = await verifiedClubId(env, claims);
-  if (!clubId) return { response: forbidden() };
-
-  const club = await readClubRecord(env, clubId);
-  if (!club) return { response: json({ error: 'club_not_found' }, 404) };
+  const membership = await memberClub(env, session.uid);
+  if (!membership) return { response: forbidden() };
+  const { clubId, club } = membership;
 
   const access = await resolveAccess(env, { uid: session.uid, clubId, club });
   if (!access.entitled) return { response: json({ error: 'upgrade_required', entitlement: access }, 402) };
 
-  if (!canPublish(await readMemberRole(env, clubId, session.uid))) return { response: forbidden() };
+  if (!canPublish(membership.role)) return { response: forbidden() };
 
   return { store, clubId, club, uid: session.uid };
 }
@@ -252,17 +247,14 @@ async function handleCardUpload(request, env, hash) {
 }
 
 /**
- * GET /api/club/cards/<hash> — for any device holding the club, or for the
- * console, which may reach it through a sign-in or the billing link and carry
- * no club token at all.
- *
- * A read, so revocation is not consulted: a revoked device keeps reading the
- * club it was already reading until its token expires, as it does everywhere else.
+ * GET /api/club/cards/<hash> — for any member of the club, or for the console,
+ * which may reach it through the billing link with no member session at all.
  */
 async function handleCardDownload(request, env, hash) {
   if (!env.CARD_ASSETS) return json({ error: 'Asset storage is not configured' }, 503);
 
-  let clubId = readClub(request, env)?.clubId ?? null;
+  const session = readSession(request, env);
+  let clubId = session?.uid ? (await memberClub(env, session.uid))?.clubId ?? null : null;
   if (!clubId) {
     const admin = await readAdminContext(request, env);
     if (admin?.role === 'admin') clubId = admin.clubId;

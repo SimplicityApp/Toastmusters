@@ -41,7 +41,7 @@ describe('Pro in design B', () => {
     const sheet = screen.getByRole('dialog', { name: 'One Pro account for your whole club' });
     expect(sheet).toHaveAttribute('aria-modal', 'true');
     expect(sheet).toHaveTextContent('PRO');
-    expect(await screen.findByLabelText('Already on Pro through your club?')).toBeInTheDocument();
+    expect(await screen.findByLabelText(/already on pro through your club/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
   });

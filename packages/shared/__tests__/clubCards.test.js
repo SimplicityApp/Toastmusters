@@ -33,7 +33,7 @@ async function load() {
 function joinClub({ entitled = true, role = null, ver = 3, cards = { images: { blue: BLUE, red: RED } } } = {}) {
   localStorage.setItem(
     CLUB_KEY,
-    JSON.stringify({ clubToken: 'club-token', ver, club: { id: 'c1', name: 'Downtown' }, entitled, plan: 'pro', role })
+    JSON.stringify({ uid: 'u-1', ver, club: { id: 'c1', name: 'Downtown' }, entitled, plan: 'pro', role })
   );
   if (cards) localStorage.setItem(CARDS_KEY, JSON.stringify(cards));
 }
@@ -148,9 +148,8 @@ describe('syncClubCardImages', () => {
     }));
 
     expect(await mod.syncClubCardImages({ fetchImpl })).toEqual([BLUE, RED]);
-    expect(fetchImpl).toHaveBeenCalledWith(`/api/club/cards/${BLUE}`, expect.objectContaining({
-      headers: { 'X-Club': 'club-token' },
-    }));
+    // The web's session is its cookie: no header of its own.
+    expect(fetchImpl).toHaveBeenCalledWith(`/api/club/cards/${BLUE}`, expect.objectContaining({ headers: {} }));
 
     fetchImpl.mockClear();
     expect(await mod.syncClubCardImages({ fetchImpl })).toEqual([]);
@@ -207,7 +206,7 @@ describe('the club cache', () => {
     joinClub();
     localStorage.setItem(SOURCE_KEY, 'club');
     const mod = await load();
-    mod.leaveClub({ fetchImpl: vi.fn(async () => ({})) });
+    await mod.leaveClub({ fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ left: true }) })) });
     expect(localStorage.getItem(CARDS_KEY)).toBeNull();
     expect(localStorage.getItem(SOURCE_KEY)).toBeNull();
     expect(mod.activeCardSetId()).toBe('classic');
@@ -248,7 +247,8 @@ describe('publishCardSet', () => {
     expect(calls.map(([method]) => method)).toEqual(['PUT', 'PUT', 'PUT']);
     expect(calls[2][1]).toBe('/api/club/cards');
     const [, uploadInit] = fetchImpl.mock.calls[0];
-    expect(uploadInit.headers).toMatchObject({ 'X-Club': 'club-token', Authorization: 'Bearer tok' });
+    expect(uploadInit.headers).toMatchObject({ Authorization: 'Bearer tok' });
+    expect(uploadInit.headers).not.toHaveProperty('X-Club');
 
     expect(mod.loadClub().ver).toBe(4);
     expect(Object.keys(mod.loadClubCards().images)).toEqual(['blue', 'red']);

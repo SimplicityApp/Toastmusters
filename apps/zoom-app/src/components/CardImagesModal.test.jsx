@@ -63,7 +63,7 @@ beforeEach(() => {
 function joinClub({ role = null, cards = { label: null, images: { blue: 'a'.repeat(64) } } } = {}) {
   localStorage.setItem(
     'toastmaster_club',
-    JSON.stringify({ clubToken: 'club-token', ver: 2, club: { id: 'c1', name: 'Downtown Speakers' }, kit: null, entitled: true, plan: 'pro', role })
+    JSON.stringify({ uid: 'u-1', ver: 2, club: { id: 'c1', name: 'Downtown Speakers' }, kit: null, entitled: true, plan: 'pro', role })
   );
   if (cards) localStorage.setItem('toastmaster_club_cards', JSON.stringify(cards));
   resetClubForTests();

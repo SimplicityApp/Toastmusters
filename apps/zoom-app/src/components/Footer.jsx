@@ -17,18 +17,33 @@ import { openExternalUrl } from '../utils/zoomSdk';
 import { useToast } from '../context/ToastContext';
 import ProComingSoon from './ProComingSoon';
 const FeedbackModal = lazy(() => import('./FeedbackModal'));
-const UpgradeModal = lazy(() => import('./UpgradeModal'));
+// The Pro panel is where a club code is typed, so it opens on the click itself
+// rather than a chunk-load later: kept out of the first paint, fetched right
+// after it, and rendered directly once it has arrived.
+const loadUpgradeModal = () => import('./UpgradeModal');
+const LazyUpgradeModal = lazy(loadUpgradeModal);
+let LoadedUpgradeModal = null;
 
 export default memo(function Footer() {
   const { showToast } = useToast();
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // The panel's component is picked when it opens and kept until it closes,
+  // so a preload that lands while it is open never swaps it for another
+  // component type, which would remount it and lose a typed code.
+  const [OpenUpgradeModal, setOpenUpgradeModal] = useState(null);
   const { isPro, known } = useEntitlement();
   const { enabled: proEnabled, known: flagsKnown } = useFlag('pro');
   // Prompt history, for the "New" badge: it goes the moment any Upgrade dialog
   // marks the Pro announcement answered.
   const [promptState, setPromptState] = useState(loadPromptState);
   useEffect(() => subscribeToPromptState(setPromptState), []);
+  useEffect(() => {
+    loadUpgradeModal()
+      .then((module) => {
+        LoadedUpgradeModal = module.default;
+      })
+      .catch(() => {});
+  }, []);
   const showNewBadge = !isPro && isProLaunchBadgeDue(promptState);
 
   const handleFeedbackClick = () => {
@@ -80,7 +95,7 @@ export default memo(function Footer() {
         <button
           onClick={handleReviewClick}
           className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors duration-150"
-          aria-label="Leave a review on the Zoom App Marketplace"
+          aria-label="Review Toastmusters Timer on the Zoom App Marketplace"
         >
           <Star className="w-4 h-4 flex-shrink-0" />
           <span>Review</span>
@@ -90,7 +105,7 @@ export default memo(function Footer() {
             way, until it has said whether Pro billing is released at all. */}
         {known && flagsKnown && proEnabled && (
           <button
-            onClick={() => setShowUpgradeModal(true)}
+            onClick={() => setOpenUpgradeModal(() => LoadedUpgradeModal ?? LazyUpgradeModal)}
             className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors duration-150 ${
               isPro ? 'text-amber-600 hover:bg-amber-50' : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium'
             }`}
@@ -117,9 +132,9 @@ export default memo(function Footer() {
             coming. Nothing can be bought yet, so there is no upgrade here. */}
         {flagsKnown && !proEnabled && <ProComingSoon />}
       </footer>
-      {showUpgradeModal && (
+      {OpenUpgradeModal && (
         <Suspense fallback={null}>
-          <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} source="footer" />
+          <OpenUpgradeModal isOpen onClose={() => setOpenUpgradeModal(null)} source="footer" />
         </Suspense>
       )}
       {showFeedbackModal && (

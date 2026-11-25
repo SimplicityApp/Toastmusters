@@ -142,7 +142,7 @@ describe('the Footer\'s Pro button', () => {
     setFlags({ pro: false });
     renderFooter();
     expect(screen.getByRole('button', { name: /provide feedback/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /leave a review/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review toastmusters timer/i })).toBeInTheDocument();
   });
 });
 

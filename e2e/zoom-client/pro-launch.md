@@ -57,7 +57,7 @@ Evidence: screenshots; PostHog from this device: `pro_launch_learn_more`, then
 `upgrade_prompt_shown` with `source: "pro_launch"`.
 
 ### PL-03 · auto · A Pro device is not told about Pro
-Do: on a device that is Pro (a club code or a subscription), debug panel → Reset history, then
+Do: signed in with an account that is Pro (in a club, or a subscription), debug panel → Reset history, then
 time one short speech and press FINISH. Wait 5 s.
 Expect: no announcement. The debug panel reads "Pro launch: 0/1 asks". No other prompt is due
 after a single speech.
@@ -65,7 +65,7 @@ Evidence: screenshot after the wait; PostHog has no `periodic_prompt_shown` with
 `prompt: "pro_launch"` from this device for the run.
 
 ### PL-04 · human · A free device sees it once, after FINISH
-Do: sign in to Zoom with a Free account that has no club on the device. With prompt history
+Do: sign in to Zoom with a Free account that is in no club. With prompt history
 reset (debug panel), START a speech, wait for green, FINISH. Answer Zoom's background prompt if
 it shows. Wait 3 s. Close the window with "Not now". Time and finish another speech.
 Expect: nothing appears while the timer runs or on the FINISH click itself; about 2.5 s after
@@ -75,6 +75,9 @@ Evidence: screenshots; PostHog `periodic_prompt_shown` and `periodic_prompt_dism
 `prompt: "pro_launch"`, once each.
 Human because it needs a second, Free Zoom account signed in on the test computer.
 
+Run 2026-11-24 (factory/167 9d094d6, dev 19f7a29c, the owner of a club): PL-01 Pro half, PL-02
+and PL-03 passed; PL-01 free half, PL-04 and PL-05 not run (PL-05 needs a free
+device; the second pass had none either). Log: test-runs/2026-11-24-167-club-account-invites/run.md.
 Run 2026-11-13 (eeaa840, Zoom on macOS, device Pro through its own subscription): PL-02 and
 PL-03 passed; PL-01 only its Pro half (no dot on "Pro"); PL-04 not run (needs a Free account).
 Log: test-runs/2026-11-13-pro-launch/run.md.
@@ -91,8 +94,16 @@ free plan to show the window to.
 ## Not covered
 - The footer while `pro` is off: since the merge with dev (2026-11-14) it shows the locked
   "Pro (coming soon)" button instead of nothing. See [pro-coming-soon](pro-coming-soon.md).
-- The purchase and club-code flows inside the Upgrade dialog (the pro-club area is not
-  migrated to a spec yet; see `INDEX.md`).
+- The purchase flow inside the Upgrade dialog (the pro-club area is not migrated to a spec yet;
+  see `INDEX.md`). Joining a club with its code there is
+  [club-membership](club-membership.md).
+- Reviewed against #167 (club Pro by Zoom account): the footer now fetches the Upgrade dialog
+  right after the first paint so the code field is there on the click, and the Review button's
+  accessible name starts with its visible "Review" ("Review Toastmusters Timer on the Zoom App
+  Marketplace"). Nothing a step looks at moves.
+- Reviewed against #167's verify fixes: the Footer keeps the open Upgrade dialog's component
+  until it closes, so `upgrade_prompt_shown` fires once per open even when the preload lands
+  after the click (it fired twice). PL-02's evidence is unchanged.
 - The web timer: it has no Pro announcement. Its prompts are unchanged.
 - The 28-day end of the footer dot (`PRO_LAUNCH_BADGE_DAYS`): unit-tested with a pinned clock.
 - A link for club officers: there is no page about Pro on the website to point at yet.

@@ -33,7 +33,7 @@ import { resetEntitlementForTests } from '../entitlement.js';
 const EVENING = Date.UTC(2026, 8, 29, 23, 30);
 
 const club = (over = {}) => ({
-  clubToken: 'club.tok',
+  uid: 'u-1',
   ver: 1,
   club: { id: 'club-1', name: 'Downtown Speakers' },
   kit: null,
@@ -154,16 +154,21 @@ describe('queueing a finished speech', () => {
     joinClub();
     const fetchImpl = vi.fn(async () => ok());
 
-    const entry = recordSpeech(speech(), { fetchImpl, now: EVENING });
-    await drainOutbox({ fetchImpl });
+    const getToken = () => 'sess';
+    const entry = recordSpeech(speech(), { getToken, fetchImpl, now: EVENING });
+    await drainOutbox({ getToken, fetchImpl });
 
     expect(entry.speechId).toBeTruthy();
     expect(entry.meetingId).toBe('20260929');
     expect(entry.finishedAt).toBe(EVENING);
+    expect(entry.clubId).toBe('club-1');
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe('/api/club/meetings/20260929/speeches');
     expect(init.method).toBe('POST');
-    expect(init.headers['X-Club']).toBe('club.tok');
+    // The session is the credential: Bearer in Zoom, the cookie on the web.
+    expect(init.headers.Authorization).toBe('Bearer sess');
+    expect(init.credentials).toBe('same-origin');
+    expect(init.headers).not.toHaveProperty('X-Club');
     expect(JSON.parse(init.body)).toMatchObject({ speechId: entry.speechId, name: 'Alice', duration: '5:50' });
   });
 
@@ -309,6 +314,29 @@ describe('draining the outbox', () => {
     await expect(drainOutbox({ fetchImpl: vi.fn() })).resolves.toEqual({ sent: 0, pending: 0 });
   });
 
+  // Another account signed in on this device, in another club: the server
+  // would file the first account's speeches (names, comments) under it.
+  it('never sends a speech timed for another club', async () => {
+    joinClub();
+    const offline = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    recordSpeech(speech({ name: 'Timed in club one' }), { fetchImpl: offline });
+    await drainOutbox({ fetchImpl: offline });
+    expect(outboxCount()).toBe(1);
+
+    joinClub({ uid: 'u-2', club: { id: 'club-2', name: 'Uptown Talkers' } });
+    reload();
+    const stillOffline = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    recordSpeech(speech({ name: 'Timed in club two' }), { fetchImpl: stillOffline });
+    await drainOutbox({ fetchImpl: stillOffline });
+    const fetchImpl = vi.fn(async () => ok());
+    await drainOutbox({ fetchImpl });
+
+    expect(stillOffline.mock.calls.map(([, init]) => JSON.parse(init.body).name)).not.toContain('Timed in club one');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).name).toBe('Timed in club two');
+    expect(outboxCount()).toBe(0);
+  });
+
   it('stops trying to drain once the device has left the club', async () => {
     joinClub();
     const offline = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
@@ -325,7 +353,7 @@ describe('draining the outbox', () => {
 });
 
 describe('reading the archive back', () => {
-  it('asks for the club’s meetings with the club header', async () => {
+  it('asks for the club’s meetings with the session', async () => {
     joinClub();
     const fetchImpl = vi.fn(async () => ({
       ok: true,
@@ -333,10 +361,12 @@ describe('reading the archive back', () => {
       json: async () => ({ meetings: [{ meetingId: '20260929', speeches: 4, overtime: 1 }] }),
     }));
 
-    const result = await fetchHistory({ fetchImpl });
+    const result = await fetchHistory({ getToken: () => 'sess', fetchImpl });
 
     expect(fetchImpl.mock.calls[0][0]).toBe('/api/club/meetings');
-    expect(fetchImpl.mock.calls[0][1].headers['X-Club']).toBe('club.tok');
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('Bearer sess');
+    expect(fetchImpl.mock.calls[0][1].credentials).toBe('same-origin');
+    expect(fetchImpl.mock.calls[0][1].headers).not.toHaveProperty('X-Club');
     expect(result).toEqual({ ok: true, meetings: [{ meetingId: '20260929', speeches: 4, overtime: 1 }] });
   });
 
@@ -442,6 +472,7 @@ describe('ending a meeting and sharing it', () => {
     const result = await endMeetingAndShare({
       title: '  Humorous Speech Contest  ',
       speeches: rows,
+      getToken: () => 'sess',
       fetchImpl,
       createCanvas,
     });
@@ -453,7 +484,9 @@ describe('ending a meeting and sharing it', () => {
     expect(init.method).toBe('POST');
     // No Content-Type: the boundary is generated with the body.
     expect(init.headers['Content-Type']).toBeUndefined();
-    expect(init.headers['X-Club']).toBe('club.tok');
+    expect(init.headers.Authorization).toBe('Bearer sess');
+    expect(init.credentials).toBe('same-origin');
+    expect(init.headers).not.toHaveProperty('X-Club');
     expect(init.body.get('title')).toBe('Humorous Speech Contest');
     expect(init.body.get('png')).toBeTruthy();
     expect(init.body.get('previewPng')).toBeTruthy();

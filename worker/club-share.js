@@ -1,10 +1,9 @@
 import crypto from 'node:crypto';
-import { readClub } from './auth.js';
-import { json, methodNotAllowed, unauthorized } from './http.js';
+import { json, methodNotAllowed } from './http.js';
 import { entitlementStore, readClubRecord, resolveAccess } from './entitlements.js';
-import { verifiedClubId, buildKit } from './club.js';
+import { buildKit } from './club.js';
 import { CODE_ALPHABET } from './club-admin.js';
-import { compactMeeting, meetingKey, meetingDate, parseMeetingId } from './club-meetings.js';
+import { compactMeeting, meetingKey, meetingDate, parseMeetingId, requireMember } from './club-meetings.js';
 
 /**
  * A meeting that travels: an image and a link.
@@ -112,26 +111,22 @@ async function readUpload(form, field) {
 /**
  * POST /api/club/meetings/<meetingId>/share — end the meeting and publish it.
  *
- * A write path, so it reads the device record: a revoked device stops being
- * able to publish a page under the club's name, and stops consuming the club's
- * R2 quota, on its very next request.
+ * From a member's session: an account that left, was removed or was blocked
+ * stops being able to publish a page under the club's name, and stops
+ * consuming the club's R2 quota, on its very next request.
  */
 export async function shareMeeting(request, env, meetingId) {
   if (request.method !== 'POST') return methodNotAllowed();
 
-  const claims = readClub(request, env);
-  if (!claims) return unauthorized();
+  const member = await requireMember(request, env);
+  if (member.response) return member.response;
   if (!parseMeetingId(meetingId)) return json({ error: 'invalid_meeting' }, 400);
 
   const store = entitlementStore(env);
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
   if (!env.CARD_ASSETS) return json({ error: 'Asset storage is not configured' }, 503);
 
-  const clubId = await verifiedClubId(env, claims);
-  if (!clubId) return json({ error: 'forbidden' }, 403);
-
-  const club = await readClubRecord(env, clubId);
-  if (!club) return json({ error: 'club_not_found' }, 404);
+  const { clubId, club } = member;
   const access = await resolveAccess(env, { clubId, club });
   if (!access.entitled) return json({ error: 'upgrade_required', entitlement: access }, 402);
 

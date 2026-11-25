@@ -3,44 +3,54 @@ import { Link, useParams } from 'react-router-dom'
 import { Users, Check } from 'lucide-react'
 import { activateClub } from '@toastmaster-timer/shared'
 import { useWebIdentity } from '../hooks/useEntitlement'
-import { useClub } from '../components/ClubCodeSection'
+import { useClub, clubErrorFor } from '../components/ClubCodeSection'
+import { signInUrl } from '../utils/webIdentity'
 import { trackEvent } from '../utils/posthog'
 
 /**
  * /pro/<code> — the officer's shareable link.
  *
  * It can only ever land in a browser: links open the system browser, never the
- * Zoom sidebar. So this page activates the club here and then tells a timer who
- * times in Zoom exactly where to type the same code, which is the other half of
- * the job — the link is the discoverability mechanism for a field that has no
- * banner and no first-launch prompt pointing at it.
+ * Zoom sidebar. Club Pro belongs to a Zoom account (#167), so this page joins
+ * the account signed in here — and a signed-out browser sends nothing and is
+ * asked to sign in with Zoom, which comes back to this same link and joins.
+ * Then it tells a timer who times in Zoom where to type the same code, which
+ * is the other half of the job: the link is the discoverability mechanism for
+ * a field that has no banner and no first-launch prompt pointing at it.
  */
 
-const CLUB_ERRORS = {
-  network: 'Could not reach the server. Check your connection and try again.',
-  too_many_attempts: 'Too many tries. Wait a minute, then reload this page.',
-}
-const CLUB_ERROR_FALLBACK = "That code isn't active. Check with your club officer."
+const RETRY_LATER = { too_many_attempts: 'Too many tries. Wait a minute, then reload this page.' }
 
 export default function ProActivate() {
   const { code } = useParams()
   const identity = useWebIdentity()
   const club = useClub()
-  const [phase, setPhase] = useState('activating') // activating | done | error
+  const [phase, setPhase] = useState('activating') // activating | sign_in | done | error
   const [error, setError] = useState(null)
-  // Activation writes a device record, so it must happen once per visit and not
-  // once per render — React 18's StrictMode double-invokes effects in dev.
+  // Joining takes a place in the club, so it must happen once per visit and
+  // not once per render — React 18's StrictMode double-invokes effects in dev.
   const startedRef = useRef(false)
 
   useEffect(() => {
-    if (startedRef.current) return
+    // Nothing is sent until the Worker has said who this is.
+    if (!identity || startedRef.current) return
     startedRef.current = true
 
-    activateClub(code).then((result) => {
+    if (!identity.identified) {
+      setPhase('sign_in')
+      trackEvent('club_code_rejected', { surface: 'web', source: 'pro_link', reason: 'sign_in_required' })
+      return
+    }
+
+    activateClub(code, { uid: identity.uid }).then((result) => {
       if (!result.ok) {
-        setError(CLUB_ERRORS[result.error] || CLUB_ERROR_FALLBACK)
-        setPhase('error')
         trackEvent('club_code_rejected', { surface: 'web', source: 'pro_link', reason: result.error })
+        if (result.error === 'sign_in_required') {
+          setPhase('sign_in')
+          return
+        }
+        setError(RETRY_LATER[result.error] || clubErrorFor(result))
+        setPhase('error')
         return
       }
       setPhase('done')
@@ -48,14 +58,11 @@ export default function ProActivate() {
         surface: 'web',
         source: 'pro_link',
         club_id: result.club.club?.id ?? null,
-        // Resolved after this fires in the common case; the link is explicitly
-        // built for people who are not signed in, so the default is honest.
-        is_guest: !identity?.identified,
+        places_used: result.placesUsed,
         via: 'link',
       })
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code])
+  }, [identity, code])
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -71,6 +78,23 @@ export default function ProActivate() {
       <main className="mx-auto max-w-2xl px-4 py-12">
         <section className="rounded-2xl border border-white/10 bg-black/30 px-6 py-8">
           {phase === 'activating' && <p className="text-gray-300">Activating…</p>}
+
+          {phase === 'sign_in' && (
+            <>
+              <h2 className="text-2xl font-bold">Join your club&apos;s Pro</h2>
+              <p className="mt-3 text-gray-300">
+                Your club&apos;s Pro follows your Zoom account, on every computer where you&apos;re
+                signed in. Sign in with Zoom and this link joins you.
+              </p>
+              {/* A server route, not an app route: a full page load. */}
+              <a
+                href={signInUrl(`/pro/${code}`)}
+                className="mt-6 inline-flex rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white no-underline hover:bg-blue-600"
+              >
+                Sign in with Zoom to join
+              </a>
+            </>
+          )}
 
           {phase === 'error' && (
             <>
@@ -91,21 +115,21 @@ export default function ProActivate() {
                 <Users className="h-6 w-6" />
                 <span className="text-xl font-semibold">{club?.club?.name || 'Your club'}</span>
               </div>
-              <h2 className="mt-3 text-2xl font-bold">You&apos;re on Pro in this browser</h2>
+              <h2 className="mt-3 text-2xl font-bold">You&apos;re on Pro through {club?.club?.name || 'your club'}</h2>
+              <p className="mt-2 text-gray-300">On every computer where you&apos;re signed in with this Zoom account.</p>
               <ul className="mt-5 space-y-1.5 text-gray-200">
                 <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Your club&apos;s shared timing presets</li>
                 <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" /> Your club&apos;s branding on cards and reports</li>
               </ul>
 
               {/* The other half of the link's job. A Zoom link cannot open the
-                  sidebar app, so the code has to be typed there instead. */}
+                  sidebar app, but the club follows the account into it. */}
               <div className="mt-6 rounded-xl border border-white/10 bg-white/5 px-4 py-4">
                 <p className="font-medium text-white">Time your meetings in Zoom?</p>
                 <p className="mt-1 text-sm text-gray-300">
-                  Open Toastmusters Timer in Zoom, tap <span className="font-medium">Upgrade</span>, and enter
-                  this code:
+                  Open Toastmusters Timer in Zoom with this same Zoom account: your club&apos;s Pro is
+                  already there, no code needed.
                 </p>
-                <p className="mt-2 font-mono text-lg tracking-widest text-amber-300">{code?.toUpperCase()}</p>
               </div>
 
               <Link

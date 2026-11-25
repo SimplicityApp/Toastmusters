@@ -1,6 +1,5 @@
 import { SYNCED_KEYS, fieldsToApplyLocally, normalizeProfile } from './profileMerge.js';
 import { onLocalWrite } from './storageEvents.js';
-import { clubHeaders } from './club.js';
 
 /**
  * Keeping one user's settings the same on every device they run the timer from.
@@ -133,9 +132,9 @@ async function request(method, body) {
     method,
     headers: {
       'Content-Type': 'application/json',
+      // The account's club pays for this write just as a personal
+      // subscription does; the server finds it from the session.
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      // A club code pays for this write just as a personal subscription does.
-      ...clubHeaders(),
     },
     credentials: 'same-origin',
     cache: 'no-store',

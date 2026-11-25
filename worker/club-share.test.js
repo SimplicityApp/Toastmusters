@@ -10,10 +10,10 @@ import {
   SHARE_TOKEN_LENGTH,
 } from './club-share.js';
 import { handleClubMeetings, speechKey, meetingKey } from './club-meetings.js';
-import { handleClubActivate } from './club.js';
-import { createClubFromPending, clubDeviceKey } from './club-admin.js';
-import { verifyClubToken } from './club-token.js';
+import { createClubFromPending, clubMemberKey } from './club-admin.js';
+import { mintSessionToken } from './session-token.js';
 import { clubKey } from './entitlements.js';
+import { seedMember } from './club-membership-helpers.js';
 import worker from './index.js';
 
 /**
@@ -94,19 +94,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** Seed a club and put one member account in it, the way a join leaves it. */
 async function activated({ name = 'Downtown Speakers' } = {}) {
   const { clubId } = await createClubFromPending(env, { clubName: name, uid: 'buyer-uid' }, { code: 'DTSP7K2QM9' });
-  const res = await handleClubActivate(
-    new Request('https://x/api/club/activate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'DTSP-7K2QM9' }),
-    }),
-    env
-  );
-  const body = await res.json();
-  return { clubId, clubToken: body.clubToken, deviceId: verifyClubToken(body.clubToken, SIGNING_KEY).deviceId };
+  await seedMember(env, clubId, 'member-uid');
+  return { clubId, uid: 'member-uid' };
 }
+
+const session = (uid) => (uid ? { authorization: `Bearer ${mintSessionToken(uid, SIGNING_KEY)}` } : {});
 
 const route = (path) => `meetings${path}`;
 
@@ -122,34 +117,34 @@ const speech = (over = {}) => ({
   ...over,
 });
 
-const appendReq = (clubToken, body) =>
+const appendReq = (uid, body) =>
   new Request(`https://x/api/club/meetings/${MEETING}/speeches`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-club': clubToken },
+    headers: { 'content-type': 'application/json', ...session(uid) },
     body: JSON.stringify(body),
   });
 
 /** The device's share POST: multipart, because these are image bytes. */
-function shareReq(clubToken, { title, png = 'FULL-PNG-BYTES', previewPng = 'PREVIEW-PNG-BYTES', meetingId = MEETING } = {}) {
+function shareReq(uid, { title, png = 'FULL-PNG-BYTES', previewPng = 'PREVIEW-PNG-BYTES', meetingId = MEETING } = {}) {
   const form = new FormData();
   if (title) form.append('title', title);
   if (png) form.append('png', new Blob([png], { type: 'image/png' }), 'report.png');
   if (previewPng) form.append('previewPng', new Blob([previewPng], { type: 'image/png' }), 'preview.png');
   return new Request(`https://x/api/club/meetings/${meetingId}/share`, {
     method: 'POST',
-    headers: clubToken ? { 'x-club': clubToken } : {},
+    headers: session(uid),
     body: form,
   });
 }
 
-const share = (clubToken, options = {}) =>
-  handleClubMeetings(shareReq(clubToken, options), route(`/${options.meetingId ?? MEETING}/share`), env);
+const share = (uid, options = {}) =>
+  handleClubMeetings(shareReq(uid, options), route(`/${options.meetingId ?? MEETING}/share`), env);
 
 /** A meeting with two speeches, one of which ran over. */
-async function timedMeeting(clubToken) {
-  await handleClubMeetings(appendReq(clubToken, speech()), route(`/${MEETING}/speeches`), env);
+async function timedMeeting(uid) {
+  await handleClubMeetings(appendReq(uid, speech()), route(`/${MEETING}/speeches`), env);
   await handleClubMeetings(
-    appendReq(clubToken, speech({ speechId: 's2', name: 'Bob', color: 'red', finishedAt: 2_000 })),
+    appendReq(uid, speech({ speechId: 's2', name: 'Bob', color: 'red', finishedAt: 2_000 })),
     route(`/${MEETING}/speeches`),
     env
   );
@@ -176,11 +171,11 @@ describe('share tokens', () => {
 
 describe('POST …/share', () => {
   it('compacts the meeting before it publishes it', async () => {
-    const { clubToken, clubId } = await activated();
-    await timedMeeting(clubToken);
+    const { uid, clubId } = await activated();
+    await timedMeeting(uid);
     expect(kv.store.has(speechKey(clubId, MEETING, 's1'))).toBe(true);
 
-    const res = await share(clubToken);
+    const res = await share(uid);
 
     expect(res.status).toBe(200);
     // The page and its preview are built from one key, not from a fan-out a
@@ -191,10 +186,10 @@ describe('POST …/share', () => {
   });
 
   it('answers with the hosted URL and the public OG image', async () => {
-    const { clubToken, clubId } = await activated();
-    await timedMeeting(clubToken);
+    const { uid, clubId } = await activated();
+    await timedMeeting(uid);
 
-    const body = await (await share(clubToken)).json();
+    const body = await (await share(uid)).json();
 
     expect(isShareToken(body.token)).toBe(true);
     expect(body.url).toBe(`${ORIGIN}/r/${body.token}`);
@@ -205,10 +200,10 @@ describe('POST …/share', () => {
   });
 
   it('stores both pictures: the preview a chat crops and the full report', async () => {
-    const { clubToken, clubId } = await activated();
-    await timedMeeting(clubToken);
+    const { uid, clubId } = await activated();
+    await timedMeeting(uid);
 
-    const { token } = await (await share(clubToken)).json();
+    const { token } = await (await share(uid)).json();
 
     expect(bucket.store.has(`club/${clubId}/${shareObjectName(token)}`)).toBe(true);
     expect(bucket.store.has(`club/${clubId}/${shareFullObjectName(token)}`)).toBe(true);
@@ -216,10 +211,10 @@ describe('POST …/share', () => {
   });
 
   it('records the title, which is the only moment a meeting ever gets one', async () => {
-    const { clubToken, clubId } = await activated();
-    await timedMeeting(clubToken);
+    const { uid, clubId } = await activated();
+    await timedMeeting(uid);
 
-    const body = await (await share(clubToken, { title: 'Humorous Speech Contest' })).json();
+    const body = await (await share(uid, { title: 'Humorous Speech Contest' })).json();
 
     expect(body.title).toBe('Humorous Speech Contest');
     const entry = kv.store.get(meetingKey(clubId, MEETING));
@@ -229,11 +224,11 @@ describe('POST …/share', () => {
   });
 
   it('reuses the token when the same meeting is shared again', async () => {
-    const { clubToken, clubId } = await activated();
-    await timedMeeting(clubToken);
+    const { uid, clubId } = await activated();
+    await timedMeeting(uid);
 
-    const first = await (await share(clubToken)).json();
-    const second = await (await share(clubToken, { title: 'Corrected title' })).json();
+    const first = await (await share(uid)).json();
+    const second = await (await share(uid, { title: 'Corrected title' })).json();
 
     // A link already sitting in somebody's group chat keeps working after the
     // timer notices a typo and shares again.
@@ -243,52 +238,53 @@ describe('POST …/share', () => {
   });
 
   it('mints nothing for a meeting nobody shares', async () => {
-    const { clubToken } = await activated();
-    await timedMeeting(clubToken);
+    const { uid } = await activated();
+    await timedMeeting(uid);
 
     expect([...kv.store.keys()].filter((k) => k.startsWith('report-share'))).toHaveLength(0);
   });
 
   it('404s a meeting that was never timed', async () => {
-    const { clubToken } = await activated();
+    const { uid } = await activated();
 
-    const res = await share(clubToken, { meetingId: '20260101' });
+    const res = await share(uid, { meetingId: '20260101' });
 
     expect(res.status).toBe(404);
   });
 
   it('refuses a meetingId that is not one we mint', async () => {
-    const { clubToken } = await activated();
-    expect((await share(clubToken, { meetingId: 'tuesday' })).status).toBe(400);
+    const { uid } = await activated();
+    expect((await share(uid, { meetingId: 'tuesday' })).status).toBe(400);
   });
 
-  it('turns away a request with no club at all', async () => {
+  it('turns away a request with no session (401) or from an account in no club (403)', async () => {
+    await activated();
     expect((await share(null)).status).toBe(401);
+    expect((await share('stranger-uid')).status).toBe(403);
   });
 
-  // Revocation bites on writes, because the token itself is HMAC-only.
-  it('refuses a revoked device', async () => {
-    const { clubToken, clubId, deviceId } = await activated();
-    await timedMeeting(clubToken);
-    const device = await kv.get(clubDeviceKey(clubId, deviceId), 'json');
-    await kv.put(clubDeviceKey(clubId, deviceId), JSON.stringify({ ...device, revokedAt: 1 }));
+  // Removal bites on the very next request.
+  it('refuses an account removed from the club', async () => {
+    const { uid, clubId } = await activated();
+    await timedMeeting(uid);
+    await kv.delete(clubMemberKey(clubId, uid));
 
-    expect((await share(clubToken)).status).toBe(403);
+    expect((await share(uid)).status).toBe(403);
   });
 
   it('refuses a club that has lapsed', async () => {
-    const { clubToken, clubId } = await activated();
-    await timedMeeting(clubToken);
+    const { uid, clubId } = await activated();
+    await timedMeeting(uid);
     const club = await kv.get(clubKey(clubId), 'json');
     await kv.put(clubKey(clubId), JSON.stringify({ ...club, status: 'canceled', currentPeriodEnd: NOW - 1 }));
 
-    expect((await share(clubToken)).status).toBe(402);
+    expect((await share(uid)).status).toBe(402);
   });
 
   it('refuses anything but a POST', async () => {
-    const { clubToken } = await activated();
+    const { uid } = await activated();
     const res = await handleClubMeetings(
-      new Request(`https://x/api/club/meetings/${MEETING}/share`, { headers: { 'x-club': clubToken } }),
+      new Request(`https://x/api/club/meetings/${MEETING}/share`, { headers: session(uid) }),
       route(`/${MEETING}/share`),
       env
     );
@@ -298,10 +294,10 @@ describe('POST …/share', () => {
   // The picture is optional: the hosted page renders the table as HTML, so a
   // device with no PNG encoder still gets a working link.
   it('publishes without the pictures rather than refusing', async () => {
-    const { clubToken } = await activated();
-    await timedMeeting(clubToken);
+    const { uid } = await activated();
+    await timedMeeting(uid);
 
-    const res = await share(clubToken, { png: null, previewPng: null });
+    const res = await share(uid, { png: null, previewPng: null });
 
     expect(res.status).toBe(200);
     expect(bucket.store.size).toBe(0);
@@ -311,8 +307,8 @@ describe('POST …/share', () => {
 describe('GET /r/<token>', () => {
   async function shared({ title } = {}) {
     const activation = await activated();
-    await timedMeeting(activation.clubToken);
-    const body = await (await share(activation.clubToken, { title })).json();
+    await timedMeeting(activation.uid);
+    const body = await (await share(activation.uid, { title })).json();
     return { ...activation, ...body };
   }
 
@@ -383,8 +379,8 @@ describe('GET /r/<token>', () => {
 
   it('escapes whatever the club typed rather than letting it become markup', async () => {
     const activation = await activated({ name: 'Downtown <script>alert(1)</script>' });
-    await timedMeeting(activation.clubToken);
-    const { token } = await (await share(activation.clubToken, { title: '"><img onerror=x>' })).json();
+    await timedMeeting(activation.uid);
+    const { token } = await (await share(activation.uid, { title: '"><img onerror=x>' })).json();
 
     const html = await (await page(token)).text();
 
@@ -412,8 +408,8 @@ describe('routing', () => {
 
   it('serves /r/<token> from the Worker rather than the SPA shell', async () => {
     const activation = await activated();
-    await timedMeeting(activation.clubToken);
-    const { token } = await (await share(activation.clubToken)).json();
+    await timedMeeting(activation.uid);
+    const { token } = await (await share(activation.uid)).json();
 
     const res = await worker.fetch(
       new Request(`${ORIGIN}/r/${token}`, { headers: { host: 'www.timer.simple-tech.app' } }),

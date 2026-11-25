@@ -47,16 +47,21 @@ export function canPublishCards() {
 }
 
 /**
- * Fetch the club set's images this device does not hold yet. Never rejects:
- * a card that has not arrived shows the Classic card, which is what a device
- * with no club shows anyway.
+ * Fetch the club set's images this device does not hold yet, with the
+ * session. Never rejects: a card that has not arrived shows the Classic card,
+ * which is what a device with no club shows anyway.
  *
- * @param {{fetchImpl?: typeof fetch}} [options]
+ * A caller that passes `getToken` (the Zoom app) fetches nothing until it
+ * returns a token; the web app passes none, because its session is the cookie.
+ *
+ * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch}} [options]
  * @returns {Promise<string[]>} hashes stored
  */
-export async function syncClubCardImages({ fetchImpl } = {}) {
+export async function syncClubCardImages({ getToken, fetchImpl } = {}) {
   const club = loadClub();
-  if (!club?.clubToken || !loadClubCards()) return [];
+  if (!club?.club?.id || !loadClubCards()) return [];
+  const token = getToken?.();
+  if (getToken && !token) return [];
   await initCardImages();
 
   const entries = [];
@@ -64,7 +69,7 @@ export async function syncClubCardImages({ fetchImpl } = {}) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const response = await (fetchImpl ?? fetch)(`${CARDS_ENDPOINT}/${hash}`, {
-        headers: { 'X-Club': club.clubToken },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         credentials: 'same-origin',
       });
       if (!response.ok) continue;
@@ -94,20 +99,21 @@ function clubCardsSignature() {
  * Fetches what is missing now, and again whenever the club changes: a new
  * publish, a removal, a lapse or leaving. Each of those also tells the timer
  * to re-show its card, since the set it should show may have changed. So does
- * the `pro` flag arriving, which decides whether club features are on at all.
+ * the `pro` flag arriving, which decides whether club features are on at all —
+ * and which, in the Zoom app, is also the moment the session exists.
  *
- * @param {{fetchImpl?: typeof fetch}} [options]
+ * @param {{getToken?: () => string|null, fetchImpl?: typeof fetch}} [options]
  * @returns {() => void} stop
  */
-export function startClubCardSync({ fetchImpl } = {}) {
+export function startClubCardSync({ getToken, fetchImpl } = {}) {
   let last = clubCardsSignature();
-  syncClubCardImages({ fetchImpl }).catch(() => {});
+  syncClubCardImages({ getToken, fetchImpl }).catch(() => {});
   const onChange = () => {
     const next = clubCardsSignature();
     if (next === last) return;
     last = next;
     notifyCardImages();
-    syncClubCardImages({ fetchImpl }).catch(() => {});
+    syncClubCardImages({ getToken, fetchImpl }).catch(() => {});
   };
   const stopClub = subscribeClub(onChange);
   const stopFlags = subscribeFlags(onChange);
@@ -147,7 +153,7 @@ async function readBody(response) {
  */
 export async function publishCardSet(setId, { label, getToken, fetchImpl } = {}) {
   const club = loadClub();
-  if (!club?.clubToken) return { ok: false, error: 'no_club' };
+  if (!club?.club?.id) return { ok: false, error: 'no_club' };
 
   const set = getCardImageSettings().customSets.find((s) => s.id === setId);
   if (!set) return { ok: false, error: 'no_set' };
@@ -167,10 +173,7 @@ export async function publishCardSet(setId, { label, getToken, fetchImpl } = {})
   if (!Object.keys(images).length) return { ok: false, error: 'no_set' };
 
   const token = getToken?.();
-  const headers = {
-    'X-Club': club.clubToken,
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const send = (url, init) => (fetchImpl ?? fetch)(url, { credentials: 'same-origin', cache: 'no-store', ...init });
 
   const upload = async (hashes) => {

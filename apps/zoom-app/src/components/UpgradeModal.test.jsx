@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import UpgradeModal from './UpgradeModal';
 import { trackEvent } from '../utils/posthog';
@@ -10,6 +10,7 @@ import {
   resetEntitlementForTests,
   resetFlagsForTests,
   setFlags,
+  setEntitlement,
   initClubFromCache,
   getEntitlement,
   loadPromptState,
@@ -18,10 +19,11 @@ import {
 
 // Stubbed rather than imported: the real module pulls in @zoom/appssdk, which
 // hangs vitest under jsdom.
-vi.mock('../utils/zoomSdk', () => ({ openExternalUrl: vi.fn() }));
+vi.mock('../utils/zoomSdk', () => ({ openExternalUrl: vi.fn(), promptZoomAuthorize: vi.fn(), readZoomUserSummary: vi.fn() }));
 vi.mock('../utils/posthog', () => ({ trackEvent: vi.fn() }));
 vi.mock('../utils/zoomIdentity', () => ({
   resolveZoomIdentity: vi.fn(),
+  refreshZoomIdentity: vi.fn(),
   getSessionToken: vi.fn(() => 'session-token'),
 }));
 
@@ -79,7 +81,7 @@ describe('club code entry', () => {
     global.fetch.mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ clubToken: 'tok.sig', ...clubState() }),
+      json: async () => ({ uid: 'u-1', ...clubState() }),
     });
     const props = renderModal();
     await screen.findByLabelText(/already on pro through your club/i);
@@ -88,7 +90,7 @@ describe('club code entry', () => {
     await user.click(screen.getByRole('button', { name: /activate/i }));
 
     // The modal switches to the club confirmation; the pricing is gone.
-    expect(await screen.findByText(/Downtown Speakers/)).toBeInTheDocument();
+    expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /monthly/i })).not.toBeInTheDocument();
 
     const [path, init] = global.fetch.mock.calls[0];
@@ -99,7 +101,7 @@ describe('club code entry', () => {
       surface: 'zoom',
       source: 'footer',
       club_id: 'club-1',
-      is_guest: false,
+      places_used: null,
       via: 'typed',
     });
     expect(props.onUpgraded).toHaveBeenCalled();
@@ -198,7 +200,7 @@ describe('a club whose Pro has ended', () => {
     localStorage.setItem(
       CLUB_STORAGE_KEY,
       JSON.stringify({
-        clubToken: 'tok.sig',
+        uid: 'u-1',
         lastRefreshAt: Date.now(),
         ...clubState({ plan: 'free', entitled: false, status: 'canceled', source: 'none' }),
       })
@@ -224,16 +226,18 @@ describe('a club whose Pro has ended', () => {
   });
 });
 
-describe('an already-activated device', () => {
+describe('an account already in a club', () => {
   beforeEach(() => {
-    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ clubToken: 'tok.sig', lastRefreshAt: Date.now(), ...clubState() }));
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ uid: 'u-1', lastRefreshAt: Date.now(), ...clubState() }));
     initClubFromCache();
+    // What syncClubWithIdentity applies once the identity has resolved.
+    setEntitlement({ plan: 'pro', entitled: true, status: 'active', currentPeriodEnd: null, cancelAtPeriodEnd: false, source: 'club' });
   });
 
   it('opens on the club, not the pricing', async () => {
     renderModal();
 
-    expect(await screen.findByText(/Downtown Speakers/)).toBeInTheDocument();
+    expect(await screen.findByText('Downtown Speakers')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /yearly/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/already on pro through your club/i)).not.toBeInTheDocument();
   });
@@ -250,14 +254,16 @@ describe('an already-activated device', () => {
     );
   });
 
-  it('leaves the club on this device and returns to the pricing', async () => {
+  it('leaves the club, after asking, and returns to the pricing', async () => {
     const user = userEvent.setup();
     localStorage.setItem('toastmaster_role_rules', '{"Evaluator":{}}');
+    global.fetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ left: true }) });
     renderModal();
 
-    await user.click(await screen.findByRole('button', { name: /leave this club on this device/i }));
+    await user.click(await screen.findByRole('button', { name: /^leave downtown speakers/i }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: /^leave$/i }));
 
-    expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull();
+    await waitFor(() => expect(localStorage.getItem(CLUB_STORAGE_KEY)).toBeNull());
     expect(getEntitlement()).toMatchObject({ plan: 'free', entitled: false });
     expect(await screen.findByRole('button', { name: /monthly/i })).toBeInTheDocument();
     // The device's own presets were never written over, so leaving cannot take
@@ -279,7 +285,7 @@ describe('setting up a club', () => {
   beforeEach(() => setFlags({ pro: true }));
 
   const createdResponse = (over = {}) => ({
-    clubToken: 'tok.sig',
+    uid: 'u-1',
     created: true,
     code: 'DTSP-7K2QM9',
     shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9',
@@ -296,11 +302,11 @@ describe('setting up a club', () => {
   });
 
   it('stays hidden from a device that is Pro through somebody else’s club', async () => {
-    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ clubToken: 'tok.sig', lastRefreshAt: Date.now(), ...clubState({ role: 'member' }) }));
-    initClubFromCache();
+    localStorage.setItem(CLUB_STORAGE_KEY, JSON.stringify({ uid: 'u-1', lastRefreshAt: Date.now(), ...clubState({ role: 'member' }) }));
+    setEntitlement({ plan: 'pro', entitled: true, status: 'active', currentPeriodEnd: null, cancelAtPeriodEnd: false, source: 'club' });
     renderModal();
 
-    await screen.findByText(/Downtown Speakers/);
+    await screen.findByText('Downtown Speakers');
     expect(screen.queryByRole('button', { name: /set up my club/i })).not.toBeInTheDocument();
   });
 
@@ -353,7 +359,7 @@ describe('setting up a club', () => {
     localStorage.setItem(
       CLUB_STORAGE_KEY,
       JSON.stringify({
-        clubToken: 'tok.sig',
+        uid: 'u-1',
         lastRefreshAt: Date.now(),
         ...clubState({ role: 'admin', code: 'DTSP-7K2QM9', shareUrl: 'https://www.example.test/pro/DTSP-7K2QM9' }),
       })

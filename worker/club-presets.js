@@ -1,8 +1,7 @@
-import { readSession, readClub } from './auth.js';
+import { readSession } from './auth.js';
 import { json, methodNotAllowed, unauthorized } from './http.js';
-import { entitlementStore, clubKey, readClubRecord, resolveAccess } from './entitlements.js';
-import { canPublish, clubPresetsKey, readMemberRole } from './club-admin.js';
-import { verifiedClubId } from './club.js';
+import { entitlementStore, clubKey, resolveAccess } from './entitlements.js';
+import { canPublish, clubPresetsKey, memberClub } from './club-admin.js';
 
 /**
  * Publishing the club's timing presets.
@@ -132,28 +131,24 @@ export async function readClubPresets(env, clubId) {
 export async function handleClubPresets(request, env) {
   if (request.method !== 'PUT') return methodNotAllowed();
 
-  // Both credentials, and in this order: without a uid there is no role to
-  // check, and without a club there is nothing to publish to.
+  // The session names the account, and the account names the club and the
+  // role: without a uid there is nobody to check.
   const session = readSession(request, env);
   if (!session?.uid) return unauthorized();
-  const claims = readClub(request, env);
-  if (!claims) return unauthorized();
 
   const store = entitlementStore(env);
   if (!store) return json({ error: 'Club storage is not configured' }, 503);
 
-  // A revoked device stops being able to rewrite every timer's list on the very
-  // next request, rather than whenever its cached token happens to expire.
-  const clubId = await verifiedClubId(env, claims);
-  if (!clubId) return forbidden();
-
-  const club = await readClubRecord(env, clubId);
-  if (!club) return json({ error: 'club_not_found' }, 404);
+  // An account that left, was removed or was blocked stops being able to
+  // rewrite every timer's list on its very next request.
+  const membership = await memberClub(env, session.uid);
+  if (!membership) return forbidden();
+  const { clubId, club } = membership;
 
   const access = await resolveAccess(env, { uid: session.uid, clubId, club });
   if (!access.entitled) return json({ error: 'upgrade_required', entitlement: access }, 402);
 
-  if (!canPublish(await readMemberRole(env, clubId, session.uid))) return forbidden();
+  if (!canPublish(membership.role)) return forbidden();
 
   let body;
   try {

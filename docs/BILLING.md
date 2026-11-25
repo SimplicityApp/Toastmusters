@@ -32,13 +32,14 @@ Zoom app polls GET /api/me until plan === 'pro'
   Bind a namespace as `ENTITLEMENTS` to move them; no code change.
 - Club records live in the same namespace under their own prefixes — `club:`,
   `club-by-code:`, `club-by-customer:`, `club-by-email:`, `club-presets:`, `club-cards:`,
-  `club-device:`, `club-member:`, `club-magic:`, `meeting:`, `speech:`,
+  `club-member:`, `club-of:`, `club-magic:`, `meeting:`, `speech:`,
   `report-share:`. The full inventory is in
   [CLUBS.md](./CLUBS.md#kv-inventory).
 - Gate: `PUT /api/profile` and `PUT /api/assets/*` answer `402 upgrade_required`
   for free users. GET stays open so a lapsed user keeps their data.
-  `resolveAccess()` grants if the buyer's own subscription **or** the `X-Club`
-  credential says yes, so an activated club device passes the same gate.
+  `resolveAccess()` grants if the buyer's own subscription **or** the club the
+  account is in says yes (found from the uid through `club-of:zoom:<uid>`), so a
+  club member passes the same gate on every computer they sign in on.
 - Grace: `past_due` keeps Pro for 7 days after the period end; `canceled` keeps
   Pro until the paid period ends. The identical rules govern a club, so grace and
   lapse behave the same whether the money is attached to a person or to a club.
@@ -101,9 +102,10 @@ Drop `--env dev` for production.
    cancellation without waiting a month.
 6. `node scripts/club-cli.mjs pending --env dev` shows the payment waiting for a
    club, with the name typed at checkout and the email Stripe collected. Mint it
-   with `create --pending <cus_id>` and paste the code into a second device's
-   Upgrade modal.
-7. Hand-edit the club record to `past_due` / `canceled` to walk a club device
+   with `create --pending <cus_id>` and enter the code in the Upgrade modal of a
+   second Zoom account, signed in and with the app approved (up to 3 accounts
+   besides the buyer).
+7. Hand-edit the club record to `past_due` / `canceled` to walk a club member
    through grace and lapse — see
    [CLUBS.md](./CLUBS.md#grace-and-lapse).
 
