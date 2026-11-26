@@ -106,17 +106,24 @@ describe('Reconnect', () => {
     expect(screen.getByRole('link', { name: 'Use the browser timer instead' })).toHaveAttribute('href', '/timer/app');
   });
 
-  // A bare / is where a returning browser gets sent back here; any query string
-  // reaches the homepage and keeps it there on a reload.
-  it('"Go to the homepage" goes to /?home, not /', () => {
+  // A bare / is where a returning browser gets sent back here. Every way home
+  // goes to /?home with a full page load, not a client-side route, so the
+  // Worker sees the request and stops sending this browser back here.
+  it.each([
+    ['Go to the homepage'],
+    ['Homepage'],
+    [/^Toastmusters Timer app logo/],
+  ])('"%s" goes to /?home with a full page load', (name) => {
     renderPage();
 
-    const home = screen.getByRole('link', { name: 'Go to the homepage' });
+    const home = screen.getByRole('link', { name });
     expect(home).toHaveAttribute('href', '/?home');
 
     fireEvent.click(home);
 
-    expect(screen.getByTestId('location')).toHaveTextContent('/?home');
+    // The router did not handle it: still on the reconnect page.
+    expect(screen.queryByTestId('location')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Reconnect Toastmusters Timer to Zoom');
   });
 
   // The funnel's second step is cta_clicked { cta: 'approve_in_zoom' } on this
@@ -126,12 +133,14 @@ describe('Reconnect', () => {
     ['Use the browser timer instead', 'web_timer'],
     ['Already approved? Open in Zoom', 'open_in_zoom'],
     ['Go to the homepage', 'home'],
-  ])('tracks a click on "%s" as cta_clicked %s', (name, cta) => {
+    ['Homepage', 'home', 'header'],
+    [/^Toastmusters Timer app logo/, 'home', 'logo'],
+  ])('tracks a click on "%s" as cta_clicked %s', (name, cta, location = 'hero') => {
     renderPage();
 
     fireEvent.click(screen.getByRole('link', { name }));
 
     expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith('cta_clicked', { cta, location: 'hero', page: '/reconnect' });
+    expect(trackEvent).toHaveBeenCalledWith('cta_clicked', { cta, location, page: '/reconnect' });
   });
 });

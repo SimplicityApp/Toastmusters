@@ -2,7 +2,7 @@ import { handleZoomWebhook } from './zoom-webhook.js';
 import { handleStats } from './stats.js';
 import { handleZoomSession } from './session.js';
 import { handleZoomContact, captureInstallContact } from './contact.js';
-import { installLandingRedirect, reconnectRedirect } from './reconnect.js';
+import { installLandingRedirect, reconnectDismissal, reconnectRedirect } from './reconnect.js';
 import { handleProfile } from './profile.js';
 import { handleAsset } from './assets.js';
 import { handleMe } from './me.js';
@@ -248,6 +248,13 @@ export default {
     if (url.protocol === 'https:' && env.ROOT_ORIGIN && isLegacyTableTopicsHost(url.hostname)) {
       return Response.redirect(legacyTableTopicsTarget(url, env.ROOT_ORIGIN), 301);
     }
+
+    // 2c-pre. "Go to the homepage" on the reconnect page (/?home) from a marked
+    //     browser: remember the choice, so its bare / is the homepage again
+    //     (worker/reconnect.js). Ahead of 2c, which would otherwise move /?home
+    //     to the main site, where this host-only cookie cannot be written.
+    const dismissal = reconnectDismissal(request, url);
+    if (dismissal) return dismissal;
 
     // 2c. The old web host's public pages move to the main site (#98). Only the
     //     public pages: sign-in, Stripe and the Zoom install all come back to
