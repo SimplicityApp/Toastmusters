@@ -246,6 +246,23 @@ the inspector is off): `toastmaster_agenda` after steps 2, 3, 4, 5 and 7. PostHo
 device: `speech_finished` for Dana (`role` Table Topics Speech), Colin and Guest; no
 `speaker_added` from a Start.
 Then: delete the rows added here (Clear All if the agenda held nothing else).
+Run 2026-11-26 (factory/168 ed3d673, dev eaf2f414 with FLAGS_FORCE "1,new_look=0", Zoom on macOS, device in
+Claude Test Club): steps 1-7 passed. The club's role list stood in: Standard Speech = Regular Speech
+(5:00/6:00/7:00), Ice Breaker = Tech Tip (3:00/4:00/5:00), Table Topics Speech = 1-2min Role (1:00/1:30/2:00).
+The device kept 6 ticked-off rows from earlier runs, so every "N of M" read 6 higher ('8 of 9' for '2 of 3').
+Step 2: the real video was blue at 0:03 and green at 1:03 (1-2min rules, not Tech Tip's 3:00). Step 4:
+Eve added at ~0:15 and Fay at ~0:34 (toasts 'Eve comes up after this speech', 'Fay comes up after this
+speech'; the opener read 'Add a speaker after Eve', then 'after Fay'); the count-up never reset or changed
+colour; Agenda Colin, Eve, Fay; Finish (0:54) loaded Eve. Step 6: RESET is offered only once the clock is
+stopped, so Stop comes between Start and Reset. To press Return in the name field send
+`osascript -e 'tell application "System Events" to key code 36'`; `cliclick kp:return` did not commit the edit.
+Zoom asked 'reset your virtual background to none' on the stage and 'delete your video filter' on the way
+back to Timer + Camera: Allow both. Finding, not #168: after step 5's Finish, Report → Agenda → Live puts
+'Guest' back in the name field (finishCurrentSpeech leaves currentSpeaker; the fix dea6993 is only on
+origin/fix/finish-clears-speaker). Not proven: the PostHog lines (this deploy came from outside the main
+checkout, so it has no PostHog key; the Report tab shows Dana 01:13 Green, Colin 00:54, Guest 00:15 with
+their roles) and `toastmaster_agenda` (the Zoom webview inspector was off; on-screen rows instead).
+TC-01…TC-13 were not rerun. Log: test-runs/2026-11-26-168-on-the-spot-speakers-2/run.md.
 
 ## Not covered
 - START with an edit staged for a loaded row (#168): the speech is timed as the row stands and

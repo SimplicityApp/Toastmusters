@@ -285,6 +285,22 @@ the owner; ⋯ has no "Join my club" row on a Pro device). NL-20 ⏭ (this devic
 free half ⏭ (no free account). The other steps were not rerun: #167 does not touch them; they last passed on
 61de1d8 (2026-11-19). Log: test-runs/2026-11-24-167-zoom-pass-2/run.md.
 
+Run 2026-11-26 (factory/168 ed3d673, NL-21 only; dev f760ce3a with FLAGS_FORCE "1,pro=0", Zoom on macOS, device in
+Claude Test Club): steps 1-5 passed, with Regular Speech (5:00/6:00/7:00) for Standard Speech, Tech Tip
+(3:00/4:00/5:00) for Ice Breaker and 1-2min Role (1:00/1:30/2:00) for Table Topics Speech, and the device's 6
+ticked-off rows ahead ('8 of 9' for '2 of 3'). Paste → One per line imports the rows (the sheet's first click on
+Add only focused it); tapping a row on the Agenda tab puts that speaker on the timer. Step 1: the real video was
+blue at 0:58 and green at 1:13 (Dana's 1:00). Step 2: with the role staged, the speaker chip showed the amber dot
+and its hover label read 'On the agenda · 9 of 10. Unsaved changes'; the list then opened with the name field
+blank (the staged name was still Dana); Return (key code 36, not `cliclick kp:return`) gave 'Updated Dani on the
+agenda'. Step 3: Eve and Fay added during Dani's speech: opener 'Add a speaker after Eve' before Fay went in, list
+order Dani, Eve, Fay, the count-up untouched on real video, Finish loaded Eve. Step 4: Guest saved after Eve
+(ahead of Fay), 'Back to agenda · next: Guest' after Switch again, which loaded Guest. Step 5: 'At the end of the
+agenda' still chosen after ⋯ → Refresh app, Speaker options collapsed on open. Not proven: PostHog
+`speech_finished` for Dani (no key on a deploy from outside the main checkout; the Agenda row reads 'Tech Tip ·
+01:08 · blue') and `toastmaster_speaker_insert_position` (webview inspector off; the UI after the refresh instead).
+The other new-look steps were not rerun. Log: test-runs/2026-11-26-168-on-the-spot-speakers-2/run.md.
+
 ## Not covered
 - Reviewed against the #167 implementation: the Pro sheet's code field now reads "Already on Pro
   with your club?" (its accessible name still starts "Already on Pro through your club?"), the
