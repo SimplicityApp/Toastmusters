@@ -229,3 +229,111 @@ describe('useLiveTimer: speaker state across tab switches and START (#168)', () 
     expect(out.t.speakerEntry.clockRole).toBe('Standard Speech');
   });
 });
+
+describe('useLiveTimer: speakers added during a speech keep the order added (#168)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Jordan on the clock and running, as in AC-13.
+  const startJordan = () => {
+    run(() => out.t.handleSelectAgendaSpeaker('b'));
+    run(() => out.t.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+  };
+  // Row ids are the clock's milliseconds, so let it move between two adds.
+  const add = (name) => {
+    run(() => out.t.handleAddSpeaker(name, TT));
+    act(() => {
+      vi.advanceTimersByTime(10);
+    });
+  };
+
+  it('puts a second speaker behind the first, not in front of it, and FINISH walks them in that order', () => {
+    setup();
+    startJordan();
+
+    add('Dana');
+    add('Evan');
+
+    expect(names()).toEqual(['Ana', 'Jordan', 'Dana', 'Evan', 'Cole']);
+    expect(out.ctx.activeSpeakerId).toBe('b');
+    expect(out.tick.isRunning).toBe(true);
+
+    run(() => out.t.handleFinish());
+    expect(out.ctx.currentSpeaker.name).toBe('Dana');
+    run(() => out.t.handleStart());
+    run(() => out.t.handleFinish());
+    expect(out.ctx.currentSpeaker.name).toBe('Evan');
+  });
+
+  it('names the row the next speaker goes behind', () => {
+    setup();
+    startJordan();
+    expect(out.t.speakerEntry.labelsFor().addOpener).toBe('Add a speaker after Jordan');
+
+    add('Dana');
+    expect(out.t.speakerEntry.labelsFor().addOpener).toBe('Add a speaker after Dana');
+    add('Evan');
+    expect(out.t.speakerEntry.labelsFor({ name: 'Fay', role: TT }).addAction).toBe('Add Fay after Evan');
+  });
+
+  it('keeps the order once the first of them is speaking: the next goes behind the ones still waiting', () => {
+    setup();
+    startJordan();
+    add('Dana');
+    add('Evan');
+    run(() => out.t.handleFinish());
+    run(() => out.t.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    add('Fay');
+
+    expect(names()).toEqual(['Ana', 'Jordan', 'Dana', 'Evan', 'Fay', 'Cole']);
+    expect(out.ctx.currentSpeaker.name).toBe('Dana');
+  });
+
+  it('keeps the order through a tab switch', () => {
+    const { switchTabs } = setup();
+    startJordan();
+    add('Dana');
+
+    switchTabs();
+    add('Evan');
+
+    expect(names()).toEqual(['Ana', 'Jordan', 'Dana', 'Evan', 'Cole']);
+  });
+
+  it('with no speech in progress the new speaker still goes on the timer right after the loaded row', () => {
+    setup();
+    startJordan();
+    add('Dana');
+    add('Evan');
+    run(() => out.t.handleFinish());
+    expect(out.ctx.currentSpeaker.name).toBe('Dana');
+
+    add('Fay');
+
+    expect(names()).toEqual(['Ana', 'Jordan', 'Dana', 'Fay', 'Evan', 'Cole']);
+    expect(out.ctx.currentSpeaker.name).toBe('Fay');
+  });
+
+  it('with the setting on "at the end" they are last, in the order added', () => {
+    localStorage.setItem('toastmaster_speaker_insert_position', 'end');
+    setup();
+    startJordan();
+
+    add('Dana');
+    add('Evan');
+
+    expect(names()).toEqual(['Ana', 'Jordan', 'Cole', 'Dana', 'Evan']);
+  });
+});

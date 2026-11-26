@@ -8,7 +8,7 @@ const EditRulesModal = lazy(() => import('./EditRulesModal'));
 const CardImagesModal = lazy(() => import('./CardImagesModal'));
 const SoundsModal = lazy(() => import('./SoundsModal'));
 import TimeInput, { TimeInputModeToggle } from './TimeInput';
-import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, initCardImages, subscribeCardImages, agendaItemNeedsRole, loadSpeakerInsertPosition, saveSpeakerInsertPosition, loadSpeakerEnterAction, saveSpeakerEnterAction, addPlan, pendingChanges, findOnAgenda, nameFieldAction, actionLabels } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, saveTimeInputMode, initCardImages, subscribeCardImages, agendaItemNeedsRole, loadSpeakerInsertPosition, saveSpeakerInsertPosition, loadSpeakerEnterAction, saveSpeakerEnterAction, addPlan, afterQueue, pendingChanges, findOnAgenda, nameFieldAction, actionLabels } from '@toastmaster-timer/shared';
 import { setPageBackgroundFromStatus } from '../utils/pageBackground';
 import { parseSpeakerFromSearch, stripSpeakerParams } from '../utils/speakerDeepLink';
 import { getCardImageUrl, preloadCardImages } from '../utils/cardArtwork';
@@ -46,6 +46,7 @@ export default memo(function LiveTab({ onTimerStart }) {
     addToAgenda,
     updateAgendaItem,
     releasedRowId,
+    waitingSpeakerIds,
     setReleasedRowId,
     rememberSpeakerDraft,
     recallSpeakerDraft,
@@ -267,15 +268,19 @@ export default memo(function LiveTab({ onTimerStart }) {
       showToast(`${typed} is already on the agenda`, 'info');
       return;
     }
+    // During a speech the new speaker waits behind those already waiting, so
+    // they speak in the order added; otherwise they go on the timer right after
+    // the row shown.
+    const anchorId = loadedRow?.id ?? releasedRowId;
     const plan = addPlan({
       speechActive,
       insertPosition: speakerInsertPosition,
-      anchorId: loadedRow?.id ?? releasedRowId,
+      anchorId: speechActive ? afterQueue(agenda, anchorId, waitingSpeakerIds) : anchorId,
     });
     const rules = role === 'Custom' ? customRules : undefined;
     addToAgenda({ name: typed, role, ...(rules && { rules }) }, plan);
     showToast(
-      !plan.activate && plan.insertAfter && plan.insertAfter === activeSpeakerId
+      !plan.activate && plan.insertAfter && loadedRow
         ? `${typed} comes up after this speech`
         : `Added ${typed} to the agenda`,
       'success'
@@ -357,6 +362,7 @@ export default memo(function LiveTab({ onTimerStart }) {
       enterAction: speakerEnterAction,
       insertPosition: speakerInsertPosition,
       speechActive,
+      waitingIds: waitingSpeakerIds,
     }),
     roleOptions,
     clockRole: currentSpeaker?.role || selectedRole,

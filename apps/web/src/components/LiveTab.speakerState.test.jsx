@@ -150,3 +150,47 @@ describe('web Live tab: speaker state across tab switches and START (#168)', () 
     expect(button(/Save Dana to the agenda/)).not.toBeNull();
   });
 });
+
+describe('web Live tab: speakers added during a speech keep the order added (#168)', () => {
+  // Through the add panel, as a person would: open it, name the speaker, add.
+  const addDuringSpeech = (name, behind) => {
+    const before = screen.getAllByRole('textbox');
+    fireEvent.click(button(new RegExp(`Add a speaker after ${behind}`)));
+    const field = screen.getAllByRole('textbox').find((el) => !before.includes(el));
+    fireEvent.change(field, { target: { value: name } });
+    fireEvent.click(button(new RegExp(`Add ${name} after ${behind}`)));
+    // Row ids are the clock's milliseconds, so let it move between two adds.
+    tick(10);
+  };
+
+  it('puts a second speaker behind the first, names that row on the button, and FINISH walks them in order', () => {
+    renderLive();
+    loadJordan();
+    fireEvent.click(button(/START/));
+    tick(2000);
+
+    addDuringSpeech('Dana', 'Jordan');
+    expect(button(/Add a speaker after Dana/)).not.toBeNull();
+    addDuringSpeech('Evan', 'Dana');
+
+    expect(names()).toEqual(['Ana', 'Jordan', 'Dana', 'Evan', 'Cole']);
+    expect(ctx.activeSpeakerId).toBe('b');
+    expect(ctx.isRunning).toBe(true);
+
+    fireEvent.click(button(/FINISH/));
+    expect(ctx.currentSpeaker.name).toBe('Dana');
+  });
+
+  it('keeps the order through a tab switch', () => {
+    const { switchTabs } = renderLive();
+    loadJordan();
+    fireEvent.click(button(/START/));
+    tick(2000);
+    addDuringSpeech('Dana', 'Jordan');
+
+    switchTabs();
+    addDuringSpeech('Evan', 'Dana');
+
+    expect(names()).toEqual(['Ana', 'Jordan', 'Dana', 'Evan', 'Cole']);
+  });
+});

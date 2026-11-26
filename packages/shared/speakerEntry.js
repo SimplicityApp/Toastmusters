@@ -34,6 +34,31 @@ export function insertAfter(agenda, afterId, item) {
 }
 
 /**
+ * The row a speaker added on the spot goes right after: `anchorId` (the loaded
+ * row, or the row let go of for a quick timing), then past the speakers already
+ * added behind it while a speech ran (`waitingIds`), so those speak in the order
+ * they were added: with B running, adding D and then E gives B, D, E.
+ *
+ * Only the unbroken run right behind the anchor counts, so a waiting speaker
+ * the agenda has since moved elsewhere, or one already ticked off, is not
+ * skipped over to.
+ *
+ * @param {Array<Object>} agenda
+ * @param {string|null|undefined} anchorId
+ * @param {Array<string>} [waitingIds] ids of speakers added without going on the timer
+ * @returns {string|null} the row to insert after; `anchorId` itself when no run
+ *   follows it or it is not on the agenda (insertAfter then appends)
+ */
+export function afterQueue(agenda, anchorId, waitingIds = []) {
+  if (anchorId == null) return null;
+  let index = agenda.findIndex((row) => row.id === anchorId);
+  if (index < 0) return anchorId;
+  const waiting = new Set(waitingIds);
+  while (index + 1 < agenda.length && waiting.has(agenda[index + 1].id) && !agenda[index + 1].completed) index += 1;
+  return agenda[index].id;
+}
+
+/**
  * Where an added speaker goes and whether they go on the timer.
  *
  * Never on the timer while a speech is in progress (running, or paused with time
@@ -115,6 +140,7 @@ export function nameFieldAction({ agenda, loadedRowId, name, role, enterAction =
  *   addName: string, addRole: string,  the add panel's own fields
  *   enterAction?: string, insertPosition?: string,
  *   speechActive?: boolean,      a speech is running or paused with time on the clock
+ *   waitingIds?: Array<string>,  speakers added without going on the timer (afterQueue)
  * }} state
  * @returns {Object<string, string|null>}
  */
@@ -129,12 +155,19 @@ export function actionLabels({
   enterAction = SPEAKER_ENTER_UPDATE,
   insertPosition = SPEAKER_INSERT_AFTER_ACTIVE,
   speechActive = false,
+  waitingIds = [],
 } = {}) {
   const index = loadedRowId ? agenda.findIndex((row) => row.id === loadedRowId) : -1;
   const loaded = index >= 0 ? agenda[index] : null;
   const released = !loaded && releasedRowId ? agenda.find((row) => row.id === releasedRowId) || null : null;
   const anchor = loaded || released;
-  const where = insertPosition === SPEAKER_INSERT_END || !anchor ? 'at the end' : `after ${nameOf(anchor)}`;
+  // Named for the row they really go behind: during a speech, the last speaker
+  // already waiting behind it (afterQueue). With no speech in progress the new
+  // speaker goes on the timer, right after the row shown.
+  const behind = anchor && speechActive
+    ? agenda.find((row) => row.id === afterQueue(agenda, anchor.id, waitingIds)) || anchor
+    : anchor;
+  const where = insertPosition === SPEAKER_INSERT_END || !anchor ? 'at the end' : `after ${nameOf(behind)}`;
   const changes = pendingChanges({ row: loaded, name, role });
   const enter = nameFieldAction({ agenda, loadedRowId: loaded?.id ?? null, name, role, enterAction });
   const typed = (name || '').trim();

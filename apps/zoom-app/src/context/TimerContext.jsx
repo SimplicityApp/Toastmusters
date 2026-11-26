@@ -129,6 +129,10 @@ export function TimerProvider({ children }) {
   // draft: it is read once when the tab mounts, so a keystroke need not
   // re-render everything that reads the timer.
   const [releasedRowId, setReleasedRowId] = useState(null);
+  // Speakers added without going on the timer (a speech was in progress): they
+  // wait on the agenda in the order added, so the next one goes behind them
+  // (afterQueue), not in front.
+  const [waitingSpeakerIds, setWaitingSpeakerIds] = useState([]);
   const speakerDraftRef = useRef(null);
   const rememberSpeakerDraft = useCallback((draft) => { speakerDraftRef.current = draft; }, []);
   const recallSpeakerDraft = useCallback(() => speakerDraftRef.current, []);
@@ -428,6 +432,7 @@ export function TimerProvider({ children }) {
     const id = Date.now().toString();
     const rules = speaker.rules || roleRules[speaker.role] || DEFAULT_ROLE_RULES['Standard Speech'];
     setAgenda(prev => insertAfter(prev, afterId, { id, name: speaker.name, role: speaker.role, rules, completed: false }));
+    if (!activate && afterId) setWaitingSpeakerIds(prev => [...prev, id]);
     if (activate) {
       setCurrentSpeakerAction({ name: speaker.name, role: speaker.role, rules });
       setActiveSpeakerId(id);
@@ -692,6 +697,7 @@ export function TimerProvider({ children }) {
     agenda,
     activeSpeakerId,
     releasedRowId,
+    waitingSpeakerIds,
     setReleasedRowId,
     rememberSpeakerDraft,
     recallSpeakerDraft,
@@ -727,6 +733,7 @@ export function TimerProvider({ children }) {
     agenda,
     activeSpeakerId,
     releasedRowId,
+    waitingSpeakerIds,
     rememberSpeakerDraft,
     recallSpeakerDraft,
     reports,

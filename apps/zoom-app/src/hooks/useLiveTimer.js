@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTimer, useTimerTick } from '../context/TimerContext';
 import { useToast } from '../context/ToastContext';
-import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages, subscribeCardImages, agendaItemNeedsRole, formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle, loadSpeakerInsertPosition, saveSpeakerInsertPosition, loadSpeakerEnterAction, saveSpeakerEnterAction, addPlan, pendingChanges, findOnAgenda, nameFieldAction, actionLabels } from '@toastmaster-timer/shared';
+import { DEFAULT_ROLE_RULES, DEFAULT_CUSTOM_RULES, loadTimeInputMode, BREAK_ROLE, DEFAULT_BREAK_SECONDS, deriveBreakRules, getDisplaySeconds, initCardImages, subscribeCardImages, agendaItemNeedsRole, formatTime, saveOverlayMode, saveStageClockHidden, loadStageClockHidden, saveRevealFaceWhenIdle, loadRevealFaceWhenIdle, loadSpeakerInsertPosition, saveSpeakerInsertPosition, loadSpeakerEnterAction, saveSpeakerEnterAction, addPlan, afterQueue, pendingChanges, findOnAgenda, nameFieldAction, actionLabels } from '@toastmaster-timer/shared';
 import { getVideoState, setVideoState, applyOverlay, removeOverlay, clearVideoPipelines, isOverlayActive, getBackgroundUrl, getSdkStatus, setLogCallback, getOverlayMode, setOverlayMode, getOverlayTimePosition, setOverlayTimePosition, getOverlayTimeScale, setOverlayTimeScale, isOverlayTimeVisible, setOverlayTimeVisible, setOverlayTimeLabel, setPopoutChangeCallback, setShareChangeCallback, setAppShare, setAppPopout, isAppShareActive, isAppPoppedOut, isVideoOverlayMode, getClubBadgePlacement, setClubBadgePlacement, resetClubBadgePlacement, getZoomParticipants, OVERLAY_MODE_STAGE, notifyCardImagesChanged, preloadBackgroundImages } from '../utils/zoomSdk';
 import { useClub } from './useClub';
 import { useSoundsAccess } from './useSounds';
@@ -42,6 +42,7 @@ export function useLiveTimer() {
     addToAgenda,
     updateAgendaItem,
     releasedRowId,
+    waitingSpeakerIds,
     setReleasedRowId,
     rememberSpeakerDraft,
     recallSpeakerDraft,
@@ -582,15 +583,19 @@ export function useLiveTimer() {
       showToast(`${typed} is already on the agenda`, 'info');
       return;
     }
+    // During a speech the new speaker waits behind those already waiting, so
+    // they speak in the order added; otherwise they go on the timer right after
+    // the row shown.
+    const anchorId = loadedRow?.id ?? releasedRowId;
     const plan = addPlan({
       speechActive,
       insertPosition: speakerInsertPosition,
-      anchorId: loadedRow?.id ?? releasedRowId,
+      anchorId: speechActive ? afterQueue(agenda, anchorId, waitingSpeakerIds) : anchorId,
     });
     const rules = rulesFor(role);
     addToAgenda({ name: typed, role, ...(rules && { rules }) }, plan);
     showToast(
-      !plan.activate && plan.insertAfter && plan.insertAfter === activeSpeakerId
+      !plan.activate && plan.insertAfter && loadedRow
         ? `${typed} comes up after this speech`
         : `Added ${typed} to the agenda`,
       'success'
@@ -1156,6 +1161,7 @@ export function useLiveTimer() {
       enterAction: speakerEnterAction,
       insertPosition: speakerInsertPosition,
       speechActive,
+      waitingIds: waitingSpeakerIds,
     }),
     roleOptions,
     clockRole: addPanelRole,
