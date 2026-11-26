@@ -222,8 +222,8 @@ same substitutions). Agenda tab → "Put Jordan on the timer". Then, on the Time
    "Dana", pick Table Topics Speech in the panel, click "Add Dana after Jordan".
 2. Pick Ice Breaker on the card's role chip, open the speaker list, change the name to "Dani",
    press Return.
-3. Press Start; at about 0:10 add "Eve" from the speaker list ("Add a speaker after Dani"); press
-   Finish at about 0:20.
+3. Press Start; at about 0:10 add "Eve" from the speaker list ("Add a speaker after Dani"); at
+   about 0:15 add "Fay" the same way ("Add a speaker after Eve"); press Finish at about 0:20.
 4. Open the speaker list, click "Switch to quick timing", type "Guest", click "Save Guest to the
    agenda". Click "Switch to quick timing" again, then "Back to agenda".
 5. At the foot of the speaker list open "Speaker options", choose "at the end", then ⋯ → Refresh app
@@ -239,8 +239,9 @@ Expect:
   shows Dana's 1:00 · 1:30 · 2:00. Before Return, "Unsaved changes" and "Update Dana on the agenda"
   listing "name Dana → Dani · role → Ice Breaker"; the card's clock and colour do not change.
   After Return the Agenda tab shows Dani, Ice Breaker, in Dana's place.
-- 3: the count-up and the colour on real video carry on untouched when Eve is added; Eve sits
-  right after Dani; Finish loads Eve.
+- 3: the count-up and the colour on real video carry on untouched when Eve and Fay are added; Eve
+  sits right after Dani and Fay right after Eve (the order added, and the list's opener names Eve
+  before Fay goes in); Finish loads Eve.
 - 4: "Not on the agenda" and "Back to agenda" naming "next: Eve"; Guest is saved right after Eve
   and loaded; Back to agenda loads the row let go of.
 - 5: "Speaker options" starts collapsed; after the refresh it still shows "at the end".

@@ -202,7 +202,8 @@ Timer + Camera, camera on. Then:
 3. Cole is now loaded. Pick Table Topics Speech in the role dropdown and change the name to
    "Colin". Look at the video and the Agenda tab, then press Return in the name field.
 4. Press Start. At about 0:10, click "Add a speaker after Colin", type "Eve", click "Add Eve
-   after Colin". Let it run to about 0:20, press Finish.
+   after Colin". At about 0:15 click "Add a speaker after Eve", type "Fay", click "Add Fay after
+   Eve". Let it run to about 0:20, press Finish.
 5. Click "Switch to quick timing". Type "Guest", press Start, let it run about 5 s, press Finish.
    Then click "Back to agenda".
 6. Type any name over Eve's, then click "Undo changes". Click "Switch to quick timing", type "Zed",
@@ -227,7 +228,9 @@ Expect:
   Colin, Table Topics Speech, in Cole's place, and the rules line shows 1:00 / 1:30 / 2:00.
 - 4: a toast says Eve comes up after this speech. The count-up keeps running from where it was,
   the card colour on real video does not change or reset, and the name field still says Colin.
-  The Agenda tab shows Eve right after Colin. Finish loads Eve.
+  The Agenda tab shows Eve right after Colin. Once Eve is added the opener reads "Add a speaker
+  after Eve" (it names the last speaker waiting), and Fay lands right after Eve: Colin, Eve, Fay,
+  in the order added. Finish loads Eve.
 - 5: status "Not on the agenda"; "Back to agenda" names "next: Eve". The name field labels the
   timer only. While Guest is being timed "Back to agenda" is not offered (loading Eve would reset
   the clock); it is back after Finish. After Finish the Timer's Report has Guest; the agenda is
@@ -235,8 +238,8 @@ Expect:
   is still there and loads Eve again.
 - 6: Undo puts "Eve" back with nothing saved. Return with nothing loaded adds nobody (no Zed row).
   Start never adds or changes a row, here or after any Start above. Back to agenda loads Eve.
-- 7: the stage shows the status; after Update the Agenda tab shows Evie in Eve's place; Finn lands
-  right after Evie.
+- 7: the stage shows the status; after Update the Agenda tab shows Evie in Eve's place; with no
+  speech running Finn goes on the timer right after Evie, ahead of Fay.
 Evidence: screenshots of each Expect (the status dot, the Update button with its change list, the
 add panel, the video at 1:00 in step 2 and at the add in step 4). Page script (or on-screen rows if
 the inspector is off): `toastmaster_agenda` after steps 2, 3, 4, 5 and 7. PostHog from this

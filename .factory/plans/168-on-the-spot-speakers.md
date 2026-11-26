@@ -20,6 +20,10 @@ and one set of labels keep the three from drifting apart.
   Table Topics block row running, a speaker added then waits behind it and the display does not
   switch to their 1–2 min timer until the block is finished or reset. Switching at once is what the
   Table Topics section mode would do, which the issue puts out of scope.
+- **Q9 (Nov 26): speakers added during one speech keep the order added.** With B running, adding D
+  and then E gives B, D, E, not B, E, D: each one waits behind the speakers already waiting. The
+  button names the row they go behind ("Add a speaker after D"). With no speech in progress the new
+  speaker still goes on the timer right after the row shown (AC-1).
 - **Q6: the web follows the Zoom app** (controls, rules, two settings, wording), in this issue.
 - **Q1, Q4, Q5: the defaults** (settings under a collapsed "Speaker options"; the Agenda tab's own
   add form keeps appending; both settings sync across devices).
@@ -100,6 +104,9 @@ Smallest change that meets the criteria:
    - `addPlan({ speechActive, insertPosition, anchorId })` → `{ insertAfter, activate }`, where the
      anchor is the loaded row, or the row let go of for a quick timing; `activate` is false while a
      speech is in progress.
+   - `afterQueue(agenda, anchorId, waitingIds)` → the row to insert after: the anchor, then past the
+     unbroken run of speakers already added without going on the timer (Q9). Both contexts keep
+     `waitingSpeakerIds` (recorded by `addToAgenda` when `insertAfter` is set and `activate` is not).
    - `pendingChanges({ row, name, role })` → `{ name?, role? }` or null.
    - `actionLabels(state)` → the exact button and status strings, so all three surfaces say the
      same words ("Update Jordan on the agenda", "Back to agenda (next: Jordan, Table Topics)" …).
@@ -200,6 +207,11 @@ tab** (no stage there); the tests below run the same steps through each.
   then it is inserted with the role shown, after the row let go of or at the end (per AC-1–AC-3), and
   loaded unless a speech is in progress.
 - AC-16: Given any state, when START is pressed, then no agenda row is added or changed.
+- AC-17: Given B is running (or paused with time on the clock) and the user adds D, then E, then the
+  agenda reads B, D, E (E behind D, not in front), the button after the first add reads "Add a
+  speaker after D", and finishing B then D moves to D then E. The order holds across a tab switch and
+  when a third speaker is added while D is the one speaking. With no speech in progress a new
+  speaker goes on the timer right after the row shown, as in AC-1.
 
 ## Test list
 | AC | Unit | Playwright | Zoom-client spec |
@@ -215,6 +227,7 @@ tab** (no stage there); the tests below run the same steps through each.
 | AC-13 | `speakerEntry.test.js` (`addPlan`); `useLiveTimer.test.jsx`; web `LiveTab.test.jsx` | `e2e/zoom.timer-flow.spec.js`; `e2e/web.timer-flow.spec.js` | TC-14 (add while running, real video colour unchanged) |
 | AC-14, 15 | `useLiveTimer.test.jsx`; both `TimerContext.test.jsx` (report on FINISH without a row); web `LiveTab.test.jsx` | `e2e/zoom.timer-flow.spec.js`; `e2e/zoom.new-look.spec.js`; `e2e/web.report-flow.spec.js` | TC-14, NL-21 |
 | AC-16 | `useLiveTimer.test.jsx`; web `LiveTab.test.jsx` | `e2e/zoom.timer-flow.spec.js` | TC-14 |
+| AC-17 | `speakerEntry.queue.test.js` (`afterQueue`, labels); `useLiveTimer.speakerState.test.jsx`; web `LiveTab.speakerState.test.jsx` | — | TC-14 step 4, NL-21 step 3 |
 
 ## Risk
 **Low.** No `config.json` `riskHigh` path is touched (`packages/shared/storage.js` and
