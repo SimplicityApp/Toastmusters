@@ -27,6 +27,8 @@ const STORAGE_KEYS = {
   REVEAL_FACE_WHEN_IDLE: 'toastmaster_reveal_face_when_idle',
   OVERLAY_TIME_READOUT: 'toastmaster_overlay_time_readout',
   TIMER_SESSION: 'toastmaster_timer_session',
+  SPEAKER_INSERT_POSITION: 'toastmaster_speaker_insert_position',
+  SPEAKER_ENTER_ACTION: 'toastmaster_speaker_enter_action',
 };
 
 /**
@@ -327,6 +329,61 @@ export function loadTimeInputMode() {
   } catch (error) {
     console.error('Failed to load time input mode:', error);
     return 'minsec';
+  }
+}
+
+/**
+ * Save where a speaker added mid-meeting goes (#168): right after the speaker on
+ * the timer, or at the end of the agenda. Synced, so the Zoom app's two looks and
+ * the web Live tab agree on every device.
+ * @param {'afterActive'|'end'} position
+ */
+export function saveSpeakerInsertPosition(position) {
+  try {
+    persist(STORAGE_KEYS.SPEAKER_INSERT_POSITION, position === 'end' ? 'end' : 'afterActive');
+  } catch (error) {
+    console.error('Failed to save speaker insert position:', error);
+  }
+}
+
+/**
+ * Load where a speaker added mid-meeting goes.
+ * @returns {'afterActive'|'end'} Defaults to 'afterActive': Table Topics
+ *   speakers are picked on the spot and speak next, not after the whole agenda.
+ */
+export function loadSpeakerInsertPosition() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.SPEAKER_INSERT_POSITION) === 'end' ? 'end' : 'afterActive';
+  } catch (error) {
+    console.error('Failed to load speaker insert position:', error);
+    return 'afterActive';
+  }
+}
+
+/**
+ * Save what Enter does in the name field while a speaker is loaded (#168):
+ * update that speaker with the staged edit, or add the typed name as a new one.
+ * @param {'update'|'add'} action
+ */
+export function saveSpeakerEnterAction(action) {
+  try {
+    persist(STORAGE_KEYS.SPEAKER_ENTER_ACTION, action === 'add' ? 'add' : 'update');
+  } catch (error) {
+    console.error('Failed to save speaker enter action:', error);
+  }
+}
+
+/**
+ * Load what Enter does in the name field while a speaker is loaded.
+ * @returns {'update'|'add'} Defaults to 'update': typing over the name of the
+ *   speaker on the timer is usually a spelling fix.
+ */
+export function loadSpeakerEnterAction() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.SPEAKER_ENTER_ACTION) === 'add' ? 'add' : 'update';
+  } catch (error) {
+    console.error('Failed to load speaker enter action:', error);
+    return 'update';
   }
 }
 

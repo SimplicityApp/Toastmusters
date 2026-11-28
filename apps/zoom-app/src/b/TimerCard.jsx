@@ -31,8 +31,8 @@ export default memo(function TimerCard({
   activeSpeakerId,
   needsRole,
   onSelectSpeaker,
-  onAddSpeaker,
-  onRenameSpeaker,
+  onSpeakerChange,
+  speakerEntry,
   onRoleChange,
   onEditRules,
   readoutPosition,
@@ -83,13 +83,12 @@ export default memo(function TimerCard({
       <div className="flex gap-1.5">
         <SpeakerPicker
           value={speakerName}
-          role={selectedRole}
           agendaItems={agenda}
           activeSpeakerId={activeSpeakerId}
           needsRole={needsRole}
           onSelectSpeaker={onSelectSpeaker}
-          onAddSpeaker={onAddSpeaker}
-          onRenameSpeaker={onRenameSpeaker}
+          onSpeakerChange={onSpeakerChange}
+          entry={speakerEntry}
           palette={p}
         />
         <RolePicker

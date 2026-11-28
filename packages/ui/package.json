@@ -13,6 +13,7 @@
     "./ClubSetupCard": "./ClubSetupCard.jsx",
     "./ReportHistoryList": "./ReportHistoryList.jsx",
     "./ShareStep": "./ShareStep.jsx",
+    "./SpeakerEntry": "./SpeakerEntry.jsx",
     "./content-pages.css": "./content-pages.css"
   },
   "peerDependencies": {

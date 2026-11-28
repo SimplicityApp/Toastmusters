@@ -1,18 +1,27 @@
 ---
 id: timer-core
 title: Core timer in the Zoom client
-status: current
+status: stale
 covers:
   - apps/zoom-app/src/context/TimerContext.jsx
   - apps/zoom-app/src/components/LiveTab.jsx
   - apps/zoom-app/src/hooks/useLiveTimer.js
+  - apps/zoom-app/src/components/SpeakerInput.jsx
+  - apps/zoom-app/src/components/StageSpeakerPicker.jsx
   - apps/zoom-app/src/utils/zoomSdk.js
   - packages/shared/clubBadge.js
+  - packages/shared/speakerEntry.js
+  - packages/ui/SpeakerEntry.jsx
 automated:
   - e2e/zoom.timer-flow.spec.js
   - apps/zoom-app/src/utils/zoomSdk.test.js
   - apps/zoom-app/src/components/LiveTab.test.jsx
   - apps/zoom-app/src/hooks/useLiveTimer.test.jsx
+  - e2e/zoom.speaker-entry.spec.js
+  - apps/zoom-app/src/components/LiveTab.speakerEntry.test.jsx
+  - packages/shared/__tests__/speakerEntry.test.js
+  - apps/zoom-app/src/components/SpeakerInput.test.jsx
+  - apps/zoom-app/src/components/StageSpeakerPicker.test.jsx
   - apps/zoom-app/src/context/TimerContext.test.jsx
 needs:
   - dev deployed
@@ -177,7 +186,88 @@ device had dropped out of Claude Test Club (expired club token → GET /api/club
 so the card set was its own 'Custom 1' (CLUB BLUE / CLUB RED art) and no club badge drew; no
 step here needs the club. Log: test-runs/2026-11-19-design-b-stack-final/run.md.
 
-### TC-14 · auto · FINISH and RESET clear the speaker for good
+### TC-14 · auto · On-the-spot speakers: edit in place, add after the loaded row, quick timing (#168)
+Deploy with FLAGS_FORCE "1,new_look=0" (today's panel). Agenda tab → Import Text → "Simple
+Format", type these three lines (`cliclick t:` per line, `kp:return` between), press Import:
+```
+Ana (Standard Speech)
+Jordan (Ice Breaker)
+Cole (Standard Speech)
+```
+Same role substitutions as TC-13 if the device runs a club's role list; keep a role with
+1:00 · 1:30 · 2:00 thresholds (Table Topics Speech, or the club's nearest) for step 2. Live tab,
+Timer + Camera, camera on. Then:
+1. Click the speaker name field and pick "Jordan" from the Agenda suggestions.
+2. Click "Add a speaker after Jordan". In the panel that opens, type "Dana" and pick Table Topics
+   Speech, then click "Add Dana after Jordan". Press Start, let it pass 1:00, press Finish.
+3. Cole is now loaded. Pick Table Topics Speech in the role dropdown and change the name to
+   "Colin". Look at the video and the Agenda tab, then press Return in the name field.
+4. Press Start. At about 0:10, click "Add a speaker after Colin", type "Eve", click "Add Eve
+   after Colin". At about 0:15 click "Add a speaker after Eve", type "Fay", click "Add Fay after
+   Eve". Let it run to about 0:20, press Finish.
+5. Click "Switch to quick timing". Type "Guest", press Start, let it run about 5 s, press Finish.
+   Then click "Back to agenda".
+6. Type any name over Eve's, then click "Undo changes". Click "Switch to quick timing", type "Zed",
+   press Return, then Start and Reset. Click "Back to agenda".
+7. Display mode → Full-Screen Timer. Type "Evie" in the stage's name field and click "Update Eve
+   on the agenda". Click the stage's "+ Add", type "Finn", click "Add Finn after Evie". Close the
+   stage.
+Expect:
+- 1: under the name field a status dot "On the agenda · 2 of 3" (not a button); a "Switch to quick
+  timing" text action with "Jordan stays on the agenda, not ticked off"; "Add a speaker after
+  Jordan". No filled Update button.
+- 2: the panel's role starts on Ice Breaker (the role on the clock); the Add button names "as Table
+  Topics Speech"; Jordan's row and the clock stay as they were until Add. After Add: Agenda tab
+  order Ana, Jordan, Dana, Cole; Dana loaded with "Timing rules: Green: 1 minute, Yellow: 1 min 30
+  sec, Red: 2 minutes"; status "On the agenda · 3 of 4". On real video the count-up runs and the
+  card turns green at 1:00, not at Jordan's 4:00. Finish ticks Dana off and loads Cole.
+- 3: before Return, "Unsaved changes" shows and the filled button reads "Update Cole on the agenda"
+  with "name Cole → Colin · role → Table Topics Speech"; the Agenda tab still says Cole, Standard
+  Speech, the rules line still shows Standard Speech's times, and nothing on the video changes.
+  Back on the Live tab after the Agenda tab, the name field still says Colin and the role Table
+  Topics Speech (the staged edit survives the tab switch). After Return: the Agenda tab shows
+  Colin, Table Topics Speech, in Cole's place, and the rules line shows 1:00 / 1:30 / 2:00.
+- 4: a toast says Eve comes up after this speech. The count-up keeps running from where it was,
+  the card colour on real video does not change or reset, and the name field still says Colin.
+  The Agenda tab shows Eve right after Colin. Once Eve is added the opener reads "Add a speaker
+  after Eve" (it names the last speaker waiting), and Fay lands right after Eve: Colin, Eve, Fay,
+  in the order added. Finish loads Eve.
+- 5: status "Not on the agenda"; "Back to agenda" names "next: Eve". The name field labels the
+  timer only. While Guest is being timed "Back to agenda" is not offered (loading Eve would reset
+  the clock); it is back after Finish. After Finish the Timer's Report has Guest; the agenda is
+  unchanged and Eve is not ticked off. Back on the Live tab after the Report tab, "Back to agenda"
+  is still there and loads Eve again.
+- 6: Undo puts "Eve" back with nothing saved. Return with nothing loaded adds nobody (no Zed row).
+  Start never adds or changes a row, here or after any Start above. Back to agenda loads Eve.
+- 7: the stage shows the status; after Update the Agenda tab shows Evie in Eve's place; with no
+  speech running Finn goes on the timer right after Evie, ahead of Fay.
+Evidence: screenshots of each Expect (the status dot, the Update button with its change list, the
+add panel, the video at 1:00 in step 2 and at the add in step 4). Page script (or on-screen rows if
+the inspector is off): `toastmaster_agenda` after steps 2, 3, 4, 5 and 7. PostHog from this
+device: `speech_finished` for Dana (`role` Table Topics Speech), Colin and Guest; no
+`speaker_added` from a Start.
+Then: delete the rows added here (Clear All if the agenda held nothing else).
+Run 2026-11-26 (factory/168 ed3d673, dev eaf2f414 with FLAGS_FORCE "1,new_look=0", Zoom on macOS, device in
+Claude Test Club): steps 1-7 passed. The club's role list stood in: Standard Speech = Regular Speech
+(5:00/6:00/7:00), Ice Breaker = Tech Tip (3:00/4:00/5:00), Table Topics Speech = 1-2min Role (1:00/1:30/2:00).
+The device kept 6 ticked-off rows from earlier runs, so every "N of M" read 6 higher ('8 of 9' for '2 of 3').
+Step 2: the real video was blue at 0:03 and green at 1:03 (1-2min rules, not Tech Tip's 3:00). Step 4:
+Eve added at ~0:15 and Fay at ~0:34 (toasts 'Eve comes up after this speech', 'Fay comes up after this
+speech'; the opener read 'Add a speaker after Eve', then 'after Fay'); the count-up never reset or changed
+colour; Agenda Colin, Eve, Fay; Finish (0:54) loaded Eve. Step 6: RESET is offered only once the clock is
+stopped, so Stop comes between Start and Reset. To press Return in the name field send
+`osascript -e 'tell application "System Events" to key code 36'`; `cliclick kp:return` did not commit the edit.
+Zoom asked 'reset your virtual background to none' on the stage and 'delete your video filter' on the way
+back to Timer + Camera: Allow both. Finding, not #168: after step 5's Finish, Report → Agenda → Live puts
+'Guest' back in the name field (finishCurrentSpeech leaves currentSpeaker; the fix dea6993 is only on
+origin/fix/finish-clears-speaker). Not proven: the PostHog lines (this deploy came from outside the main
+checkout, so it has no PostHog key; the Report tab shows Dana 01:13 Green, Colin 00:54, Guest 00:15 with
+their roles) and `toastmaster_agenda` (the Zoom webview inspector was off; on-screen rows instead).
+TC-01…TC-13 were not rerun. Log: test-runs/2026-11-26-168-on-the-spot-speakers-2/run.md.
+
+### TC-15 · auto · FINISH and RESET clear the speaker for good
+Numbered TC-14 on this branch until the merge with #168, whose step took that number; the
+2026-11-21 and 2026-11-25 run logs call it TC-14.
 Seen in the Zoom client on 2026-11-19: after FINISH, switching tabs and back put the speaker
 who had just finished back in the name field, and START timed them again under their name (a
 second report row). RESET had the same hole.
@@ -204,24 +294,34 @@ from this device: `speech_finished` with `speaker_name: "Spec Speaker"` once, th
 Then: delete `Reset Row` from the agenda. If the Report tab held nothing before this step, Clear
 All; otherwise leave the rows.
 Run 2026-11-21 (fix/finish-clears-speaker dea6993, dev 0bcc2458, Zoom on macOS): TC-01…TC-08,
-TC-10, TC-13 and TC-14 passed (device on Claude Test Club's role list: short role ChairToast1,
-TC-13 lines as in the 11-13 run). TC-14: after FINISH and an Agenda/Live switch the field stayed
+TC-10, TC-13 and TC-15 passed (device on Claude Test Club's role list: short role ChairToast1,
+TC-13 lines as in the 11-13 run). TC-15: after FINISH and an Agenda/Live switch the field stayed
 empty; the next speech was reported with no name (one `Spec Speaker` row); after RESET and a
 Report/Live switch the field stayed empty. TC-11 not verified: that deploy was built without
 the PostHog key, so no events reached PostHog. TC-09 and TC-12 not run (human).
 Log: test-runs/2026-11-21-finish-clears-speaker/run.md.
-2026-11-25: TC-14 gained the agenda-row Reset and the rules edit made during a pause (RESET now
+2026-11-25: TC-15 gained the agenda-row Reset and the rules edit made during a pause (RESET now
 lets go of the agenda row and takes the role's current rules). Not run on that code, nor on the
 merge with `dev` (c29da41), so `status: stale` until the next run.
 Run 2026-11-25 (fix/finish-clears-speaker 0088e3a = e8916e9 + dev 9542633, dev 2cd81298 with
-FLAGS_FORCE "1,new_look=0", Zoom 7.2.5 on macOS, role ChairToast1): TC-14 passed in full. FINISH
+FLAGS_FORCE "1,new_look=0", Zoom 7.2.5 on macOS, role ChairToast1): TC-15 passed in full. FINISH
 and RESET left the field empty across Agenda/Live and Report/Live switches; one new `Spec Speaker`
 row, then an unnamed one. After a RESET from a pause, `Reset Row` stayed not done through the next
 FINISH, and the idle phase line read the green saved during the pause (00:20). PostHog evidence
-not verified (worktree build, no key). Only TC-14 ran, so `verified_at` stays on the last full
+not verified (worktree build, no key). Only TC-15 ran, so `verified_at` stays on the last full
 run. Log: test-runs/2026-11-25-finish-clears-speaker-2/run.md.
+2026-11-27: merged with `dev` (#168's on-the-spot speakers, which took TC-14). TC-15 not rerun on
+the merge, so `status: stale` until it is.
 
 ## Not covered
+- START with an edit staged for a loaded row (#168): the speech is timed as the row stands and
+  the edit stays staged ("Unsaved changes", Update and Undo still offered); Update mid-speech
+  changes the row and the rules without restarting the clock. Unit tests:
+  `useLiveTimer.speakerState.test.jsx`, web `LiveTab.speakerState.test.jsx`.
+- The new look's speaker controls (#168): new-look NL-21. The web Live tab's: Playwright
+  (`e2e/web.speaker-entry.spec.js`) and `apps/web/src/components/LiveTab.speakerEntry.test.jsx`;
+  the Zoom client does not host it. The two Speaker options syncing to another device:
+  `profileMerge.test.js` (both keys in `SYNCED_KEYS`).
 - Colour accuracy on every camera/background setting.
 - A second participant seeing the video (needs a second computer).
 - Choosing the background you return to between speeches. Its picker lives only in Card
@@ -248,7 +348,7 @@ run. Log: test-runs/2026-11-25-finish-clears-speaker-2/run.md.
   `TimerContext.test.jsx`, `LiveTab.test.jsx` and `e2e/zoom.timer-flow.spec.js` cover it; the
   client adds nothing.
 - The Design B panel (`new_look`) reads the same shared speaker; its FINISH, RESET and rules
-  line after a tab switch are [new-look](new-look.md) NL-21.
+  line after a tab switch are [new-look](new-look.md) NL-22.
 - The web timer (`apps/web`) still keeps the finished speaker in its shared state; not
   changed here.
 - The club badge on the Full-Screen Timer stage. See [stage-club-badge](stage-club-badge.md).

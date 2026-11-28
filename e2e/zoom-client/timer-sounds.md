@@ -131,12 +131,20 @@ log.
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the sounds; no step here loads an agenda
   row. See [timer-core](timer-core.md) TC-13. Not rerun for it.
+- The Live tab's speaker controls (#168, timer-core TC-14). Reviewed against 20fe27c:
+  `LiveTab.jsx` and `useLiveTimer.js` changed only the speaker controls; no sounds step moves.
+  Not rerun.
+- Reviewed against #168's verify fixes (review round 1): the speaker controls keep a staged
+  edit and the row let go of for a quick timing in the timer context across tab switches, and
+  hide "Back to agenda" while a quick timing runs; no sounds step moves. Not rerun.
+- Reviewed against #168's order fix (be25a33): speakers added during one speech now keep the order
+  added (the Live tab's add controls only); no sounds step moves. Not rerun.
 - RESET clearing the speaker's name in the shared timer state too (`useLiveTimer.js`,
   2026-11-21). Reviewed: it changes the name, not the status the chime follows; no step here
-  depends on the name. See [timer-core](timer-core.md) TC-14. Not rerun for it.
+  depends on the name. See [timer-core](timer-core.md) TC-15. Not rerun for it.
 - RESET also letting go of the agenda row and taking the role's current rules
   (`useLiveTimer.js`, 2026-11-25). Reviewed: TS-03's Reset is on Custom, whose rules it keeps,
-  and the chime follows the status, not the speaker. See [timer-core](timer-core.md) TC-14.
+  and the chime follows the status, not the speaker. See [timer-core](timer-core.md) TC-15.
   Not rerun for it.
 
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally): TS-09 passed with FLAGS_FORCE "0" on the club Pro device

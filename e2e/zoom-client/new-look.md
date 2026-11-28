@@ -9,6 +9,9 @@ covers:
   - apps/zoom-app/src/components/VideoPreviewLayer.jsx
   - apps/zoom-app/src/hooks/useRulesEditor.js
   - apps/zoom-app/src/components/TimerStage.jsx
+  - apps/zoom-app/src/components/StageSpeakerPicker.jsx
+  - packages/shared/speakerEntry.js
+  - packages/ui/SpeakerEntry.jsx
   - apps/zoom-app/src/components/ProLaunchModal.jsx
   - apps/zoom-app/src/components/ClubSurveyModal.jsx
   - apps/zoom-app/src/components/UpgradeModal.jsx
@@ -22,6 +25,8 @@ automated:
   - apps/zoom-app/src/b/AgendaReport.test.jsx
   - apps/zoom-app/src/b/Phase3.test.jsx
   - apps/zoom-app/src/hooks/useNewLook.test.js
+  - e2e/zoom.new-look.speakers.spec.js
+  - apps/zoom-app/src/b/TimerTab.speakerEntry.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting
@@ -54,8 +59,9 @@ hint beside the chip ("Drag me to move. Point at me to resize or hide.") wraps i
 Evidence: screenshot; `localStorage.toastmaster_new_look_last` is "1".
 
 ### NL-02 · auto · The card drives the colour on real video
-Do: open "Who's speaking?", type `NL Test`, Enter. Pick Short Roles in the role list. Start,
-and let it run past 1:00. Finish.
+Do: open "Who's speaking?", type `NL Test` (with nobody loaded the name labels the timer; since
+#168 Enter adds nobody to the agenda). Pick Short Roles in the role list. Start, and let it run
+past 1:00. Finish.
 Expect: the card and the video turn green at 0:30, yellow at 0:45, red at 1:00; the status
 line follows ("Green · yellow at 0:45", …, "Red phase"). After Finish the card is blue and
 empty again, and the Report tab lists NL Test.
@@ -210,14 +216,51 @@ Expect: "New look: the timer sits in the middle now, with your settings under Lo
 is coming soon." above the top row (see announcement-banner AB-05).
 Evidence: screenshot.
 
-### NL-21 · auto · Finish and Reset clear the speaker; the idle card follows a rules edit
+### NL-21 · auto · On-the-spot speakers in the new look (#168)
+Do: with FLAGS_FORCE "1,pro=0", import the same three rows as timer-core TC-14 (Ana, Jordan, Cole;
+same substitutions). Agenda tab → "Put Jordan on the timer". Then, on the Timer tab:
+1. Open the speaker chip's list. Read the status, then click "Add a speaker after Jordan", type
+   "Dana", pick Table Topics Speech in the panel, click "Add Dana after Jordan".
+2. Pick Ice Breaker on the card's role chip, open the speaker list, change the name to "Dani",
+   press Return.
+3. Press Start; at about 0:10 add "Eve" from the speaker list ("Add a speaker after Dani"); at
+   about 0:15 add "Fay" the same way ("Add a speaker after Eve"); press Finish at about 0:20.
+4. Open the speaker list, click "Switch to quick timing", type "Guest", click "Save Guest to the
+   agenda". Click "Switch to quick timing" again, then "Back to agenda".
+5. At the foot of the speaker list open "Speaker options", choose "at the end", then ⋯ → Refresh app
+   and open it again.
+Expect:
+- 1: the chip carries the status ("On the agenda · 2 of 3"), and it is not a separate button; the
+  list shows "Switch to quick timing" with its note and "Add a speaker after Jordan". The panel's
+  role starts on Ice Breaker and the Add button names "as Table Topics Speech". After Add: Agenda
+  order Ana, Jordan, Dana, Cole; the card shows Dana with "Green 1:00 · Yellow 1:30 · Red 2:00"; on
+  real video the card turns green at 1:00.
+- 2: right after picking Ice Breaker on the role chip, with the popover closed, the speaker chip
+  shows an amber dot and its label (hover) ends "Unsaved changes"; the card's rules line still
+  shows Dana's 1:00 · 1:30 · 2:00. Before Return, "Unsaved changes" and "Update Dana on the agenda"
+  listing "name Dana → Dani · role → Ice Breaker"; the card's clock and colour do not change.
+  After Return the Agenda tab shows Dani, Ice Breaker, in Dana's place.
+- 3: the count-up and the colour on real video carry on untouched when Eve and Fay are added; Eve
+  sits right after Dani and Fay right after Eve (the order added, and the list's opener names Eve
+  before Fay goes in); Finish loads Eve.
+- 4: "Not on the agenda" and "Back to agenda" naming "next: Eve"; Guest is saved right after Eve
+  and loaded; Back to agenda loads the row let go of.
+- 5: "Speaker options" starts collapsed; after the refresh it still shows "at the end".
+Evidence: screenshots; page script: `toastmaster_agenda` after steps 1, 2, 3 and 4, and
+`toastmaster_speaker_insert_position` = `end` after step 5. PostHog `speech_finished` for Dani.
+Then: delete the rows added here.
+
+### NL-22 · auto · Finish and Reset clear the speaker; the idle card follows a rules edit
+Numbered NL-21 on this branch until the merge with #168, whose step took that number; the
+2026-11-25 run log calls it NL-21.
 Seen in the 2026-11-19 run: after Finish a tab switch put the speaker who had just finished back
 on the card, and Start timed them again under their name. The idle card also kept a role's old
 times after a rules edit, until Start.
-Do: Timer tab, a short role. "Who's speaking?" → type `NL Spec`, Enter (it adds them as the
-agenda's last row). Start, about 5 s, Finish. Agenda tab, wait until it shows, then Timer. Start,
-about 3 s, Finish. Then "Who's speaking?" → `NL Reset`, Enter; Start, about 3 s, Stop, Reset;
-Report tab, wait until it shows, then Timer. Last, ⋯ → Roles & timing rules, open the role in
+Do: Timer tab, a short role. "Who's speaking?" → type `NL Spec`, Enter (with nothing loaded this
+only labels the timer, #168). Start, about 5 s, Finish. Agenda tab, wait until it shows, then
+Timer. Start, about 3 s, Finish. Then "Who's speaking?" → type `NL Reset`, click "Save NL Reset to
+the agenda" (it adds and loads the row); Start, about 3 s, Stop, Reset; Report tab, wait until it
+shows, then Timer. Last, ⋯ → Roles & timing rules, open the role in
 use, set Green 10 s earlier, Save, and read the card before any Start; then set Green back.
 Expect:
 - After the first Finish the card reads "Who's speaking?" on the same role, and still does after
@@ -228,13 +271,15 @@ Expect:
 - After Save the card's rules line shows the new green time at once, not the old one.
 Evidence: screenshots of the card after each switch, of the Report, and of the rules line
 before and after Save.
-Then: delete `NL Spec` and `NL Reset` from the agenda; leave the Report rows unless it was
-empty before.
+Then: delete `NL Reset` (and `NL Spec`, if an older build added it) from the agenda; leave the
+Report rows unless it was empty before.
 Run 2026-11-25 (fix/finish-clears-speaker 0088e3a, dev 2a7f6ad7 with FLAGS_FORCE "1,pro=0", role
-ChairToast1): NL-21 passed. Finish and Reset left "Who's speaking?" across the Agenda/Timer and
+ChairToast1): NL-22 passed. Finish and Reset left "Who's speaking?" across the Agenda/Timer and
 Report/Timer switches; Report: `NL Spec` 00:10, then Unnamed. After Reset, `NL Reset` showed as
 "Up next", neither current nor done. A Green 30→20 Save moved the idle rules line to 0:20 at once.
 Log: test-runs/2026-11-25-finish-clears-speaker-2/run.md.
+2026-11-27: merged with `dev` (#168). Enter no longer adds a name with nothing loaded, so `NL Reset`
+goes on the agenda through "Save NL Reset to the agenda". Not rerun on the merge.
 
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,pro=0", then
 "1" for NL-09's second half, NL-10, NL-15, NL-16's club half and NL-17): NL-01–NL-03, NL-05–NL-11,
@@ -272,6 +317,22 @@ the owner; ⋯ has no "Join my club" row on a Pro device). NL-20 ⏭ (this devic
 free half ⏭ (no free account). The other steps were not rerun: #167 does not touch them; they last passed on
 61de1d8 (2026-11-19). Log: test-runs/2026-11-24-167-zoom-pass-2/run.md.
 
+Run 2026-11-26 (factory/168 ed3d673, NL-21 only; dev f760ce3a with FLAGS_FORCE "1,pro=0", Zoom on macOS, device in
+Claude Test Club): steps 1-5 passed, with Regular Speech (5:00/6:00/7:00) for Standard Speech, Tech Tip
+(3:00/4:00/5:00) for Ice Breaker and 1-2min Role (1:00/1:30/2:00) for Table Topics Speech, and the device's 6
+ticked-off rows ahead ('8 of 9' for '2 of 3'). Paste → One per line imports the rows (the sheet's first click on
+Add only focused it); tapping a row on the Agenda tab puts that speaker on the timer. Step 1: the real video was
+blue at 0:58 and green at 1:13 (Dana's 1:00). Step 2: with the role staged, the speaker chip showed the amber dot
+and its hover label read 'On the agenda · 9 of 10. Unsaved changes'; the list then opened with the name field
+blank (the staged name was still Dana); Return (key code 36, not `cliclick kp:return`) gave 'Updated Dani on the
+agenda'. Step 3: Eve and Fay added during Dani's speech: opener 'Add a speaker after Eve' before Fay went in, list
+order Dani, Eve, Fay, the count-up untouched on real video, Finish loaded Eve. Step 4: Guest saved after Eve
+(ahead of Fay), 'Back to agenda · next: Guest' after Switch again, which loaded Guest. Step 5: 'At the end of the
+agenda' still chosen after ⋯ → Refresh app, Speaker options collapsed on open. Not proven: PostHog
+`speech_finished` for Dani (no key on a deploy from outside the main checkout; the Agenda row reads 'Tech Tip ·
+01:08 · blue') and `toastmaster_speaker_insert_position` (webview inspector off; the UI after the refresh instead).
+The other new-look steps were not rerun. Log: test-runs/2026-11-26-168-on-the-spot-speakers-2/run.md.
+
 ## Not covered
 - Reviewed against the #167 implementation: the Pro sheet's code field now reads "Already on Pro
   with your club?" (its accessible name still starts "Already on Pro through your club?"), the
@@ -279,6 +340,10 @@ free half ⏭ (no free account). The other steps were not rerun: #167 does not t
   guests are asked to sign in or approve before a code is sent ([club-membership](club-membership.md)).
   NL-17 already says so; no step moves.
 - Today's panel with `new_look` off: the other specs, run with FLAGS_FORCE "1,new_look=0".
+- The Speaker options value showing the same in the old look and on the web (#168 AC-4): one
+  device's looks share `localStorage`, proven in `e2e/zoom.new-look.speakers.spec.js`; another
+  device gets both keys through profile sync (`profileMerge.test.js`). Checking it here would need
+  a redeploy with FLAGS_FORCE "1,new_look=0" or a web sign-in.
 - Audio of the sounds: timer-sounds.
 - The connection and club-renewal banners: unchanged by design B (they already sit at the top
   as the boards draw them); connection-notice and club-renewal-reminder cover them.

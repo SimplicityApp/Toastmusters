@@ -101,3 +101,8 @@ Evidence: snaps.
   stage contains the artwork, while the badge sits on the stage's 16:9 band. For a 16:9 or a
   taller card that is the part of the artwork the video shows; for a wider card the badge sits
   a little off the artwork. Every card seen so far is 16:9.
+- The stage's speaker row since #168 (20fe27c): a status line above the name field and "+ Add"
+  under it (Update and Undo while a rename is staged) make the top controls taller. The badge
+  keeps clear of the whole controls row (`topInset`), so no step moves; the add panel and the
+  speaker list open over the stage, as the list always did. [timer-core](timer-core.md) TC-14
+  step 7 uses them. Not rerun.

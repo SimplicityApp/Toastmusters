@@ -165,7 +165,7 @@ test.describe('Zoom App — Functional Checks', () => {
     await nameInput.fill('Finished Speaker');
     await page.getByRole('button', { name: /START/i }).click();
     await page.waitForTimeout(1000);
-    await page.getByRole('button', { name: /FINISH/i }).click();
+    await page.getByRole('button', { name: 'FINISH', exact: true }).click();
     await expect(nameInput).toHaveValue('');
 
     // Wait for the Agenda tab to show: it loads lazily, and a LIVE click before
@@ -178,7 +178,7 @@ test.describe('Zoom App — Functional Checks', () => {
     // The next START is somebody new: one report row for Finished Speaker, not two.
     await page.getByRole('button', { name: /START/i }).click();
     await page.waitForTimeout(1000);
-    await page.getByRole('button', { name: /FINISH/i }).click();
+    await page.getByRole('button', { name: 'FINISH', exact: true }).click();
     await page.getByRole('button', { name: /REPORT/i }).click();
     await expect(page.getByText('Finished Speaker')).toHaveCount(1);
   });
@@ -207,7 +207,7 @@ test.describe('Zoom App — Functional Checks', () => {
 
     await page.getByRole('button', { name: /START/i }).click();
     await page.waitForTimeout(1000);
-    await page.getByRole('button', { name: /FINISH/i }).click();
+    await page.getByRole('button', { name: 'FINISH', exact: true }).click();
     await expect(page.getByText('Blue phase (ends at 05:00)')).toBeVisible();
 
     // Standard Speech's green moves from 5:00 to 4:00

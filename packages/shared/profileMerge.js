@@ -40,6 +40,10 @@ export const SYNCED_KEYS = Object.freeze([
   // Which uploaded picture belongs to which card slot, so another device knows
   // what artwork to fetch. The pictures themselves live in R2, not here.
   'toastmaster_card_asset_hashes',
+  // Where a speaker added mid-meeting goes, and what Enter does in the name
+  // field (#168): the Zoom app's two looks and the web Live tab follow the user.
+  'toastmaster_speaker_insert_position',
+  'toastmaster_speaker_enter_action',
 ]);
 
 const SYNCED = new Set(SYNCED_KEYS);

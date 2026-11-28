@@ -172,3 +172,29 @@ describe('fieldsToApplyLocally', () => {
     expect(fieldsToApplyLocally(null, remote)).toEqual({ toastmaster_agenda: entry('a', 1) });
   });
 });
+
+// #168 AC-4: where a new speaker goes and what Enter does follow the user, so the
+// Zoom app's two looks and the web Live tab agree on another device too.
+describe('speaker entry settings sync (#168)', () => {
+  const INSERT_KEY = 'toastmaster_speaker_insert_position';
+  const ENTER_KEY = 'toastmaster_speaker_enter_action';
+
+  it('lists both keys among the synced ones', () => {
+    expect(SYNCED_KEYS).toContain(INSERT_KEY);
+    expect(SYNCED_KEYS).toContain(ENTER_KEY);
+  });
+
+  it('keeps them in a stored profile rather than dropping them as unknown', () => {
+    const result = normalizeProfile(profile({ [INSERT_KEY]: entry('end', 100), [ENTER_KEY]: entry('add', 100) }));
+    expect(result.fields).toEqual({ [INSERT_KEY]: entry('end', 100), [ENTER_KEY]: entry('add', 100) });
+  });
+
+  it('a change made on another device reaches this one', () => {
+    const local = profile({ [INSERT_KEY]: entry('afterActive', 100) });
+    const remote = profile({ [INSERT_KEY]: entry('end', 200), [ENTER_KEY]: entry('add', 200) });
+    expect(fieldsToApplyLocally(local, remote)).toEqual({
+      [INSERT_KEY]: entry('end', 200),
+      [ENTER_KEY]: entry('add', 200),
+    });
+  });
+});

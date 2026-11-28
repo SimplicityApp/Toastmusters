@@ -2,6 +2,7 @@ import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { actionLabels } from '@toastmaster-timer/shared';
 import SpeakerInput from './SpeakerInput';
 import { getZoomParticipants } from '../utils/zoomSdk';
 
@@ -20,79 +21,101 @@ const ROLES = ['Standard Speech', 'Table Topics'];
 
 /**
  * Renders with the value controlled the way LiveTab controls it, so typing
- * behaves as it does in the app rather than against a frozen prop.
+ * behaves as it does in the app rather than against a frozen prop. The speaker
+ * controls under the field read the real actionLabels for that value; their
+ * actions are spies.
  */
 function renderInput(overrides = {}) {
+  const { loadedRowId = null, ...rest } = overrides;
   const props = {
-    onAddSpeaker: vi.fn(),
-    onRenameSpeaker: vi.fn(),
     onSelectSuggestion: vi.fn(),
     onRoleChange: vi.fn(),
     onEditRules: vi.fn(),
     agendaItems: [],
-    activeSpeakerId: null,
     selectedRole: 'Standard Speech',
     roleOptions: ROLES,
-    ...overrides,
+    ...rest,
+  };
+  const entry = {
+    roleOptions: ROLES,
+    clockRole: 'Table Topics',
+    insertPosition: 'afterActive',
+    enterAction: 'update',
+    onCommit: vi.fn(),
+    onUpdate: vi.fn(),
+    onUndo: vi.fn(),
+    onAddSpeaker: vi.fn(),
+    onSwitchToQuickTiming: vi.fn(),
+    onBackToAgenda: vi.fn(),
+    onSaveToAgenda: vi.fn(),
+    onInsertPositionChange: vi.fn(),
+    onEnterActionChange: vi.fn(),
   };
 
   function Harness() {
     const [value, setValue] = useState(props.value || '');
-    return <SpeakerInput {...props} value={value} onChange={setValue} />;
+    const labelsFor = (add = {}) => actionLabels({
+      agenda: props.agendaItems,
+      loadedRowId,
+      name: value,
+      role: props.selectedRole,
+      addName: add.name,
+      addRole: add.role,
+    });
+    return <SpeakerInput {...props} value={value} onChange={setValue} entry={{ ...entry, labelsFor }} />;
   }
 
   render(<Harness />);
-  return props;
+  return { ...props, entry };
 }
 
 const field = () => screen.getByPlaceholderText('Type speaker name...');
 
 describe('SpeakerInput', () => {
-  it('adds a typed name to the agenda on Enter', async () => {
+  it('Enter does what the filled button does (#168)', async () => {
     const user = userEvent.setup();
-    const { onAddSpeaker } = renderInput();
+    const { entry } = renderInput();
 
     await user.type(field(), 'Priya');
-    expect(await screen.findByText('Enter to add "Priya" to the agenda')).toBeInTheDocument();
-
     await user.keyboard('{Enter}');
-    expect(onAddSpeaker).toHaveBeenCalledWith('Priya');
+
+    expect(entry.onCommit).toHaveBeenCalledTimes(1);
+    expect(entry.onAddSpeaker).not.toHaveBeenCalled();
   });
 
-  it('renames the active agenda speaker instead of adding a second one', async () => {
+  it('with nobody loaded, a typed name can be saved to the agenda, and the status says so', async () => {
     const user = userEvent.setup();
-    // Correcting a name mid-meeting must fix the running order, not fork it.
-    const { onAddSpeaker, onRenameSpeaker } = renderInput({
+    const { entry } = renderInput();
+
+    expect(screen.getByText('Not on the agenda')).toBeInTheDocument();
+    await user.type(field(), 'Priya');
+    await user.click(screen.getByRole('button', { name: /Save Priya to the agenda/ }));
+
+    expect(entry.onSaveToAgenda).toHaveBeenCalled();
+  });
+
+  it('with a speaker loaded, a new name waits for "Update Jon on the agenda"', async () => {
+    const user = userEvent.setup();
+    const { entry } = renderInput({
       agendaItems: [{ id: 'a1', name: 'Jon', role: 'Standard Speech' }],
-      activeSpeakerId: 'a1',
+      loadedRowId: 'a1',
       value: 'Jon',
     });
 
+    expect(screen.getByText('On the agenda · 1 of 1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Update Jon on the agenda/ })).not.toBeInTheDocument();
     await user.type(field(), 'athan');
-    await user.keyboard('{Enter}');
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Update Jon on the agenda/ }));
 
-    expect(onRenameSpeaker).toHaveBeenCalledWith('a1', 'Jonathan');
-    expect(onAddSpeaker).not.toHaveBeenCalled();
-  });
-
-  it('offers neither when the typed name is already on the agenda', async () => {
-    const user = userEvent.setup();
-    const { onAddSpeaker } = renderInput({
-      agendaItems: [{ id: 'a1', name: 'Priya', role: 'Standard Speech' }],
-    });
-
-    await user.type(field(), 'Priya');
-    await user.keyboard('{Enter}');
-
-    expect(onAddSpeaker).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Enter to add/)).not.toBeInTheDocument();
+    expect(entry.onUpdate).toHaveBeenCalled();
   });
 
   it('lets a highlighted suggestion win over the typed text', async () => {
     const user = userEvent.setup();
     // Arrowing to a name is an explicit choice; the typed text is only a partial
-    // match for it, so Enter must pick rather than add.
-    const { onAddSpeaker, onSelectSuggestion } = renderInput({
+    // match for it, so Enter must pick rather than commit.
+    const { entry, onSelectSuggestion } = renderInput({
       agendaItems: [{ id: 'a1', name: 'Priya', role: 'Standard Speech', completed: false }],
     });
 
@@ -100,31 +123,29 @@ describe('SpeakerInput', () => {
     await user.keyboard('{ArrowDown}{Enter}');
 
     expect(onSelectSuggestion).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }));
-    expect(onAddSpeaker).not.toHaveBeenCalled();
+    expect(entry.onCommit).not.toHaveBeenCalled();
   });
 
-  it('can add the same name again once that speaker has finished', async () => {
+  it('opens the add panel on the role on the clock, and adds from it', async () => {
     const user = userEvent.setup();
-    // A completed item is history, not a running order: the same person is often
-    // back on later as an evaluator.
-    const { onAddSpeaker } = renderInput({
-      agendaItems: [{ id: 'a1', name: 'Priya', role: 'Standard Speech', completed: true }],
-    });
+    const { entry } = renderInput();
 
-    await user.type(field(), 'Priya');
-    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('button', { name: /Add a speaker at the end/ }));
+    expect(screen.getByRole('combobox', { name: 'Role for the new speaker' })).toHaveValue('Table Topics');
+    await user.type(screen.getByRole('textbox', { name: 'New speaker’s name' }), 'Priya{Enter}');
 
-    expect(onAddSpeaker).toHaveBeenCalledWith('Priya');
+    expect(entry.onAddSpeaker).toHaveBeenCalledWith('Priya', 'Table Topics');
   });
 
-  it('commits on a click as well, for anyone already reaching for the list', async () => {
+  it('keeps "Speaker options" collapsed until opened', async () => {
     const user = userEvent.setup();
-    const { onAddSpeaker } = renderInput();
+    const { entry } = renderInput();
 
-    await user.type(field(), 'Priya');
-    await user.click(await screen.findByText('Enter to add "Priya" to the agenda'));
+    expect(screen.getByText('Speaker options').closest('details').open).toBe(false);
+    await user.click(screen.getByText('Speaker options'));
+    await user.click(screen.getByRole('radio', { name: 'At the end of the agenda' }));
 
-    expect(onAddSpeaker).toHaveBeenCalledWith('Priya');
+    expect(entry.onInsertPositionChange).toHaveBeenCalledWith('end');
   });
 });
 
@@ -225,11 +246,30 @@ describe('SpeakerInput participant list', () => {
       role: 'attendee',
       restricted: true,
     });
-    const { onAddSpeaker } = renderInput();
+    const { entry } = renderInput();
 
     await user.type(field(), 'Dana');
     await user.keyboard('{Enter}');
 
-    expect(onAddSpeaker).toHaveBeenCalledWith('Dana');
+    expect(field()).toHaveValue('Dana');
+    expect(entry.onCommit).toHaveBeenCalled();
+  });
+
+  it('opens the add panel with a guest\'s name rather than renaming whoever is loaded (#168)', async () => {
+    const user = userEvent.setup();
+    getZoomParticipants.mockResolvedValue({
+      participants: [{ id: 'p2', name: 'Sam' }],
+      role: 'host',
+      restricted: false,
+    });
+    const { entry } = renderInput();
+
+    await user.click(field());
+    await user.click(await screen.findByText('Sam'));
+
+    expect(field()).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'New speaker’s name' })).toHaveValue('Sam');
+    await user.click(screen.getByRole('button', { name: /Add Sam at the end/ }));
+    expect(entry.onAddSpeaker).toHaveBeenCalledWith('Sam', 'Table Topics');
   });
 });
