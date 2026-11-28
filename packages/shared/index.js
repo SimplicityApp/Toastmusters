@@ -21,3 +21,4 @@ export * from './clubArchive.js';
 export * from './reportImage.js';
 export * from './timerSounds.js';
 export * from './announcements.js';
+export * from './speakerEntry.js';

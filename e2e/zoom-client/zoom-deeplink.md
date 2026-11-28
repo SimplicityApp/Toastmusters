@@ -75,3 +75,5 @@ Evidence: `appLinks.test.js`; curl 302.
 - Where Zoom shows its "Open Zoom?" browser prompt, which depends on the browser.
 - `TUTORIALS_URL` in `packages/shared/appLinks.js` (added for design B's ⋯ menu, plan 13) is a
   plain web link, not a deeplink; `new-look` NL-11 opens it.
+- The landing page's tutorial text. Reviewed against #168 (8a8ac2d): `Landing.jsx` changed only
+  the "Name the speaker" step's copy; no deeplink step reads it.

@@ -132,7 +132,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Name the speaker',
-    body: 'Pick whoever is up next from your agenda, or straight from the people in the meeting. Someone who is not on the list? Type their name and press Enter to add them. Type over a name and press Enter to fix a spelling, and they keep their place in the running order.',
+    body: 'Pick whoever is up next from your agenda, or straight from the people in the meeting. Someone picked on the spot? Tap "Add a speaker" and they go right after the speaker on the timer. Type over a name, or change the role, then tap Update (or press Enter) to fix it, and they keep their place in the running order.',
     src: '/zoom/tutorial/04-speaker-name.jpg',
     hint: 'Speaker name field with the suggestion list open, showing agenda names and people in the meeting',
   },

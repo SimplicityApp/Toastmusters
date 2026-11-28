@@ -3,7 +3,7 @@ import { DEFAULT_ROLE_RULES, getDefaultGraceAfterRed, BREAK_ROLE, DEFAULT_BREAK_
 import { calculateStatus, formatTime, getDisplaySeconds } from '@toastmaster-timer/shared';
 import { saveAgenda, loadAgenda, saveReports, loadReports, saveRoleRules, saveRoleOrder, saveHiddenBuiltinRoles, clearAgenda, clearReports, loadRevealFaceWhenIdle, saveTimerSession, loadTimerSession, clearTimerSession } from '@toastmaster-timer/shared';
 import { applyOverlay, removeOverlay, getBackgroundUrl, isOverlayActive, getOverlayMode, isVideoOverlayMode, setOverlayTimeLabel, OVERLAY_MODE_CARD } from '../utils/zoomSdk';
-import { parseEasySpeakText } from '@toastmaster-timer/shared';
+import { parseEasySpeakText, insertAfter } from '@toastmaster-timer/shared';
 import { recordSpeechFinished } from '@toastmaster-timer/shared';
 import { recordSpeech } from '@toastmaster-timer/shared';
 import { getSessionToken } from '../utils/zoomIdentity';
@@ -122,6 +122,24 @@ export function TimerProvider({ children }) {
   // timer as a side effect — the one thing a restore must not do.
   const [currentSpeaker, setCurrentSpeaker] = useState(restoredSession?.speaker ?? null);
   const [activeSpeakerId, setActiveSpeakerId] = useState(restoredSession?.activeSpeakerId ?? null);
+  // Two things the speaker controls of both looks keep here rather than in the
+  // Timer tab, which unmounts on every tab switch (#168): the row let go of for
+  // a quick timing ("Back to agenda", and where a speaker added meanwhile goes),
+  // and an edit of the loaded row not yet saved with Update. A ref for the
+  // draft: it is read once when the tab mounts, so a keystroke need not
+  // re-render everything that reads the timer.
+  const [releasedRowId, setReleasedRowId] = useState(null);
+  // Speakers added without going on the timer (a speech was in progress): they
+  // wait on the agenda in the order added, so the next one goes behind them
+  // (afterQueue), not in front.
+  const [waitingSpeakerIds, setWaitingSpeakerIds] = useState([]);
+  const speakerDraftRef = useRef(null);
+  const rememberSpeakerDraft = useCallback((draft) => { speakerDraftRef.current = draft; }, []);
+  const recallSpeakerDraft = useCallback(() => speakerDraftRef.current, []);
+  // Back on the agenda, so there is nothing to go back to.
+  useEffect(() => {
+    if (activeSpeakerId) setReleasedRowId(null);
+  }, [activeSpeakerId]);
 
   const [reports, setReports] = useState(() => {
     const saved = loadReports();
@@ -399,18 +417,22 @@ export function TimerProvider({ children }) {
 
   /**
    * @param {Object} speaker
-   * @param {{activate?: boolean}} [options] - activate makes the new item the
-   *   speaker the timer is on. It belongs here rather than in a follow-up
-   *   loadSpeakerFromAgenda call: that reads the agenda from the render it was
-   *   created in, which cannot contain an item added moments earlier in the same
-   *   tick, so it silently did nothing. The speaker was then on the agenda but
-   *   not active — finishing could not advance to the next one, and editing the
-   *   name added a second copy instead of correcting the first.
+   * @param {{activate?: boolean, insertAfter?: string|null}} [options] - activate
+   *   makes the new item the speaker the timer is on. It belongs here rather than
+   *   in a follow-up loadSpeakerFromAgenda call: that reads the agenda from the
+   *   render it was created in, which cannot contain an item added moments
+   *   earlier in the same tick, so it silently did nothing. The speaker was then
+   *   on the agenda but not active — finishing could not advance to the next one,
+   *   and editing the name added a second copy instead of correcting the first.
+   *   insertAfter is an agenda id to put the new item right after (#168: a
+   *   speaker picked on the spot speaks next). Without it the item is appended,
+   *   which is what the Agenda tab's form and the imports rely on.
    */
-  const addToAgenda = useCallback((speaker, { activate = false } = {}) => {
+  const addToAgenda = useCallback((speaker, { activate = false, insertAfter: afterId = null } = {}) => {
     const id = Date.now().toString();
     const rules = speaker.rules || roleRules[speaker.role] || DEFAULT_ROLE_RULES['Standard Speech'];
-    setAgenda(prev => [...prev, { id, name: speaker.name, role: speaker.role, rules, completed: false }]);
+    setAgenda(prev => insertAfter(prev, afterId, { id, name: speaker.name, role: speaker.role, rules, completed: false }));
+    if (!activate && afterId) setWaitingSpeakerIds(prev => [...prev, id]);
     if (activate) {
       setCurrentSpeakerAction({ name: speaker.name, role: speaker.role, rules });
       setActiveSpeakerId(id);
@@ -674,6 +696,11 @@ export function TimerProvider({ children }) {
     currentSpeaker,
     agenda,
     activeSpeakerId,
+    releasedRowId,
+    waitingSpeakerIds,
+    setReleasedRowId,
+    rememberSpeakerDraft,
+    recallSpeakerDraft,
     reports,
     roleRules,
     roleOptions,
@@ -705,6 +732,10 @@ export function TimerProvider({ children }) {
     currentSpeaker,
     agenda,
     activeSpeakerId,
+    releasedRowId,
+    waitingSpeakerIds,
+    rememberSpeakerDraft,
+    recallSpeakerDraft,
     reports,
     roleRules,
     roleOptions,

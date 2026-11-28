@@ -1,17 +1,26 @@
 import { useState, useRef, useEffect, useMemo, memo } from 'react';
+import { SpeakerStatus, SpeakerEntryControls, SpeakerEntryOptions, useAddSpeakerPanel } from '@toastmaster-timer/ui/SpeakerEntry';
 import { ChevronDown } from 'lucide-react';
 
-export default memo(function SpeakerInput({ value, onChange, onRoleChange, selectedRole, roleOptions, onEditRules, agendaItems, onSelectSuggestion }) {
+/**
+ * @param {import('@toastmaster-timer/ui/SpeakerEntry').SpeakerEntry} [entry] -
+ *   LiveTab's speaker bundle: the status, the actions and the add panel under
+ *   the field, and what Enter does (#168), the same parts the Zoom app shows.
+ */
+export default memo(function SpeakerInput({ value, onChange, onRoleChange, selectedRole, roleOptions, onEditRules, agendaItems, onSelectSuggestion, entry }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const inputRef = useRef(null);
   const suggestionsRef = useRef(null);
+  const addPanel = useAddSpeakerPanel();
+  const labels = entry ? entry.labelsFor(addPanel) : null;
 
   const suggestions = useMemo(() => (agendaItems || []).filter(item =>
     !item.completed && item.name && item.name.toLowerCase().includes((value || '').toLowerCase())
   ), [agendaItems, value]);
 
-  const isCustomName = value && value.trim() && !suggestions.some(item =>
+  // Only without the controls under the field, which say what a new name does.
+  const isCustomName = !labels && value && value.trim() && !suggestions.some(item =>
     item.name.toLowerCase() === value.trim().toLowerCase()
   );
 
@@ -41,6 +50,15 @@ export default memo(function SpeakerInput({ value, onChange, onRoleChange, selec
   };
 
   const handleKeyDown = (e) => {
+    // What the filled button does: Update by default, Add with the setting on
+    // "add", nothing with no speaker loaded (the field labels the timer). A
+    // highlighted suggestion outranks it, as an explicit choice.
+    if (e.key === 'Enter' && entry && !(showSuggestions && highlightIndex >= 0 && suggestions.length > 0)) {
+      e.preventDefault();
+      entry.onCommit();
+      setShowSuggestions(false);
+      return;
+    }
     if (!showSuggestions || suggestions.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -124,6 +142,16 @@ export default memo(function SpeakerInput({ value, onChange, onRoleChange, selec
           </ul>
         )}
       </div>
+
+      {/* Under the field, what it would do and where the speaker stands: the
+          status, the actions that say what a tap does, and the add panel. */}
+      {labels && (
+        <div className="space-y-2">
+          <SpeakerStatus labels={labels} className="text-gray-600" />
+          <SpeakerEntryControls entry={entry} labels={labels} panel={addPanel} />
+          <SpeakerEntryOptions entry={entry} />
+        </div>
+      )}
     </div>
   )
 });

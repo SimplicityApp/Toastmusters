@@ -714,3 +714,82 @@ describe('TimerContext', () => {
     });
   });
 });
+
+// #168 (AC-12): the web Live tab follows the Zoom app, so its context grows the
+// same agenda calls: addToAgenda(speaker, { activate, insertAfter }) and
+// renameAgendaSpeaker(id, name). Without insertAfter, an add still appends (the
+// Agenda tab's form and the imports build the running order that way).
+describe('agenda calls for on-the-spot speakers (#168)', () => {
+  const SEED = [
+    { id: 'a', name: 'Ana', role: 'Standard Speech', rules: { green: 300, yellow: 360, red: 420, graceAfterRed: 30 }, completed: false },
+    { id: 'b', name: 'Jordan', role: 'Ice Breaker', rules: { green: 240, yellow: 300, red: 360, graceAfterRed: 30 }, completed: false },
+    { id: 'c', name: 'Cole', role: 'Standard Speech', rules: { green: 300, yellow: 360, red: 420, graceAfterRed: 30 }, completed: false },
+  ];
+  const TABLE_TOPICS = { green: 60, yellow: 90, red: 120, graceAfterRed: 30 };
+  const names = (agenda) => agenda.map((item) => item.name);
+
+  beforeEach(() => {
+    localStorage.setItem('toastmaster_agenda', JSON.stringify(SEED));
+  });
+
+  it('AC-1: addToAgenda inserts right after the given row; without it, appends', () => {
+    const { result } = renderHook(() => useAllTimer(), { wrapper });
+
+    act(() => {
+      result.current.addToAgenda({ name: 'Dana', role: 'Table Topics Speech' }, { insertAfter: 'b' });
+    });
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(result.current.agenda[2]).toMatchObject({ name: 'Dana', role: 'Table Topics Speech', rules: TABLE_TOPICS });
+
+    act(() => {
+      result.current.addToAgenda({ name: 'Eve', role: 'Standard Speech' });
+    });
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole', 'Eve']);
+  });
+
+  it('AC-1: with activate, the new speaker is loaded under their own rules', () => {
+    const { result } = renderHook(() => useAllTimer(), { wrapper });
+    act(() => {
+      result.current.loadSpeakerFromAgenda('b');
+    });
+
+    let id;
+    act(() => {
+      id = result.current.addToAgenda({ name: 'Dana', role: 'Table Topics Speech' }, { insertAfter: 'b', activate: true });
+    });
+
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(result.current.activeSpeakerId).toBe(id);
+    expect(result.current.currentSpeaker).toMatchObject({ name: 'Dana', role: 'Table Topics Speech', rules: TABLE_TOPICS });
+  });
+
+  it('AC-13: without activate, the loaded speaker stays', () => {
+    const { result } = renderHook(() => useAllTimer(), { wrapper });
+    act(() => {
+      result.current.loadSpeakerFromAgenda('b');
+    });
+    act(() => {
+      result.current.addToAgenda({ name: 'Dana', role: 'Table Topics Speech' }, { insertAfter: 'b' });
+    });
+
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Jordan', 'Dana', 'Cole']);
+    expect(result.current.activeSpeakerId).toBe('b');
+    expect(result.current.currentSpeaker).toMatchObject({ name: 'Jordan', role: 'Ice Breaker' });
+  });
+
+  it('renameAgendaSpeaker renames in place, and the loaded speaker follows', () => {
+    const { result } = renderHook(() => useAllTimer(), { wrapper });
+    expect(typeof result.current.renameAgendaSpeaker, 'the web context offers renameAgendaSpeaker()').toBe('function');
+    act(() => {
+      result.current.loadSpeakerFromAgenda('b');
+    });
+
+    act(() => {
+      result.current.renameAgendaSpeaker('b', 'Dana');
+    });
+
+    expect(names(result.current.agenda)).toEqual(['Ana', 'Dana', 'Cole']);
+    expect(result.current.agenda[1]).toMatchObject({ id: 'b', role: 'Ice Breaker' });
+    expect(result.current.currentSpeaker).toMatchObject({ name: 'Dana', role: 'Ice Breaker' });
+  });
+});

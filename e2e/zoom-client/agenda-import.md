@@ -186,3 +186,13 @@ Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 - The web app (`apps/web`) runs the same shared parser. Unit tests cover it in
   `apps/web/src/context/TimerContext.test.jsx`, and `e2e/web.agenda-flow.spec.js` runs this
   import (IM-01, IM-02) in a plain browser.
+- Adding a speaker from the Live tab (#168, timer-core TC-14). Reviewed against 12c85ee:
+  `addToAgenda` gains an `insertAfter` id that only the Live tab's add panel passes; imports and
+  the Agenda tab's form still append, so no step here moves. Not rerun.
+- Reviewed against #168's verify fixes (review round 1): the speaker controls keep a staged
+  edit and the row let go of for a quick timing in the timer context across tab switches, and
+  hide "Back to agenda" while a quick timing runs; imports and the Agenda tab's form are
+  untouched. Not rerun.
+- Reviewed against #168's order fix (be25a33): the timer context also remembers the speakers the
+  Live tab added behind a running speech, so the next one goes behind them; imports and the Agenda
+  tab's form pass no `insertAfter` and still append. No step here moves. Not rerun.

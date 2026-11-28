@@ -57,10 +57,11 @@ for (const width of [360, 400]) {
 
 test('a speech from start to finish lands in the report', async ({ page }) => {
   await openPanel(page);
-  await page.getByRole('button', { name: "Who's speaking? Pick a speaker" }).click();
+  await page.getByRole('button', { name: "Who's speaking? Not on the agenda. Pick a speaker" }).click();
+  // With nobody loaded the name labels the timer as it is typed (#168).
   await page.getByRole('textbox', { name: 'Type a name, or pick one' }).fill('Priya');
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Speaker: Priya. Change speaker' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Speaker: Priya. Not on the agenda. Change speaker' })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: 'Start' }).click();
   await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
@@ -269,7 +270,7 @@ test('agenda: paste one per line, pick the missing role, then time from the agen
   await expect(page.getByText('1 row needs a role', { exact: false })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Put Ana on the timer' }).click();
-  await expect(page.getByRole('button', { name: 'Speaker: Ana. Change speaker' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Speaker: Ana. On the agenda · 1 of 2. Change speaker' })).toBeVisible();
   await expect(page.getByTestId('up-next')).toContainText('Alex');
 });
 

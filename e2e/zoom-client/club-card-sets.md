@@ -140,6 +140,14 @@ were not run. Use fresh images: re-uploading the fixtures already in the club se
 - The Live tab refusing an agenda row that needs a role (#91, `LiveTab.jsx`). Reviewed
   2026-11-13: it changes which speaker loads, not the card artwork or its push; no step here
   loads an agenda row. See [timer-core](timer-core.md) TC-13.
+- The Live tab's speaker controls (#168, timer-core TC-14). Reviewed against 20fe27c:
+  `LiveTab.jsx` and `useLiveTimer.js` changed only the speaker controls; no card-set step moves.
+  Not rerun.
+- Reviewed against #168's verify fixes (review round 1): the speaker controls keep a staged
+  edit and the row let go of for a quick timing in the timer context across tab switches, and
+  hide "Back to agenda" while a quick timing runs; no card-set step moves. Not rerun.
+- Reviewed against #168's order fix (be25a33): speakers added during one speech now keep the order
+  added (the Live tab's add controls only); no card-set step moves. Not rerun.
 
 Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6, A = Zoom desktop, B = web app in a browser
 profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards" (null label in

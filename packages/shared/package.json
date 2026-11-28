@@ -26,6 +26,7 @@
     "./clubPresets": "./clubPresets.js",
     "./clubCards": "./clubCards.js",
     "./clubArchive": "./clubArchive.js",
-    "./reportImage": "./reportImage.js"
+    "./reportImage": "./reportImage.js",
+    "./speakerEntry": "./speakerEntry.js"
   }
 }

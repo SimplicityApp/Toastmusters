@@ -123,8 +123,7 @@ export default memo(function TimerStage({
   agendaItems,
   activeSpeakerId,
   onSelectSpeaker,
-  onAddSpeaker,
-  onRenameSpeaker,
+  speakerEntry,
   clubKit,
   badgePlacement,
 }) {
@@ -242,12 +241,10 @@ export default memo(function TimerStage({
             <StageSpeakerPicker
               value={speakerName}
               onChange={onSpeakerNameChange}
-              role={role}
               agendaItems={agendaItems}
               activeSpeakerId={activeSpeakerId}
               onSelectSpeaker={onSelectSpeaker}
-              onAddSpeaker={onAddSpeaker}
-              onRenameSpeaker={onRenameSpeaker}
+              entry={speakerEntry}
             />
           </div>
           <button

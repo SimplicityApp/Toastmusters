@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
+import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { BREAK_ROLE, DEFAULT_ROLE_RULES, deriveBreakRules } from '@toastmaster-timer/shared';
+import { BREAK_ROLE, DEFAULT_ROLE_RULES, actionLabels, deriveBreakRules } from '@toastmaster-timer/shared';
 import TimerCard from './TimerCard';
 import RolePicker from './RolePicker';
 import SpeakerPicker from './SpeakerPicker';
@@ -21,11 +22,31 @@ const AGENDA = [
 ];
 const needsRole = (item) => !ROLE_OPTIONS.includes(item.role);
 
+/** The speaker bundle useLiveTimer passes: the real words, spies for the actions. */
+function speakerEntry({ agenda = AGENDA, loadedRowId = 'a1', name = 'Bob', role = 'Ice Breaker' } = {}) {
+  return {
+    labelsFor: (add = {}) => actionLabels({ agenda, loadedRowId, name, role, addName: add.name, addRole: add.role }),
+    roleOptions: ROLE_OPTIONS,
+    clockRole: role,
+    insertPosition: 'afterActive',
+    enterAction: 'update',
+    onCommit: vi.fn(),
+    onUpdate: vi.fn(),
+    onUndo: vi.fn(),
+    onAddSpeaker: vi.fn(),
+    onSwitchToQuickTiming: vi.fn(),
+    onBackToAgenda: vi.fn(),
+    onSaveToAgenda: vi.fn(),
+    onInsertPositionChange: vi.fn(),
+    onEnterActionChange: vi.fn(),
+  };
+}
+
 function renderCard(over = {}) {
   const handlers = {
     onStart: vi.fn(), onStop: vi.fn(), onContinue: vi.fn(), onReset: vi.fn(), onFinish: vi.fn(),
     onPreviewColor: vi.fn(), onEditRules: vi.fn(), onRoleChange: vi.fn(),
-    onSelectSpeaker: vi.fn(), onAddSpeaker: vi.fn(), onRenameSpeaker: vi.fn(),
+    onSelectSpeaker: vi.fn(), onSpeakerChange: vi.fn(),
   };
   const props = {
     status: 'blue', previewColor: null, elapsedTime: 0, isRunning: false,
@@ -33,6 +54,7 @@ function renderCard(over = {}) {
     roleOptions: ROLE_OPTIONS, roleRules: ROLE_RULES, agenda: AGENDA, activeSpeakerId: 'a1', needsRole,
     readoutPosition: { x: 0.18, y: 0.3 }, readoutVisible: true, clubKit: null, badgePlacement: null,
     videoOff: false, isClearingVideo: false, coachHint: null,
+    speakerEntry: speakerEntry({ name: over.speakerName ?? 'Bob', loadedRowId: over.speakerName === '' ? null : 'a1' }),
     ...handlers, ...over,
   };
   const view = render(<TimerCard {...props} />);
@@ -44,7 +66,7 @@ const button = (name) => screen.getByRole('button', { name });
 describe('TimerCard', () => {
   it('ready: speaker, role, rules, preview swatches, Start and Reset', () => {
     const { onStart, onReset, onEditRules } = renderCard();
-    expect(button('Speaker: Bob. Change speaker')).toBeInTheDocument();
+    expect(button('Speaker: Bob. On the agenda · 1 of 3. Change speaker')).toBeInTheDocument();
     expect(button('Timing role: Ice Breaker. Change role')).toBeInTheDocument();
     expect(screen.getByText('Green 4:00 · Yellow 5:00 · Red 6:00')).toBeInTheDocument();
     expect(screen.getByTestId('timer-status')).toHaveTextContent('Ready · green at 4:00');
@@ -58,9 +80,17 @@ describe('TimerCard', () => {
     expect(screen.queryByRole('button', { name: 'Finish' })).toBeNull();
   });
 
+  it('marks the speaker button while a role picked on the role chip waits for Update (#168)', () => {
+    renderCard({ selectedRole: 'Table Topics Speech', speakerEntry: speakerEntry({ role: 'Table Topics Speech' }) });
+    expect(button('Speaker: Bob. On the agenda · 1 of 3. Unsaved changes. Change speaker')).toHaveAttribute(
+      'title',
+      'On the agenda · 1 of 3. Unsaved changes'
+    );
+  });
+
   it('says who is speaking when nobody is', () => {
-    renderCard({ speakerName: '' });
-    expect(button("Who's speaking? Pick a speaker")).toHaveTextContent('Who’s speaking?');
+    renderCard({ speakerName: '', activeSpeakerId: null });
+    expect(button("Who's speaking? Not on the agenda. Pick a speaker")).toHaveTextContent('Who’s speaking?');
   });
 
   it('running: the card takes the status colour, Stop and Finish only, no swatches', () => {
@@ -130,13 +160,23 @@ describe('TimerCard', () => {
 
 describe('SpeakerPicker', () => {
   function renderPicker(over = {}) {
+    const { loadedRowId = 'a1', ...rest } = over;
     const props = {
-      value: 'Bob', role: 'Ice Breaker', agendaItems: AGENDA, activeSpeakerId: 'a1', needsRole,
-      onSelectSpeaker: vi.fn(), onAddSpeaker: vi.fn(), onRenameSpeaker: vi.fn(), palette: PALETTE, ...over,
+      value: 'Bob', agendaItems: AGENDA, activeSpeakerId: loadedRowId, needsRole,
+      onSelectSpeaker: vi.fn(), palette: PALETTE, ...rest,
     };
-    render(<SpeakerPicker {...props} />);
+    const entry = speakerEntry({ loadedRowId });
+    // The value controlled the way TimerTab controls it, and the words read for it.
+    function Harness() {
+      const [value, setValue] = useState(props.value);
+      const labelsFor = (add = {}) => actionLabels({
+        agenda: AGENDA, loadedRowId, name: value, role: 'Ice Breaker', addName: add.name, addRole: add.role,
+      });
+      return <SpeakerPicker {...props} value={value} onSpeakerChange={setValue} entry={{ ...entry, labelsFor }} />;
+    }
+    render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /speaker/i }));
-    return props;
+    return { ...props, entry };
   }
 
   it('lists the agenda and the meeting, and marks a row that needs a role', async () => {
@@ -144,35 +184,45 @@ describe('SpeakerPicker', () => {
     expect(screen.getByRole('listbox', { name: 'Speakers' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /Bob/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('option', { name: /Alex/ })).toHaveTextContent('Pick a role first');
-    expect(await screen.findByRole('option', { name: /Maria Chen/ })).toHaveTextContent('Add as Ice Breaker');
+    expect(await screen.findByRole('option', { name: /Maria Chen/ })).toHaveTextContent('Add to the agenda…');
   });
 
-  it('picks an agenda row, and adds a meeting participant to the agenda', async () => {
+  it('picks an agenda row, and opens the add panel for a meeting participant (#168)', async () => {
     const props = renderPicker();
     fireEvent.click(screen.getByRole('option', { name: /Alice/ }));
     expect(props.onSelectSpeaker).toHaveBeenCalledWith('a3');
 
     fireEvent.click(screen.getByRole('button', { name: /speaker/i }));
     fireEvent.click(await screen.findByRole('option', { name: /Maria Chen/ }));
-    expect(props.onAddSpeaker).toHaveBeenCalledWith('Maria Chen');
+    expect(screen.getByRole('textbox', { name: 'New speaker’s name' })).toHaveValue('Maria Chen');
+    expect(props.entry.onAddSpeaker).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Add Maria Chen after Bob/ }));
+    expect(props.entry.onAddSpeaker).toHaveBeenCalledWith('Maria Chen', 'Ice Breaker');
   });
 
-  it('adds a new typed name on Enter, and offers to rename the current speaker', () => {
+  it('holds the loaded speaker; a new name waits for Update, and Enter does what Update does (#168)', () => {
     const props = renderPicker();
     const input = screen.getByRole('textbox', { name: 'Type a name, or pick one' });
+    expect(input).toHaveValue('Bob');
+    expect(screen.getByText('On the agenda · 1 of 3')).toBeInTheDocument();
     fireEvent.change(input, { target: { value: 'Priya' } });
-    expect(screen.getByRole('option', { name: /Rename Bob to Priya/ })).toBeInTheDocument();
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    // The button still names who is on the clock until Update.
+    expect(screen.getByRole('button', { name: /^Speaker: Bob\./ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Update Bob on the agenda/ }));
+    expect(props.entry.onUpdate).toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(props.onAddSpeaker).toHaveBeenCalledWith('Priya');
+    expect(props.entry.onCommit).toHaveBeenCalled();
+    expect(props.entry.onAddSpeaker).not.toHaveBeenCalled();
   });
 
-  it('picks an existing name on Enter rather than adding it twice', () => {
-    const props = renderPicker();
+  it('narrows the lists to a typed name, and keeps "Speaker options" at the foot, collapsed', () => {
+    renderPicker({ value: '', loadedRowId: null });
     const input = screen.getByRole('textbox', { name: 'Type a name, or pick one' });
-    fireEvent.change(input, { target: { value: 'alice' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(props.onSelectSpeaker).toHaveBeenCalledWith('a3');
-    expect(props.onAddSpeaker).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: 'ali' } });
+    expect(screen.getByRole('option', { name: /Alice/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Bob/ })).toBeNull();
+    expect(screen.getByText('Speaker options').closest('details').open).toBe(false);
   });
 });
 
