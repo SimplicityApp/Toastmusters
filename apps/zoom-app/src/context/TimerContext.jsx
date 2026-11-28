@@ -63,6 +63,30 @@ function floorToTenth(seconds) {
 }
 
 /**
+ * Custom's rules are typed in by hand and Break's derive from the length
+ * picked, so both travel on the speaker. Every other role is timed by the
+ * role's own rules: START looks them up again whatever the speaker carried.
+ */
+function carriesOwnRules(speaker) {
+  return speaker.role === 'Custom' || speaker.role === BREAK_ROLE || Boolean(speaker.rules?.countdown);
+}
+
+/**
+ * The speaker with the role's current rules in place of the copy taken when
+ * they were picked. The same object back when nothing would change, so a
+ * state update with it renders nothing.
+ *
+ * @param {Object|null} speaker
+ * @param {Object} roleRules
+ * @returns {Object|null}
+ */
+function withRoleRules(speaker, roleRules) {
+  if (!speaker || carriesOwnRules(speaker)) return speaker;
+  const rules = roleRules[speaker.role];
+  return rules && rules !== speaker.rules ? { ...speaker, rules } : speaker;
+}
+
+/**
  * Turn the saved session, if any, into the state the timer boots with.
  *
  * @param {Array} agenda - Already-loaded agenda, so a saved link to an item
@@ -393,6 +417,26 @@ export function TimerProvider({ children }) {
   }, []);
 
   /**
+   * Let go of whoever was up, once FINISH or RESET has ended their speech:
+   * no name, no agenda row, and the role's current rules.
+   *
+   * Here and not only in the timer tab's field. The tab unmounts on a tab
+   * switch and seeds its field from this speaker when it comes back: a name
+   * left here put the speaker back on the card, and the next START timed them
+   * again under their name (a second report row). The agenda link goes with
+   * the name, or that START would be reported with no name and still tick
+   * their row off and load the next one. The role stays, as the field always
+   * kept it, so a run of Table Topics needs no re-pick. The rules are looked
+   * up here because a rules edit made while the speech was paused was skipped
+   * by the idle effect below, and a RESET from that pause changes nothing it
+   * watches.
+   */
+  const releaseSpeaker = useCallback(() => {
+    setActiveSpeakerId(null);
+    setCurrentSpeaker((prev) => (prev ? withRoleRules({ ...prev, name: '' }, roleRules) : prev));
+  }, [roleRules]);
+
+  /**
    * Detach the timer from the agenda without touching the agenda itself.
    *
    * For sessions that interrupt the running order rather than advance it — an
@@ -604,9 +648,21 @@ export function TimerProvider({ children }) {
       recordSpeechFinished();
       if (activeSpeakerId) markCompleted(activeSpeakerId);
       resetTimer();
-      setActiveSpeakerId(null);
+      // A next agenda speaker loaded right after this replaces it outright.
+      releaseSpeaker();
     }
-  }, [currentSpeaker, elapsedTime, currentStatus, activeSpeakerId, addReport, markCompleted, resetTimer, formatPassedRedComment, formatBeforeGreenComment]);
+  }, [currentSpeaker, elapsedTime, currentStatus, activeSpeakerId, addReport, markCompleted, resetTimer, releaseSpeaker, formatPassedRedComment, formatBeforeGreenComment]);
+
+  // An idle speaker shows the rules START will use. Their copy of the role's
+  // rules was taken when they were picked, and START looks the role up again,
+  // so after a Roles & timing rules edit the idle card read the old times right
+  // up to the press. Every way the rules change lands here: an edit, an added or
+  // removed role, a reset to defaults, a club's list arriving. A speech under
+  // way, or paused, keeps the rules it started with.
+  useEffect(() => {
+    if (isRunning || liveElapsedRef.current > 0) return;
+    setCurrentSpeaker((prev) => withRoleRules(prev, roleRules));
+  }, [roleRules, isRunning]);
 
   const updateRoleRules = useCallback((role, rules) => {
     setRoleRules(prev => {
@@ -709,6 +765,7 @@ export function TimerProvider({ children }) {
     resetTimer,
     setCurrentSpeaker: setCurrentSpeakerAction,
     updateSpeakerName,
+    releaseSpeaker,
     clearActiveSpeaker,
     addToAgenda,
     removeFromAgenda,
@@ -744,6 +801,7 @@ export function TimerProvider({ children }) {
     resetTimer,
     setCurrentSpeakerAction,
     updateSpeakerName,
+    releaseSpeaker,
     clearActiveSpeaker,
     addToAgenda,
     removeFromAgenda,

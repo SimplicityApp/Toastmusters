@@ -17,6 +17,7 @@ covers:
   - apps/zoom-app/src/components/UpgradeModal.jsx
 automated:
   - e2e/zoom.new-look.spec.js
+  - apps/zoom-app/src/hooks/useLiveTimer.test.jsx
   - apps/zoom-app/src/b/NewLookShell.test.jsx
   - apps/zoom-app/src/b/TimerCard.test.jsx
   - apps/zoom-app/src/b/TopBar.test.jsx
@@ -248,6 +249,37 @@ Expect:
 Evidence: screenshots; page script: `toastmaster_agenda` after steps 1, 2, 3 and 4, and
 `toastmaster_speaker_insert_position` = `end` after step 5. PostHog `speech_finished` for Dani.
 Then: delete the rows added here.
+
+### NL-22 · auto · Finish and Reset clear the speaker; the idle card follows a rules edit
+Numbered NL-21 on this branch until the merge with #168, whose step took that number; the
+2026-11-25 run log calls it NL-21.
+Seen in the 2026-11-19 run: after Finish a tab switch put the speaker who had just finished back
+on the card, and Start timed them again under their name. The idle card also kept a role's old
+times after a rules edit, until Start.
+Do: Timer tab, a short role. "Who's speaking?" → type `NL Spec`, Enter (with nothing loaded this
+only labels the timer, #168). Start, about 5 s, Finish. Agenda tab, wait until it shows, then
+Timer. Start, about 3 s, Finish. Then "Who's speaking?" → type `NL Reset`, click "Save NL Reset to
+the agenda" (it adds and loads the row); Start, about 3 s, Stop, Reset; Report tab, wait until it
+shows, then Timer. Last, ⋯ → Roles & timing rules, open the role in
+use, set Green 10 s earlier, Save, and read the card before any Start; then set Green back.
+Expect:
+- After the first Finish the card reads "Who's speaking?" on the same role, and still does after
+  the Agenda/Timer switch.
+- The Report has one `NL Spec` row, then a row with no name. No second `NL Spec`.
+- After Reset, and after the Report/Timer switch, the card reads "Who's speaking?".
+- After Reset the Agenda tab shows `NL Reset` neither current nor done.
+- After Save the card's rules line shows the new green time at once, not the old one.
+Evidence: screenshots of the card after each switch, of the Report, and of the rules line
+before and after Save.
+Then: delete `NL Reset` (and `NL Spec`, if an older build added it) from the agenda; leave the
+Report rows unless it was empty before.
+Run 2026-11-25 (fix/finish-clears-speaker 0088e3a, dev 2a7f6ad7 with FLAGS_FORCE "1,pro=0", role
+ChairToast1): NL-22 passed. Finish and Reset left "Who's speaking?" across the Agenda/Timer and
+Report/Timer switches; Report: `NL Spec` 00:10, then Unnamed. After Reset, `NL Reset` showed as
+"Up next", neither current nor done. A Green 30→20 Save moved the idle rules line to 0:20 at once.
+Log: test-runs/2026-11-25-finish-clears-speaker-2/run.md.
+2026-11-27: merged with `dev` (#168). Enter no longer adds a name with nothing loaded, so `NL Reset`
+goes on the agenda through "Save NL Reset to the agenda". Not rerun on the merge.
 
 Run 2026-11-16 (claude/redesign-b-p3 7e05b9a with #145 merged locally; FLAGS_FORCE "1,pro=0", then
 "1" for NL-09's second half, NL-10, NL-15, NL-16's club half and NL-17): NL-01–NL-03, NL-05–NL-11,

@@ -22,6 +22,7 @@ automated:
   - packages/shared/__tests__/speakerEntry.test.js
   - apps/zoom-app/src/components/SpeakerInput.test.jsx
   - apps/zoom-app/src/components/StageSpeakerPicker.test.jsx
+  - apps/zoom-app/src/context/TimerContext.test.jsx
 needs:
   - dev deployed
   - camera on, in a meeting
@@ -264,6 +265,54 @@ checkout, so it has no PostHog key; the Report tab shows Dana 01:13 Green, Colin
 their roles) and `toastmaster_agenda` (the Zoom webview inspector was off; on-screen rows instead).
 TC-01…TC-13 were not rerun. Log: test-runs/2026-11-26-168-on-the-spot-speakers-2/run.md.
 
+### TC-15 · auto · FINISH and RESET clear the speaker for good
+Numbered TC-14 on this branch until the merge with #168, whose step took that number; the
+2026-11-21 and 2026-11-25 run logs call it TC-14.
+Seen in the Zoom client on 2026-11-19: after FINISH, switching tabs and back put the speaker
+who had just finished back in the name field, and START timed them again under their name (a
+second report row). RESET had the same hole.
+Do: Live tab, any short role (as TC-02). Click the speaker name field and type
+`Spec Speaker` (no Enter, so it is not added to the agenda). Press Start, let it run about
+5 s, press Finish (answer Zoom's reset prompt and the PostHog survey as the skill describes).
+Switch to Agenda, wait until it shows, then back to Live. Press Start, about 3 s, Finish.
+Then type `Reset Speaker`, Start, about 3 s, Stop, Reset, switch to Report and back to Live.
+Last, on the Agenda tab add `Reset Row` and pick them on Live. Start, about 3 s, Stop. Open
+Edit timing rules, set the short role's green 10 s earlier, Save. Reset, read the phase line,
+then Start, about 3 s, Finish; set green back.
+Expect:
+- After the first Finish the name field is empty and the role dropdown stays on the short
+  role. After the Agenda/Live switch the field is still empty, the role unchanged.
+- The second speech has no name: the Report tab shows one `Spec Speaker` row, then a row with
+  an empty name. No second `Spec Speaker` row.
+- After Reset the field is empty, and still empty after the Report/Live switch.
+- After the last Reset the field is empty, `Reset Row` is no longer the current agenda row, and
+  the phase line shows the green time saved during the pause. The Finish after it adds a row
+  with no name and leaves `Reset Row` not done on the Agenda tab.
+Evidence: screenshots of the name field after each switch, and of the Report tab. PostHog
+from this device: `speech_finished` with `speaker_name: "Spec Speaker"` once, the next with
+`"Unnamed"`.
+Then: delete `Reset Row` from the agenda. If the Report tab held nothing before this step, Clear
+All; otherwise leave the rows.
+Run 2026-11-21 (fix/finish-clears-speaker dea6993, dev 0bcc2458, Zoom on macOS): TC-01…TC-08,
+TC-10, TC-13 and TC-15 passed (device on Claude Test Club's role list: short role ChairToast1,
+TC-13 lines as in the 11-13 run). TC-15: after FINISH and an Agenda/Live switch the field stayed
+empty; the next speech was reported with no name (one `Spec Speaker` row); after RESET and a
+Report/Live switch the field stayed empty. TC-11 not verified: that deploy was built without
+the PostHog key, so no events reached PostHog. TC-09 and TC-12 not run (human).
+Log: test-runs/2026-11-21-finish-clears-speaker/run.md.
+2026-11-25: TC-15 gained the agenda-row Reset and the rules edit made during a pause (RESET now
+lets go of the agenda row and takes the role's current rules). Not run on that code, nor on the
+merge with `dev` (c29da41), so `status: stale` until the next run.
+Run 2026-11-25 (fix/finish-clears-speaker 0088e3a = e8916e9 + dev 9542633, dev 2cd81298 with
+FLAGS_FORCE "1,new_look=0", Zoom 7.2.5 on macOS, role ChairToast1): TC-15 passed in full. FINISH
+and RESET left the field empty across Agenda/Live and Report/Live switches; one new `Spec Speaker`
+row, then an unnamed one. After a RESET from a pause, `Reset Row` stayed not done through the next
+FINISH, and the idle phase line read the green saved during the pause (00:20). PostHog evidence
+not verified (worktree build, no key). Only TC-15 ran, so `verified_at` stays on the last full
+run. Log: test-runs/2026-11-25-finish-clears-speaker-2/run.md.
+2026-11-27: merged with `dev` (#168's on-the-spot speakers, which took TC-14). TC-15 not rerun on
+the merge, so `status: stale` until it is.
+
 ## Not covered
 - START with an edit staged for a loaded row (#168): the speech is timed as the row stands and
   the edit stays staged ("Unsaved changes", Update and Undo still offered); Update mid-speech
@@ -294,6 +343,14 @@ TC-01…TC-13 were not rerun. Log: test-runs/2026-11-26-168-on-the-spot-speakers
   Unit tests in both `LiveTab.test.jsx` files cover both; the client adds nothing.
 - The web timer (`apps/web`) refuses the same rows from its suggestions and after FINISH.
   Unit tests in `apps/web/src/components/LiveTab.test.jsx`.
+- The idle card's phase line ("Blue phase (ends at …)") following a Roles & timing rules
+  edit made while nobody is speaking (2026-11-21; START already used the edited times).
+  `TimerContext.test.jsx`, `LiveTab.test.jsx` and `e2e/zoom.timer-flow.spec.js` cover it; the
+  client adds nothing.
+- The Design B panel (`new_look`) reads the same shared speaker; its FINISH, RESET and rules
+  line after a tab switch are [new-look](new-look.md) NL-22.
+- The web timer (`apps/web`) still keeps the finished speaker in its shared state; not
+  changed here.
 - The club badge on the Full-Screen Timer stage. See [stage-club-badge](stage-club-badge.md).
   Reviewed against its fix (2026-11-16): `clubBadge.js` only moved the keep-on-the-frame
   clamp into the exported `badgeCentre`, with the same arithmetic, so the badge on the video

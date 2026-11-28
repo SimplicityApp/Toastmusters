@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { render, renderHook, act } from '@testing-library/react';
 import { ToastProvider } from '../context/ToastContext';
 import { TimerProvider, useTimer, useTimerTick } from '../context/TimerContext';
 import { useLiveTimer } from './useLiveTimer';
@@ -425,5 +425,131 @@ describe('useLiveTimer: on-the-spot speakers (#168)', () => {
     ]);
     expect(r.current.ctx.activeSpeakerId).toBe(row(r, 'Eve').id);
     expect(r.current.ctx.currentSpeaker).toMatchObject({ name: 'Eve', role: TT, rules: RULES[TT] });
+  });
+});
+
+/**
+ * Both looks unmount the timer tab on a tab switch, and the hook seeds its name
+ * field from the shared speaker when the tab comes back. Seen in the Zoom client
+ * on 2026-11-19: after Finish the speaker who had just finished came back, and
+ * Start timed them again under their name.
+ */
+describe('useLiveTimer after a tab switch', () => {
+  /** The hook in a tab that unmounts and remounts under one provider, as App renders it. */
+  function renderRemountable() {
+    const live = { current: null };
+    const timer = { current: null };
+    function TimerTab() {
+      live.current = useLiveTimer();
+      timer.current = useTimer();
+      return null;
+    }
+    const tree = (showTab) => (
+      <ToastProvider>
+        <TimerProvider>{showTab && <TimerTab />}</TimerProvider>
+      </ToastProvider>
+    );
+    const view = render(tree(true));
+    const switchTabs = () => {
+      view.rerender(tree(false));
+      view.rerender(tree(true));
+    };
+    return { live, timer, switchTabs };
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    // The tick is rAF-driven, and Finish records nothing that never ran.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('starts with no name after a Finish with nobody next, and keeps the role', () => {
+    const { live, switchTabs } = renderRemountable();
+    act(() => live.current.handleRoleChange('Ice Breaker'));
+    act(() => live.current.handleSpeakerChange('Priya'));
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleFinish());
+    expect(live.current.speakerName).toBe('');
+
+    act(() => switchTabs());
+
+    expect(live.current.speakerName).toBe('');
+    expect(live.current.currentSpeaker).toMatchObject({ name: '', role: 'Ice Breaker' });
+    expect(live.current.selectedRole).toBe('Ice Breaker');
+  });
+
+  it('starts with no name after a Reset', async () => {
+    const { live, switchTabs } = renderRemountable();
+    act(() => live.current.handleSpeakerChange('Priya'));
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleStop());
+    await act(async () => {
+      await live.current.handleReset();
+    });
+    expect(live.current.speakerName).toBe('');
+
+    act(() => switchTabs());
+
+    expect(live.current.speakerName).toBe('');
+    expect(live.current.currentSpeaker.name).toBe('');
+  });
+
+  it('lets go of the agenda row on Reset, so the next Finish ticks nothing off', async () => {
+    // A name cleared with the row still linked: the next Start was reported
+    // with no name, and its Finish ticked Priya off and loaded whoever was next.
+    const { live, switchTabs } = renderRemountable();
+    act(() => live.current.handleAddSpeaker('Priya'));
+    const priyaId = live.current.activeSpeakerId;
+    expect(priyaId).toBeTruthy();
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleStop());
+    await act(async () => {
+      await live.current.handleReset();
+    });
+
+    expect(live.current.activeSpeakerId).toBeNull();
+    act(() => switchTabs());
+    expect(live.current.speakerName).toBe('');
+
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleFinish());
+    expect(live.current.agenda.find((item) => item.id === priyaId).completed).toBe(false);
+  });
+
+  it('shows rules edited during a pause once Reset ends that speech', async () => {
+    const edited = { green: 240, yellow: 270, red: 300, graceAfterRed: 30 };
+    const { live, timer } = renderRemountable();
+    act(() => live.current.handleStart());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => live.current.handleStop());
+    act(() => timer.current.updateRoleRules('Standard Speech', edited));
+    // Paused: the speech keeps the rules it started with.
+    expect(live.current.currentSpeaker.rules).not.toEqual(edited);
+
+    await act(async () => {
+      await live.current.handleReset();
+    });
+
+    expect(live.current.currentSpeaker.rules).toEqual(edited);
   });
 });

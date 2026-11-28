@@ -146,6 +146,107 @@ describe('finishing and the agenda running order', () => {
   });
 });
 
+// The tabs render only the active one, so switching to Agenda or Report and back
+// unmounts this tab and mounts a fresh one, which seeds its name field from the
+// timer's shared speaker. Seen in the Zoom client on 2026-11-19: after FINISH,
+// a tab switch put the speaker who had just finished back on the card, and
+// START timed them a second time under their name.
+describe('coming back to the Live tab after a tab switch', () => {
+  /** The tab under one provider that outlives it, as App renders it. */
+  function renderSwitchable() {
+    const timer = {};
+    function Grab() {
+      Object.assign(timer, useTimer());
+      return null;
+    }
+    const tree = (showLive) => (
+      <ToastProvider>
+        <TimerProvider>
+          <Grab />
+          {showLive && <LiveTab />}
+        </TimerProvider>
+      </ToastProvider>
+    );
+    const view = render(tree(true));
+    const switchTabs = () => {
+      view.rerender(tree(false));
+      view.rerender(tree(true));
+    };
+    return { timer, switchTabs };
+  }
+
+  const typeName = (name) => fireEvent.change(nameField(), { target: { value: name } });
+  const phaseText = () => screen.getByTestId('timer-display').parentElement.textContent;
+
+  it('after FINISH with nobody next, the field stays empty and START times somebody new', () => {
+    const { timer, switchTabs } = renderSwitchable();
+    typeName('Zed');
+    runTimerFor(2000);
+    expect(nameField()).toHaveValue('');
+
+    switchTabs();
+
+    expect(nameField()).toHaveValue('');
+    runTimerFor(2000);
+    expect(timer.reports.map((r) => r.name)).toEqual(['Zed', '']);
+  });
+
+  it('after FINISH on the last agenda speaker, the field stays empty', () => {
+    const { timer, switchTabs } = renderSwitchable();
+    pickFromAgenda('Bob');
+    runTimerFor(2000);
+
+    switchTabs();
+
+    expect(nameField()).toHaveValue('');
+    expect(timer.activeSpeakerId).toBeNull();
+  });
+
+  it('after FINISH the next agenda speaker is still the one loaded', () => {
+    const { switchTabs } = renderSwitchable();
+    pickFromAgenda('Alice');
+    runTimerFor(2000);
+    expect(nameField()).toHaveValue('Bob');
+
+    switchTabs();
+
+    expect(nameField()).toHaveValue('Bob');
+  });
+
+  it('after RESET, the field stays empty', async () => {
+    const { timer, switchTabs } = renderSwitchable();
+    typeName('Zed');
+    fireEvent.click(screen.getByRole('button', { name: /start/i }));
+    act(() => { vi.advanceTimersByTime(2000); });
+    // RESET is offered once the speech is stopped.
+    fireEvent.click(screen.getByRole('button', { name: 'STOP' }));
+    await act(async () => {
+      fireEvent.click(resetButton());
+    });
+    expect(nameField()).toHaveValue('');
+
+    switchTabs();
+
+    expect(nameField()).toHaveValue('');
+    expect(timer.currentSpeaker.name).toBe('');
+  });
+
+  it('the idle card follows a rules edit made after FINISH', () => {
+    const { timer, switchTabs } = renderSwitchable();
+    typeName('Zed');
+    runTimerFor(2000);
+    expect(phaseText()).toContain('Blue phase (ends at 05:00)');
+
+    act(() => {
+      timer.updateRoleRules('Standard Speech', { green: 240, yellow: 270, red: 300, graceAfterRed: 30 });
+    });
+
+    expect(phaseText()).toContain('Blue phase (ends at 04:00)');
+    switchTabs();
+    expect(phaseText()).toContain('Blue phase (ends at 04:00)');
+  });
+});
+
 // RESET undoes a speech, and half of what that means is on the organizer's tile
 // where the whole meeting can see it. Which half is not RESET's to decide: "Show
 // my own background" already says what idle looks like for this organizer, and

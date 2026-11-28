@@ -196,3 +196,11 @@ Log: test-runs/2026-11-16-design-b-new-look-2/run.md.
 - Reviewed against #168's order fix (be25a33): the timer context also remembers the speakers the
   Live tab added behind a running speech, so the next one goes behind them; imports and the Agenda
   tab's form pass no `insertAfter` and still append. No step here moves. Not rerun.
+- FINISH and RESET clearing the current speaker, and an idle speaker taking edited role
+  rules (`TimerContext.jsx`, 2026-11-21). Reviewed: it touches `finishCurrentSpeech` and the
+  current speaker's rules, not `importBulkSpeakers` or the rows it makes. See
+  [timer-core](timer-core.md) TC-15. Not rerun for it.
+- RESET letting go of the agenda row and taking the role's current rules (`TimerContext.jsx`
+  `releaseSpeaker`, 2026-11-25). Reviewed: it clears `activeSpeakerId` and the current speaker,
+  not the rows the import made; no step here presses RESET. See [timer-core](timer-core.md)
+  TC-15. Not rerun for it.

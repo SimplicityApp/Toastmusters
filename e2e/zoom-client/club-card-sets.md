@@ -148,6 +148,12 @@ were not run. Use fresh images: re-uploading the fixtures already in the club se
   hide "Back to agenda" while a quick timing runs; no card-set step moves. Not rerun.
 - Reviewed against #168's order fix (be25a33): speakers added during one speech now keep the order
   added (the Live tab's add controls only); no card-set step moves. Not rerun.
+- RESET clearing the speaker's name in the shared timer state too (`useLiveTimer.js`,
+  2026-11-21). Reviewed: a name-only update, which pushes nothing to the video; no step here
+  depends on the name. See [timer-core](timer-core.md) TC-15. Not rerun for it.
+- RESET also letting go of the agenda row and taking the role's current rules
+  (`useLiveTimer.js`, 2026-11-25). Reviewed: state only, nothing pushed to the video; no step
+  here presses RESET on an agenda row. See [timer-core](timer-core.md) TC-15. Not rerun for it.
 
 Run 2026-11-13 (dev tip 905d8d1, dev 3ce801a6, A = Zoom desktop, B = web app in a browser
 profile): CC-01…CC-05 and CC-09 passed; CC-02 now labels the set "<club> cards" (null label in

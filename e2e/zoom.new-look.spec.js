@@ -75,6 +75,68 @@ test('a speech from start to finish lands in the report', async ({ page }) => {
   await expect(page.getByText('Priya').first()).toBeVisible();
 });
 
+// Seen in the Zoom client on 2026-11-19: after Finish, a tab switch put the
+// speaker who had just finished back on the card (Start then timed them again),
+// and the idle card kept a role's old times after a rules edit. The tab switch
+// waits for the other tab to render: a Timer click before it does never unmounts
+// the Timer tab, which is the whole point here.
+async function switchTabsAndBack(page) {
+  const sections = page.getByRole('navigation', { name: 'Sections' });
+  await sections.getByRole('button', { name: 'Agenda' }).click();
+  // The heading shows with or without rows: Enter only labels the timer when nothing is loaded (#168).
+  await expect(page.getByRole('heading', { name: "Today's agenda" })).toBeVisible();
+  await sections.getByRole('button', { name: 'Timer' }).click();
+  await expect(page.getByTestId('timer-card')).toBeVisible();
+}
+
+// The chip's name carries the agenda status between these two ends (#168).
+const nobodyChip = (page) => page.getByRole('button', { name: /^Who's speaking\?.*Pick a speaker$/ });
+
+async function nameSpeaker(page, name) {
+  await nobodyChip(page).click();
+  await page.getByRole('textbox', { name: 'Type a name, or pick one' }).fill(name);
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: new RegExp(`^Speaker: ${name}\\..*Change speaker$`) })).toBeVisible();
+}
+
+test('after Finish, a tab switch leaves the card on nobody and the rules line follows an edit', async ({ page }) => {
+  await openPanel(page);
+  const nobody = nobodyChip(page);
+  await nameSpeaker(page, 'Priya');
+  await page.getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByTestId('timer-display')).not.toHaveText('00:00', { timeout: 4000 });
+  await page.getByRole('button', { name: 'Finish' }).click();
+  await expect(nobody).toBeVisible();
+
+  await switchTabsAndBack(page);
+  await expect(nobody).toBeVisible();
+
+  // Standard Speech's green moves from 5:00 to 4:30: the idle card shows it before any Start.
+  await expect(page.getByText('Green 5:00 · Yellow 6:00 · Red 7:00')).toBeVisible();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Roles & timing rules' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Roles & timing rules' });
+  await sheet.getByRole('button', { name: /^Standard Speech/ }).click();
+  await sheet.getByLabel('Green').fill('4:30');
+  await sheet.getByLabel('Green').blur();
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.getByText('Green 4:30 · Yellow 6:00 · Red 7:00')).toBeVisible();
+});
+
+test('after Reset, a tab switch leaves the card on nobody', async ({ page }) => {
+  await openPanel(page);
+  await nameSpeaker(page, 'Priya');
+  await page.getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByTestId('timer-display')).not.toHaveText('00:00', { timeout: 4000 });
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+  await expect(nobodyChip(page)).toBeVisible();
+
+  await switchTabsAndBack(page);
+  await expect(nobodyChip(page)).toBeVisible();
+});
+
 test('the role list shows thresholds and changes the rules line', async ({ page }) => {
   await openPanel(page);
   await page.getByRole('button', { name: /Timing role/ }).click();
